@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Douyin Downloader Config Editor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --secondary: #f3f4f6;
+            --text: #111827;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+            --card-bg: #ffffff;
+            --body-bg: #f9fafb;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--body-bg);
+            color: var(--text);
+            line-height: 1.5;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--primary);
+        }
+
+        .subtitle {
+            color: var(--text-light);
+            margin-top: 0.5rem;
+            font-size: 1rem;
+        }
+
+        .config-form {
+            background-color: var(--card-bg);
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .description {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-top: 0.4rem;
+        }
+
+        .actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 2rem;
+            border-top: 1px solid var(--border);
+            padding-top: 1.5rem;
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            padding: 0.7rem 1.5rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 1.5rem 0 1rem;
+            color: var(--primary);
+            grid-column: 1 / -1;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Douyin Downloader Configuration</h1>
+            <p class="subtitle">Configure your download settings and preferences</p>
+        </header>
+
+        <form id="configForm" class="config-form">
+            <div class="form-grid">
+                <h3 class="section-title">Basic Settings</h3>
+
+                <div class="form-group">
+                    <label for="link">Links</label>
+                    <textarea id="link" name="link" placeholder="https://v.douyin.com/..."></textarea>
+                    <div class="description">Enter one or more Douyin share links (comma-separated)</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="path">Download Path</label>
+                    <input type="text" id="path" name="path" placeholder="e.g., C:/Downloads/Douyin">
+                    <div class="description">Directory where downloaded files will be saved</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="thread">Number of Threads</label>
+                    <input type="number" id="thread" name="thread" value="5" min="1">
+                    <div class="description">Threads for parallel downloading (default: 5)</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="folderstyle">Folder Organization</label>
+                    <select id="folderstyle" name="folderstyle">
+                        <option value="true">Separate Folders</option>
+                        <option value="false">Shared Folder</option>
+                    </select>
+                    <div class="description">How to organize downloaded content</div>
+                </div>
+
+                <h3 class="section-title">Content Options</h3>
+
+                <div class="form-group">
+                    <label for="music">Download Music</label>
+                    <select id="music" name="music">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Include music from videos</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="cover">Download Cover</label>
+                    <select id="cover" name="cover">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Include video cover images</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="avatar">Download Avatar</label>
+                    <select id="avatar" name="avatar">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Include author's avatar image</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="json">Save JSON Data</label>
+                    <select id="json" name="json">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Save metadata as JSON files</div>
+                </div>
+
+                <h3 class="section-title">Date Range</h3>
+
+                <div class="form-group">
+                    <label for="start_time">Start Date</label>
+                    <input type="date" id="start_time" name="start_time">
+                    <div class="description">Only download content after this date</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="end_time">End Date</label>
+                    <input type="date" id="end_time" name="end_time">
+                    <div class="description">Only download content before this date</div>
+                </div>
+
+                <h3 class="section-title">Download Modes</h3>
+
+                <div class="form-group">
+                    <label for="mode">Download Modes</label>
+                    <textarea id="mode" name="mode" placeholder="post, like, mix"></textarea>
+                    <div class="description">Content types to download (comma-separated)</div>
+                </div>
+
+                <h3 class="section-title">Quantity Limits</h3>
+
+                <div class="form-group">
+                    <label for="number_post">Posts Limit</label>
+                    <input type="number" id="number_post" name="number_post" value="0" min="0">
+                    <div class="description">Max posts to download (0 for unlimited)</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="number_like">Likes Limit</label>
+                    <input type="number" id="number_like" name="number_like" value="0" min="0">
+                    <div class="description">Max liked videos to download</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="number_allmix">All Mixes Limit</label>
+                    <input type="number" id="number_allmix" name="number_allmix" value="0" min="0">
+                    <div class="description">Max all mixes to download</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="number_mix">Mixes Limit</label>
+                    <input type="number" id="number_mix" name="number_mix" value="0" min="0">
+                    <div class="description">Max mixes to download</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="number_music">Music Limit</label>
+                    <input type="number" id="number_music" name="number_music" value="0" min="0">
+                    <div class="description">Max music items to download</div>
+                </div>
+
+                <h3 class="section-title">Database Options</h3>
+
+                <div class="form-group">
+                    <label for="database">Use Database</label>
+                    <select id="database" name="database">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Enable database for incremental updates</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="increase_post">Incremental Posts</label>
+                    <select id="increase_post" name="increase_post">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Only download new posts</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="increase_like">Incremental Likes</label>
+                    <select id="increase_like" name="increase_like">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Only download new liked videos</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="increase_allmix">Incremental All Mixes</label>
+                    <select id="increase_allmix" name="increase_allmix">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Only download new all mixes</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="increase_mix">Incremental Mixes</label>
+                    <select id="increase_mix" name="increase_mix">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Only download new mixes</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="increase_music">Incremental Music</label>
+                    <select id="increase_music" name="increase_music">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                    <div class="description">Only download new music</div>
+                </div>
+
+                <h3 class="section-title">Authentication</h3>
+
+                <div class="form-group">
+                    <label for="msToken">msToken</label>
+                    <input type="text" id="msToken" name="msToken" placeholder="Enter msToken">
+                    <div class="description">Required for authentication</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="ttwid">ttwid</label>
+                    <input type="text" id="ttwid" name="ttwid" placeholder="Enter ttwid">
+                    <div class="description">Required for authentication</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="odin_tt">odin_tt</label>
+                    <input type="text" id="odin_tt" name="odin_tt" placeholder="Enter odin_tt">
+                    <div class="description">Required for authentication</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="passport_csrf_token">passport_csrf_token</label>
+                    <input type="text" id="passport_csrf_token" name="passport_csrf_token" placeholder="Enter passport_csrf_token">
+                    <div class="description">Required for authentication</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="sid_guard">sid_guard</label>
+                    <input type="text" id="sid_guard" name="sid_guard" placeholder="Enter sid_guard">
+                    <div class="description">Required for authentication</div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button type="button" onclick="saveConfig()">Save Configuration</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+
+                // Populate form fields with config data
+                document.getElementById('link').value = (config.link || []).join(', ');
+                document.getElementById('path').value = config.path || '';
+                document.getElementById('music').value = config.music ? 'true' : 'false';
+                document.getElementById('cover').value = config.cover ? 'true' : 'false';
+                document.getElementById('avatar').value = config.avatar ? 'true' : 'false';
+                document.getElementById('json').value = config.json ? 'true' : 'false';
+                document.getElementById('start_time').value = config.start_time || '';
+                document.getElementById('end_time').value = config.end_time || '';
+                document.getElementById('folderstyle').value = config.folderstyle ? 'true' : 'false';
+                document.getElementById('mode').value = (config.mode || []).join(', ');
+                document.getElementById('number_post').value = config.number?.post || 0;
+                document.getElementById('number_like').value = config.number?.like || 0;
+                document.getElementById('number_allmix').value = config.number?.allmix || 0;
+                document.getElementById('number_mix').value = config.number?.mix || 0;
+                document.getElementById('number_music').value = config.number?.music || 0;
+                document.getElementById('database').value = config.database ? 'true' : 'false';
+                document.getElementById('increase_post').value = config.increase?.post ? 'true' : 'false';
+                document.getElementById('increase_like').value = config.increase?.like ? 'true' : 'false';
+                document.getElementById('increase_allmix').value = config.increase?.allmix ? 'true' : 'false';
+                document.getElementById('increase_mix').value = config.increase?.mix ? 'true' : 'false';
+                document.getElementById('increase_music').value = config.increase?.music ? 'true' : 'false';
+                document.getElementById('thread').value = config.thread || 5;
+                document.getElementById('msToken').value = config.cookies?.msToken || '';
+                document.getElementById('ttwid').value = config.cookies?.ttwid || '';
+                document.getElementById('odin_tt').value = config.cookies?.odin_tt || '';
+                document.getElementById('passport_csrf_token').value = config.cookies?.passport_csrf_token || '';
+                document.getElementById('sid_guard').value = config.cookies?.sid_guard || '';
+            } catch (error) {
+                showAlert('Failed to load configuration: ' + error.message, 'error');
+            }
+        }
+
+        async function saveConfig() {
+            try {
+                const config = {
+                    link: document.getElementById('link').value.split(',').map(item => item.trim()),
+                    path: document.getElementById('path').value,
+                    music: document.getElementById('music').value === 'true',
+                    cover: document.getElementById('cover').value === 'true',
+                    avatar: document.getElementById('avatar').value === 'true',
+                    json: document.getElementById('json').value === 'true',
+                    start_time: document.getElementById('start_time').value,
+                    end_time: document.getElementById('end_time').value,
+                    folderstyle: document.getElementById('folderstyle').value === 'true',
+                    mode: document.getElementById('mode').value.split(',').map(item => item.trim()),
+                    number: {
+                        post: parseInt(document.getElementById('number_post').value, 10),
+                        like: parseInt(document.getElementById('number_like').value, 10),
+                        allmix: parseInt(document.getElementById('number_allmix').value, 10),
+                        mix: parseInt(document.getElementById('number_mix').value, 10),
+                        music: parseInt(document.getElementById('number_music').value, 10),
+                    },
+                    database: document.getElementById('database').value === 'true',
+                    increase: {
+                        post: document.getElementById('increase_post').value === 'true',
+                        like: document.getElementById('increase_like').value === 'true',
+                        allmix: document.getElementById('increase_allmix').value === 'true',
+                        mix: document.getElementById('increase_mix').value === 'true',
+                        music: document.getElementById('increase_music').value === 'true',
+                    },
+                    thread: parseInt(document.getElementById('thread').value, 10),
+                    cookies: {
+                        msToken: document.getElementById('msToken').value,
+                        ttwid: document.getElementById('ttwid').value,
+                        odin_tt: document.getElementById('odin_tt').value,
+                        passport_csrf_token: document.getElementById('passport_csrf_token').value,
+                        sid_guard: document.getElementById('sid_guard').value,
+                    },
+                };
+
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(config),
+                });
+
+                const result = await response.json();
+                showAlert(result.message || 'Configuration saved successfully', 'success');
+            } catch (error) {
+                showAlert('Failed to save configuration: ' + error.message, 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            // In a real app, you might use a more sophisticated notification system
+            alert(`${type.toUpperCase()}: ${message}`);
+        }
+
+        // Load the configuration on page load
+        document.addEventListener('DOMContentLoaded', loadConfig);
+    </script>
+</body>
+</html>

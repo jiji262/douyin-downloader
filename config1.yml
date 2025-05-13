@@ -1,0 +1,132 @@
+#######################################
+# 说明:
+# 1. 井号(#)为注释
+# 2. 缩进严格对齐，使用空格缩进, 注意有些冒号后面有一个空格, 有些没有空格
+# 3. 请使用英文字符
+# 4. 更多yaml语法请上网查看
+#######################################
+
+
+# 作品(视频或图集)、直播、合集、音乐集合、个人主页的分享链接或者电脑浏览器网址
+# (删除文案, 保证只有URL, https://v.douyin.com/kcvMpuN/ 或者 https://www.douyin.com/开头的)
+# 可以设置多个链接, 确保至少一个链接
+# 必选
+link:
+  # -  https://v.douyin.com/kVefc81/
+  # -  https://v.douyin.com/kVdkdxY/
+  # -  https://v.douyin.com/kVdMcrr/
+  # -  https://v.douyin.com/iRGu2mBL/
+  # -  https://v.douyin.com/iRGukBBk/
+  # -  https://v.douyin.com/iRGuJcW8/
+  # -  https://v.douyin.com/iRGHQY5t/
+   - https://www.douyin.com/user/MS4wLjABAAAAXrGDowccDgJnarm2l95p80ojY5UpD-4VE_4WJwXcjvAMzQ79Ol1xizyLH8W3lgPX
+#  - https://www.douyin.com/user/MS4wLjABAAAA6O7EZyfDRYXxJrUTpf91K3tmB4rBROkAw-nYMfld8ss
+
+# 下载保存位置, 默认当前文件位置
+# 必选
+path: ./Downloaded/
+
+# 是否下载视频中的音乐(True/False), 默认为True
+# 可选
+music: True
+
+# 是否下载视频的封面(True/False), 默认为True, 当下载视频时有效
+# 可选
+cover: True
+
+# 是否下载作者的头像(True/False), 默认为True
+# 可选
+avatar: True
+
+# 是否保存获取到的数据(True/False), 默认为True
+# 可选
+json: True
+
+
+# 下载时间范围
+start_time: "2024-12-29"
+end_time: "2024-12-30"
+
+
+folderstyle: True # True -> 每个视频是一个单独的文件夹; False -> 所有视频共用一个文件夹
+# True
+# user_xxx_xxx
+#   - like/post/mix
+#       - 2022-11-28 13.09.56_xxx
+#         - 2022-11-28 13.09.56_xxx.mp4
+#       - 2022-11-29 12.09.56_xxx
+#         - 2022-11-29 12.09.56_xxx.mp4
+
+# False
+# user_xxx_xxx
+#   - like/post/mix
+#       - 2022-11-28 13.09.56_xxx.mp4
+#       - 2022-11-29 12.09.56_xxx.mp4
+
+# link是个人主页时, 设置下载发布的作品(post)或喜欢的作品(like)或者用户所有合集(mix), 默认为post, 可以设置多种模式
+# 可选
+mode:
+  - post
+  - like
+  - mix
+
+# 下载作品个数设置
+# 可选
+number:
+  post: 0     # 主页下作品下载个数设置, 默认为0 全部下载
+  like: 5     # 主页下喜欢下载个数设置, 默认为0 全部下载
+  allmix: 1   # 主页下合集下载个数设置, 默认为0 全部下载
+  mix: 5      # 单个合集下作品下载个数设置, 默认为0 全部下载
+  music: 5    # 音乐(原声)下作品下载个数设置, 默认为0 全部下载
+
+database: True # 如果不使用数据库, 增量更新将不可用
+
+
+
+# 增量下载, 下载作品范围: 抖音最新作品到本地的最新作品之间的作品, 如果本地没有该链接的任何视频则全部下载
+# 可配合 number 选项一起使用
+# 情况1: number(假如设置5) 和 increase(假如抖音博主更新了3条作品,本地并未下载) 则会获取5条数据并下载
+# 情况2: number(假如设置5) 和 increase(假如抖音博主更新了6条作品,本地并未下载) 则会获取6条数据并下载
+# 情况3: number(假如设置5) 和 increase(假如本地并未下载该博主视频) 则会获取所有的视频
+# 情况4: 当获取主页所有mix时(mode是mix模式)比较特殊, number(allmix) 控制下载多少个合集, increase(allmix) 对每个合集进行增量更新
+# 可选
+increase:
+  post: False     # 是否开启主页作品增量下载(True/False), 默认为False
+  like: False     # 是否开启主页喜欢增量下载(True/False), 默认为False
+  allmix: False   # 是否开启主页合集增量下载(True/False), 默认为False
+  mix: False      # 是否开启单个合集下作品增量下载(True/False), 默认为False
+  music: False    # 是否开启音乐(原声)下作品增量下载(True/False), 默认为False
+
+# 设置线程数, 默认5个线程
+# 可选
+thread: 5
+
+# cookie 请登录网页抖音后F12查看
+# cookies 和 cookie 二选一, 要使用这种形式, 请注释下面的cookie
+# 目前只需要msToken、ttwid、odin_tt、passport_csrf_token、sid_guard
+# 可以动态添加, 程序会根据填的键查找，并没有写死, 如果抖音需要更多的cookie自己加上就行了
+cookies:
+  # msToken: xxx
+  # ttwid: xxx
+  # odin_tt: xxx
+  # passport_csrf_token: xxx
+  # sid_guard: xxx
+
+#  msToken: 710-fIIacqPfoNUNM8EKjH2ev0veFV2YZCtCfs_HoN7kjpBKubLAODdh0nStKywolHK2nsJFHmdimUN23q-lo41pxjuiNMoqG1p_yUoIKU0CJ9bX-Q0638LXozcxspQnrzDnHB4M_3Hu3GljVuPYvv-8nHrxp4Xqkw-Bcr0MeothxDuPtHlEBA==
+#  ttwid: 1%7Cxo2A_Uas39HcSPeQYZRGlCLpHonxCq5l8gMlrUPsh3I%7C1733400452%7C9f770c01cd093794153133a14108c93b5b6e6e18971372c21ecffe37f1938da0
+#  odin_tt: a19f20351de5ed35a078f09115d098328b025656113ec0e35dfc4f7e1cf04dea5edd7d8176cf7070e0ff8f53414adeb8
+#  passport_csrf_token: c2a7091feddce96551be4436e03ca3f3
+#  sid_guard: 5e5adf6c506e880b1e0959afb5f6cb80%7C1739188609%7C5183984%7CFri%2C+11-Apr-2025+11%3A56%3A33+GMT
+   msToken: Uvk0z5k7lhlFG8O_NuAQRgNb9moFZgZOrZvNe9dE9WfzUDJOgvvnCo_bW-sG-bAKm4ktH0JzinoiFvcGvgbgvZGRAA5xRBCpN5wsH7__VIjkbpvCNuxmlX3CTW3-kDYyc9_wBFudZcdFxYqhpVlQom-S26amw6fBtrS5NwX7bkjAbXTRFY555A==
+   ttwid: 1%7CRLL0L1X-suSzCMN7Q5szso6fSfp3hlQH9cegAgoSnoI%7C1747132771%7Cdd3e59c3243760d6b234423ccb2a999c2b7aa7ee92f62ec7bb4cc07861b096a3
+   odin_tt: 6d4fc19d29386b20c0a086976d5af18753176b9ba0747e0ac3142e084128b6a756a6b3fc060574bf918c236b7e8698058dea16993c88be7689eb30d828e7f311
+   passport_csrf_token: 4ace9f214f994627c1da17540dbadcba
+   sid_guard: b4cd41a64ff40b2b0c58f3af559339f6%7C1747147713%7C5184000%7CSat%2C+12-Jul-2025+14%3A48%3A33+GMT
+
+# cookie 请登录网页抖音后F12查看
+# cookies 和 cookie 二选一, 要使用这种形式, 请注释上面的cookies及包含的所有键值对
+# 设置了这个后上面的cookies选项自动失效, 这个优先级更高
+# 格式: "name1=value1; name2=value2;" 注意要加冒号
+# 冒号中的内容包括不限于以下键值对, 如果抖音需要更多的cookie自己加上就行了
+# cookie: "UIFID_TEMP=04334f064e21198b2492613256b037a8641b36104347f0fcdf493d9e3675e398c8361bd83707de94755840492898b49664fdc4773e2d21d7f3d2044e6a10753fad690e794a7e11725027570b31658cd8; hevc_supported=true; passport_csrf_token=57315bb6241951b3a12c263489757ecd; passport_csrf_token_default=57315bb6241951b3a12c263489757ecd; ttwid=1%7CdLmFlM41r8C4ORR33lhKD64shFIlhy1ffP-BE3TX_D0%7C1733400514%7Cd8bc89890a47e2a87ddc6e74d2d46ba65901945a5f2f9c0e615912a66f81cf12; bd_ticket_guard_client_web_domain=2; strategyABtestKey=%221733919637.521%22; gulu_source_res=eyJwX2luIjoiMDhjOGQ3ZTJiODQyNjZkZWI5Y2VkMGJiODNlNmY1ZWY0ZjMyNTE2ZmYyZjAzNDMzZjI0OWU1Y2Q1NTczNTk5NyJ9; download_guide=%223%2F20241211%2F0%22; FORCE_LOGIN=%7B%22videoConsumedRemainSeconds%22%3A180%2C%22isForcePopClose%22%3A1%7D; WallpaperGuide=%7B%22showTime%22%3A1733919958773%2C%22closeTime%22%3A0%2C%22showCount%22%3A1%2C%22cursor1%22%3A10%2C%22cursor2%22%3A2%7D; passport_assist_user=Cjwtx6S1PBDECC-y8R18cDUiZUzaUI-h8tTPg49dFkbIZjwpwBz4Ii9SymGkSCIq_SWLym9vz_wpgzvvUfQaSgo8C0t5KbST7U11cVyODckCkUqHqpU1l2YZW7l-2NPKMIZftRLBMHuxktCKF6KC6CORlfG1Y7Zhehc9s3xEEInp4w0Yia_WVCABIgEDfSasMw%3D%3D; n_mh=Zyh2F3zqYD4Ky4JvvqkIO0N9ZluP18G8BumVdFQoISU; sso_uid_tt=81aca5d68d5fd11bcadb978903d9834e; sso_uid_tt_ss=81aca5d68d5fd11bcadb978903d9834e; toutiao_sso_user=2e884860c5428ec722fd119a00345acf; toutiao_sso_user_ss=2e884860c5428ec722fd119a00345acf; sid_ucp_sso_v1=1.0.0-KGFlMjJmNWFiYmZhZTYxZjhmMjBlMjAxMjgxNjljYWM1ODFhZjY0YzEKHgj50OiCKRCriua6BhjvMSAOMMru87UFOAZA9AdIBhoCbGYiIDJlODg0ODYwYzU0MjhlYzcyMmZkMTE5YTAwMzQ1YWNm; ssid_ucp_sso_v1=1.0.0-KGFlMjJmNWFiYmZhZTYxZjhmMjBlMjAxMjgxNjljYWM1ODFhZjY0YzEKHgj50OiCKRCriua6BhjvMSAOMMru87UFOAZA9AdIBhoCbGYiIDJlODg0ODYwYzU0MjhlYzcyMmZkMTE5YTAwMzQ1YWNm; login_time=1733920044045; passport_auth_status=6646aed7874adc8fb0d8f78c05118ce3%2C; passport_auth_status_ss=6646aed7874adc8fb0d8f78c05118ce3%2C; uid_tt=c53319ac3b32162e2d1f9bfe0c480aa4; uid_tt_ss=c53319ac3b32162e2d1f9bfe0c480aa4; sid_tt=3a3caf31b0bc761c1373406533c850a3; sessionid=3a3caf31b0bc761c1373406533c850a3; sessionid_ss=3a3caf31b0bc761c1373406533c850a3; is_staff_user=false; SelfTabRedDotControl=%5B%7B%22id%22%3A%227068106696161232932%22%2C%22u%22%3A439%2C%22c%22%3A0%7D%2C%7B%22id%22%3A%227293767606094268435%22%2C%22u%22%3A44%2C%22c%22%3A0%7D%2C%7B%22id%22%3A%227051410144801851406%22%2C%22u%22%3A29%2C%22c%22%3A0%7D%2C%7B%22id%22%3A%227091857735595067399%22%2C%22u%22%3A44%2C%22c%22%3A0%7D%2C%7B%22id%22%3A%227290616752017246223%22%2C%22u%22%3A15%2C%22c%22%3A0%7D%2C%7B%22id%22%3A%227101925570363000869%22%2C%22u%22%3A5%2C%22c%22%3A0%7D%5D; _bd_ticket_crypt_doamin=2; _bd_ticket_crypt_cookie=f9c1684ee9d6589bf537cd1820bb7c40; __security_server_data_status=1; publish_badge_show_info=%220%2C0%2C0%2C1733920059878%22; store-region=cn-sh; store-region-src=uid; odin_tt=25e27f445057a7704dacebeac48c3dedd08d870a9edf7ab68322330b0aa322d7ce3dd5f33148d6c6bcbd7d213b84face; sid_guard=3a3caf31b0bc761c1373406533c850a3%7C1733920061%7C5183985%7CSun%2C+09-Feb-2025+12%3A27%3A26+GMT; sid_ucp_v1=1.0.0-KDQzODk4Y2E2ODhjZDA3NmE0MTg3YzA0MTVlM2JiZTliNTMxMTU5MTkKGAj50OiCKRC9iua6BhjvMSAOOAZA9AdIBBoCaGwiIDNhM2NhZjMxYjBiYzc2MWMxMzczNDA2NTMzYzg1MGEz; ssid_ucp_v1=1.0.0-KDQzODk4Y2E2ODhjZDA3NmE0MTg3YzA0MTVlM2JiZTliNTMxMTU5MTkKGAj50OiCKRC9iua6BhjvMSAOOAZA9AdIBBoCaGwiIDNhM2NhZjMxYjBiYzc2MWMxMzczNDA2NTMzYzg1MGEz; biz_trace_id=74fe7893; sdk_source_info=7e276470716a68645a606960273f276364697660272927676c715a6d6069756077273f276364697660272927666d776a68605a607d71606b766c6a6b5a7666776c7571273f275e58272927666a6b766a69605a696c6061273f27636469766027292762696a6764695a7364776c6467696076273f275e5827292771273f2731333d30373435373c363632342778; bit_env=sJDnvP-vX5BleHNgT0bDrpA5Br3h_xTqPQOp2Qqf_vcFXLcEw8tTYjFiPuHOl5HXqAMn6NjuEsdLmBFoHP8OkWLOZW9_P9dItLN2GQt9sg6gX4jdiCzhrBQe67sybuhBOv8vLLu2o6Afg5gt4GGKaGvGfOUIpRK0Usp1_ZTUVss9sA0YkPxnK88F86UQbWQvKNrQwFJupKxlUtyqSzpFYrN3irhYgYPpbVQ43GRXc4EHvlvqctK0RPjO-dC-LL-HXobVEHfiPZl2rX2Zt2zknf410_7iYbFLkUftbmXla6tfrr5Zri0NuNJbRfoZOrHxOur_IrfZcNnR2spRA5wADieEu5ZajBYFN06QQ-HFpQIaScPTLfAnnzN-lfe-3KMifFljCv32-c1W7i-SgP5Dmj9mLpDQBskphx71nT1NSRkxoTHeOzGdqn_Yto_QvjZsrdsfWUC3jz9NGBFJEuj8M-v4nJYkILE-gC8RdxBm10XcWJLY5IDxIllsFIulaVTtk7I61ROl6-y7n637pveEOkowr2Ht6e2zA1qQQQ_YwDg%3D; passport_auth_mix_state=aosp2ptupr9eqt33kxo4gr2de323rr6g; IsDouyinActive=true; home_can_add_dy_2_desktop=%220%22; stream_recommend_feed_params=%22%7B%5C%22cookie_enabled%5C%22%3Atrue%2C%5C%22screen_width%5C%22%3A1440%2C%5C%22screen_height%5C%22%3A900%2C%5C%22browser_online%5C%22%3Atrue%2C%5C%22cpu_core_num%5C%22%3A2%2C%5C%22device_memory%5C%22%3A8%2C%5C%22downlink%5C%22%3A3.35%2C%5C%22effective_type%5C%22%3A%5C%224g%5C%22%2C%5C%22round_trip_time%5C%22%3A100%7D%22; FOLLOW_LIVE_POINT_INFO=%22MS4wLjABAAAArIBhu7ToRQeY9cesFgQVa7iF5GnUmUr7Q7NBGyW_Fmg%2F1733932800000%2F0%2F0%2F1733920769684%22; FOLLOW_NUMBER_YELLOW_POINT_INFO=%22MS4wLjABAAAArIBhu7ToRQeY9cesFgQVa7iF5GnUmUr7Q7NBGyW_Fmg%2F1733932800000%2F0%2F1733920169686%2F0%22; bd_ticket_guard_client_data=eyJiZC10aWNrZXQtZ3VhcmQtdmVyc2lvbiI6MiwiYmQtdGlja2V0LWd1YXJkLWl0ZXJhdGlvbi12ZXJzaW9uIjoxLCJiZC10aWNrZXQtZ3VhcmQtcmVlLXB1YmxpYy1rZXkiOiJCRUVKM1l0Zm1EK0ZISFREcVVXZHZaYnRtL2NaZEc0OFZranJRT2luZVNtOWdBWXQ0OEFMZ3pHY1ZmTnk0NW4vK284YTlBaHJON25LcnV0bGVvSXFyVjQ9IiwiYmQtdGlja2V0LWd1YXJkLXdlYi12ZXJzaW9uIjoyfQ%3D%3D"
+
