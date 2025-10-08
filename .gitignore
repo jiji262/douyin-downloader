@@ -163,3 +163,6 @@ config.yml
 Downloaded
 test_download/
 cookies.pkl
+README.md
+cookies_browser.txt
+cookies.txt
