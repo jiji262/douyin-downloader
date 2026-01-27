@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urlparse
+from yarl import URL
 import argparse
 import yaml
 
@@ -708,7 +709,7 @@ class UnifiedDownloader:
                 return True
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=self.headers) as response:
+                async with session.get(URL(url, encoded=True), headers=self.headers) as response:
                     if response.status == 200:
                         content = await response.read()
                         with open(save_path, 'wb') as f:
