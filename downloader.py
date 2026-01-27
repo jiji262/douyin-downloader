@@ -562,9 +562,14 @@ class UnifiedDownloader:
             # 判断类型
             is_image = bool(video_info.get('images'))
             
-            # 构建保存路径
+            # 构建保存路径（为Windows优化以避免保存失败）
             author_name = video_info.get('author', {}).get('nickname', 'unknown')
-            desc = video_info.get('desc', '')[:50].replace('/', '_')
+            #desc = video_info.get('desc', '')[:50].replace('/', '_')
+            raw_desc = video_info.get('desc', '') or ''
+            desc = raw_desc.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            desc = desc.strip()[:50]
+            desc = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', desc)
+            desc = desc.strip()
             # 兼容 create_time 为时间戳或格式化字符串
             raw_create_time = video_info.get('create_time')
             dt_obj = None
