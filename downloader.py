@@ -841,16 +841,32 @@ class UnifiedDownloader:
             
             # 创建 Douyin 实例
             dy = Douyin(database=False)
+            try:
+                start_time = str(self.config.get('start_time') or "")
+            except Exception:
+                start_time=""
+            try:
+                end_time = str(self.config.get('end_time') or "")
+            except Exception:
+                end_time=""
+            try:
+                number = int(self.config.get('number', {}).get('post', 0))
+            except Exception:
+                number=0
+            try:
+                increase = self.config.get('increase', {}).get('post', False)
+            except Exception:
+                increase=False
             
             # 获取用户作品列表
             result = dy.getUserInfo(
                 user_id, 
                 "post", 
                 35, 
-                0,  # 不限制数量
-                False,  # 不启用增量
-                "",  # start_time
-                ""   # end_time
+                number,  # 不限制数量
+                increase,  # 不启用增量
+                start_time,  # start_time
+                end_time    # end_time
             )
             
             if result:
