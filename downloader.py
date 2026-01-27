@@ -863,8 +863,8 @@ class UnifiedDownloader:
                 user_id, 
                 "post", 
                 35, 
-                number,  # 不限制数量
-                increase,  # 不启用增量
+                number,  # 数量
+                increase,  # 增量
                 start_time,  # start_time
                 end_time    # end_time
             )
