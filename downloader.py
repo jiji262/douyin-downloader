@@ -571,6 +571,7 @@ class UnifiedDownloader:
             desc = desc.strip()[:50]
             desc = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', desc)
             desc = desc.strip()
+            desc= desc.rstrip('.')
             # 兼容 create_time 为时间戳或格式化字符串
             raw_create_time = video_info.get('create_time')
             dt_obj = None
