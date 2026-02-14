@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urlparse
+from yarl import URL
 import argparse
 import yaml
 
@@ -562,9 +563,15 @@ class UnifiedDownloader:
             # 判断类型
             is_image = bool(video_info.get('images'))
             
-            # 构建保存路径
+            # 构建保存路径（为Windows优化以避免保存失败）
             author_name = video_info.get('author', {}).get('nickname', 'unknown')
-            desc = video_info.get('desc', '')[:50].replace('/', '_')
+            #desc = video_info.get('desc', '')[:50].replace('/', '_')
+            raw_desc = video_info.get('desc', '') or ''
+            desc = raw_desc.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            desc = desc.strip()[:50]
+            desc = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', desc)
+            desc = desc.strip()
+            desc= desc.rstrip('.')
             # 兼容 create_time 为时间戳或格式化字符串
             raw_create_time = video_info.get('create_time')
             dt_obj = None
@@ -703,7 +710,7 @@ class UnifiedDownloader:
                 return True
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=self.headers) as response:
+                async with session.get(URL(url, encoded=True), headers=self.headers) as response:
                     if response.status == 200:
                         content = await response.read()
                         with open(save_path, 'wb') as f:
@@ -836,16 +843,32 @@ class UnifiedDownloader:
             
             # 创建 Douyin 实例
             dy = Douyin(database=False)
+            try:
+                start_time = str(self.config.get('start_time') or "")
+            except Exception:
+                start_time=""
+            try:
+                end_time = str(self.config.get('end_time') or "")
+            except Exception:
+                end_time=""
+            try:
+                number = int(self.config.get('number', {}).get('post', 0))
+            except Exception:
+                number=0
+            try:
+                increase = self.config.get('increase', {}).get('post', False)
+            except Exception:
+                increase=False
             
             # 获取用户作品列表
             result = dy.getUserInfo(
                 user_id, 
                 "post", 
                 35, 
-                0,  # 不限制数量
-                False,  # 不启用增量
-                "",  # start_time
-                ""   # end_time
+                number,  # 数量
+                increase,  # 增量
+                start_time,  # start_time
+                end_time    # end_time
             )
             
             if result:
