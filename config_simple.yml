@@ -1,0 +1,46 @@
+#######################################
+# 抖音下载器配置文件
+# 简洁版配置 - 只保留必要选项
+#######################################
+
+# 下载链接（支持多个）
+link:
+  # 测试用户主页下载
+  - https://www.douyin.com/user/MS4wLjABAAAA0d0eUrmvkM8u07ZvlThOg1E121OcRU_V6vqYBb-3L6myVZIgsU3lKP32jNrfPESS
+  # 或者使用短链接（实际上也是用户主页）
+  # - https://v.douyin.com/iRGu2mBL/
+
+# 保存路径
+path: ./Downloaded/
+
+# 下载选项
+music: true      # 下载音乐
+cover: true      # 下载封面
+avatar: false    # 下载头像
+json: true       # 保存元数据
+
+# 时间过滤（可选，格式：YYYY-MM-DD）
+start_time: ""   # 开始时间
+end_time: ""     # 结束时间
+
+# 用户主页下载模式
+mode:
+  - post         # 发布的作品
+  # - like       # 喜欢的作品
+
+# 下载数量限制（0=全部）
+number:
+  post: 2        # 用户作品数量（测试只下载2个）
+  like: 0        # 喜欢作品数量
+
+# 性能设置
+thread: 5        # 并发线程数
+retry_times: 3   # 重试次数
+
+# Cookie配置（必需）
+cookies:
+  msToken: 710-fIIacqPfoNUNM8EKjH2ev0veFV2YZCtCfs_HoN7kjpBKubLAODdh0nStKywolHK2nsJFHmdimUN23q-lo41pxjuiNMoqG1p_yUoIKU0CJ9bX-Q0638LXozcxspQnrzDnHB4M_3Hu3GljVuPYvv-8nHrxp4Xqkw-Bcr0MeothxDuPtHlEBA==
+  ttwid: 1%7Cxo2A_Uas39HcSPeQYZRGlCLpHonxCq5l8gMlrUPsh3I%7C1733400452%7C9f770c01cd093794153133a14108c93b5b6e6e18971372c21ecffe37f1938da0
+  odin_tt: a19f20351de5ed35a078f09115d098328b025656113ec0e35dfc4f7e1cf04dea5edd7d8176cf7070e0ff8f53414adeb8
+  passport_csrf_token: c2a7091feddce96551be4436e03ca3f3
+  sid_guard: 5e5adf6c506e880b1e0959afb5f6cb80%7C1739188609%7C5183984%7CFri%2C+11-Apr-2025+11%3A56%3A33+GMT

@@ -1,0 +1,41 @@
+#######################################
+# 抖音下载器 配置示例（简洁版）
+# 仅保留最常用的选项，默认即可使用
+#######################################
+
+# 支持多个链接（视频或图文、也可放主页链接做批量）
+link:
+  - https://v.douyin.com/EXAMPLE1/
+  - https://www.douyin.com/video/1234567890123456789
+
+# 保存目录
+path: ./Downloaded/
+
+# 下载选项（可选，均默认为 true）
+music: true   # 下载音乐
+cover: true   # 下载封面
+json: true    # 保存元数据JSON
+
+# 时间过滤（可选，留空表示不过滤）。格式：YYYY-MM-DD
+start_time: ""
+end_time: ""
+
+# Cookie 配置（三选一，按优先级从上到下）
+# 1) 自动获取（需要已安装 Playwright：pip install playwright && playwright install）
+cookies: auto
+
+# 2) 直接粘贴整串 Cookie 字符串（示例，使用时请注释掉上面的 cookies: auto）
+# cookies: "msToken=YOUR_MS_TOKEN; ttwid=YOUR_TTWID; odin_tt=YOUR_ODIN_TT; ...;"
+
+# 3) 以键值对方式提供（示例，使用时请注释掉上面的 cookies）
+# cookies:
+#   msToken: YOUR_MS_TOKEN
+#   ttwid: YOUR_TTWID
+#   odin_tt: YOUR_ODIN_TT
+#   passport_csrf_token: YOUR_PASSPORT_CSRF_TOKEN
+#   sid_guard: YOUR_SID_GUARD
+
+# 主页下载模式（仅当 link 是用户主页时生效，可选：post/like；默认 post）
+# mode:
+#   - post
+

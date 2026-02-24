@@ -1,0 +1,56 @@
+# downloader.py 配置文件
+
+# 下载链接列表
+link:
+  - https://v.douyin.com/gNv_ZvhuEr0/
+
+# 下载模式
+mode:
+  - post
+
+# 下载保存路径
+path: ./Downloaded/
+
+# 每种类型下载数量限制
+number:
+  post: 3
+  like: 3
+  music: 3
+  mix: 3
+  allmix: 3
+
+# 增量下载设置
+increase:
+  post: false
+  like: false
+  music: false
+  mix: false
+  allmix: false
+
+# 下载内容设置
+cover: true
+music: true
+json: true
+database: true
+
+# 时间范围设置
+start_time: ''
+end_time: ''
+
+# 重试次数
+retry_times: 3
+
+# Cookie配置 - 使用yt-dlp提取的真实Cookie
+cookies:
+  # 从yt-dlp提取的真实Cookie（已解密）
+  sessionid: 46df3e084f46dde2744cf8ada9340715
+  sessionid_ss: 46df3e084f46dde2744cf8ada9340715
+  sid_guard: 46df3e084f46dde2744cf8ada9340715%7C1757729470%7C5184000%7CWed%2C+12-Nov-2025+02%3A11%3A10+GMT
+  sid_tt: 46df3e084f46dde2744cf8ada9340715
+  ttwid: 1%7CrRSGbXwBnydGp92LxAwWeTWrYvE1cpSKuY7nqqii14k%7C1757768167%7C33d70163da1483f9644e6782bbaa4fb632227d9ff1b060ca14aea148ab5ffad4
+  uid_tt: 54078e95d5d909b017bdbedb83f7fb60
+  uid_tt_ss: 54078e95d5d909b017bdbedb83f7fb60
+
+  # msToken需要单独生成（不在Cookie中）
+  # 使用Playwright访问页面时会自动生成
+  msToken: my7nuKyrpTVEWOX-n62wR8I5EcvoMKBmvsBMnODLOtG3sn6AsR7q_jEM5jmEenyuwmHpsL25b84VhGcR4nUgv0PepA2zrSUOGHCmZVzpauYpRgbR9svMKjt2-AgNRz
