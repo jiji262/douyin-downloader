@@ -1,0 +1,50 @@
+from typing import Any, Dict
+
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "path": "./Downloaded/",
+    "music": True,
+    "cover": True,
+    "avatar": True,
+    "json": True,
+    "start_time": "",
+    "end_time": "",
+    "folderstyle": True,
+    "mode": ["post"],
+    "number": {
+        "post": 0,
+        "like": 0,
+        "allmix": 0,
+        "mix": 0,
+        "music": 0,
+    },
+    "increase": {
+        "post": False,
+        "like": False,
+        "allmix": False,
+        "mix": False,
+        "music": False,
+    },
+    "thread": 5,
+    "retry_times": 3,
+    "database": True,
+    "progress": {
+        "quiet_logs": True,
+    },
+    "transcript": {
+        "enabled": False,
+        "model": "gpt-4o-mini-transcribe",
+        "output_dir": "",
+        "response_formats": ["txt", "json"],
+        "api_url": "https://api.openai.com/v1/audio/transcriptions",
+        "api_key_env": "OPENAI_API_KEY",
+        "api_key": "",
+    },
+    "auto_cookie": False,
+    "browser_fallback": {
+        "enabled": True,
+        "headless": False,
+        "max_scrolls": 240,
+        "idle_rounds": 8,
+        "wait_timeout_seconds": 600,
+    },
+}

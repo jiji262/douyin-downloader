@@ -1,0 +1,63 @@
+link:
+  - https://www.douyin.com/user/MS4wLjABAAAA6O7EZyfDRYXxJrUTpf91K3tmB4rBROkAw-nYMfld8ss
+
+path: ./Downloaded/
+
+music: true
+cover: true
+avatar: true
+json: true
+
+start_time: ""
+end_time: ""
+
+folderstyle: true
+
+mode:
+  - post
+
+number:
+  post: 1
+  like: 0
+  allmix: 0
+  mix: 0
+  music: 0
+
+increase:
+  post: false
+  like: false
+  allmix: false
+  mix: false
+  music: false
+
+thread: 5
+retry_times: 3
+database: true
+
+progress:
+  quiet_logs: true
+
+transcript:
+  enabled: false
+  model: gpt-4o-mini-transcribe
+  output_dir: ""
+  response_formats:
+    - txt
+    - json
+  api_url: https://api.openai.com/v1/audio/transcriptions
+  api_key_env: OPENAI_API_KEY
+  api_key: ""
+
+browser_fallback:
+  enabled: true
+  headless: false
+  max_scrolls: 240
+  idle_rounds: 8
+  wait_timeout_seconds: 600
+
+cookies:
+  msToken: YOUR_MS_TOKEN
+  ttwid: YOUR_TTWID
+  odin_tt: YOUR_ODIN_TT
+  passport_csrf_token: YOUR_CSRF_TOKEN
+  sid_guard: YOUR_SID_GUARD

@@ -1,0 +1,45 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Test/cache artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build/package artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS files
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Runtime output
+Downloaded/
+Transcripts/
+dy_downloader.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Local config/secrets
+config*.yml
+!config.example.yml
+.cookies.json
+config/cookies.json
