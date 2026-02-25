@@ -11,13 +11,18 @@ def validate_url(url: str) -> bool:
         return False
 
 
-def sanitize_filename(filename: str, max_length: int = 200) -> str:
-    invalid_chars = r'[<>:"/\\|?*\x00-\x1f]'
-    filename = re.sub(invalid_chars, '_', filename)
-    filename = filename.strip('. ')
+def sanitize_filename(filename: str, max_length: int = 80) -> str:
+    # 换行符 → 空格
+    filename = filename.replace('\n', ' ').replace('\r', ' ')
+    # Windows 非法字符 + #，逗号 → 下划线
+    filename = re.sub(r'[<>:"/\\|?*#\x00-\x1f]', '_', filename)
+    # 连续空格/下划线 → 单个下划线
+    filename = re.sub(r'[\s_]+', '_', filename)
+    # 去首尾
+    filename = filename.strip('._- ')
 
     if len(filename) > max_length:
-        filename = filename[:max_length]
+        filename = filename[:max_length].rstrip('._- ')
 
     return filename or 'untitled'
 
