@@ -1,11 +1,21 @@
-# 抖音下载器 V2.0（Douyin Downloader）
+# 抖音下载器 V2.1（Douyin Downloader）
 
 ![douyin-downloader](https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=%E6%8A%96%E9%9F%B3%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%B7%A5%E5%85%B7%EF%BC%8C%E5%8E%BB%E6%B0%B4%E5%8D%B0%EF%BC%8C%E6%94%AF%E6%8C%81%E8%A7%86%E9%A2%91%E3%80%81%E5%9B%BE%E9%9B%86%E3%80%81%E4%BD%9C%E8%80%85%E4%B8%BB%E9%A1%B5%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E3%80%82&description=1&font=Jost&forks=1&logo=https%3A%2F%2Fraw.githubusercontent.com%2Fjiji262%2Fdouyin-downloader%2Frefs%2Fheads%2FV1.0%2Fimg%2Flogo.png&name=1&owner=1&pattern=Circuit+Board&pulls=1&stargazers=1&theme=Light)
 
 一个面向实用场景的抖音下载工具，支持单条作品下载和作者主页批量下载，默认带进度展示、重试、数据库去重和浏览器兜底能力。
 
-> 当前文档对应 **V2.0（main 分支）**。  
+> 当前文档对应 **V2.1（main 分支）**。  
 > 如需使用旧版，请切回 **V1.0**：`git fetch --all && git switch V1.0`
+
+## V2.1 更新内容
+
+> 🆕 **V2.1 新增：本地 Whisper 语音转录**
+>
+> - 新增 `whisper_transcribe.py`，基于 OpenAI Whisper 开源模型，**无需 API Key、无需付费**，仅下载模型权重即可离线使用
+> - 支持批量转录已下载视频，自动输出 `.transcript.txt` 和可选 `.transcript.srt`
+> - 内置繁体→简体中文转换（`--sc`），解决 Whisper 中文输出繁体的问题
+> - `run.py` 集成一键流程：下载完成后交互式询问是否继续转录
+> - 使用 `rich` 进度条，与下载器风格统一
 
 ## 版本更新提醒
 
@@ -22,6 +32,7 @@
 - 用户主页批量下载：`/user/{sec_uid}` + `mode: [post]`
 - 无水印优先、封面/音乐/头像/JSON 元数据下载
 - 可选视频转写（`transcript`，调用 OpenAI Transcriptions API）
+- **🆕 本地 Whisper 语音转录（无需 API，离线可用）**
 - 并发下载、失败重试、速率限制
 - SQLite 去重与增量下载（`increase.post`）
 - 时间过滤（`start_time` / `end_time`，当前用于 `post`）
@@ -46,15 +57,29 @@
 
 ```bash
 pip install -r requirements.txt
+
+# Whisper 转录额外依赖（可选）
+pip install openai-whisper rich OpenCC
 ```
 
-### 3) 复制配置
+### 3) 安装 ffmpeg（Whisper 转录需要）
+
+```bash
+# 方式一：conda
+conda install -c conda-forge ffmpeg
+
+# 方式二：手动下载
+# 从 https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip 下载
+# 解压后将 ffmpeg.exe 放到项目根目录
+```
+
+### 4) 复制配置
 
 ```bash
 cp config.example.yml config.yml
 ```
 
-### 4) 获取 Cookie（推荐自动方式）
+### 5) 获取 Cookie（推荐自动方式）
 
 ```bash
 pip install playwright
@@ -134,6 +159,22 @@ python run.py -c config.yml \
 - `--show-warnings`：显示 warning/error 日志
 - `-v, --verbose`：显示 info/warning/error 日志
 
+### 一键下载 + 转录（V2.1）
+
+`run.py` 在下载完成后会交互式询问是否继续进行 Whisper 转录：
+
+```bash
+python run.py -c config.yml -u "https://www.douyin.com/video/xxx" -t 8 -p ./Downloaded
+```
+
+```text
+是否对下载的视频进行 Whisper 语音转录？(y/N): y
+Whisper 模型 [base/small/medium] (回车=base): medium
+同时输出 SRT 字幕？(y/N): y
+```
+
+输入 `y` 后自动调用 Whisper 转录，默认启用繁体→简体转换和跳过已转录文件。
+
 ## 典型场景
 
 ### 下载单个视频
@@ -168,7 +209,99 @@ number:
   post: 0
 ```
 
-## 可选功能：视频转写（transcript）
+## 本地 Whisper 转录（V2.1 新增）
+
+### 与 OpenAI API 转写的区别
+
+| | OpenAI API（V2.0 `transcript`） | 本地 Whisper（V2.1 新增） |
+|---|---|---|
+| 依赖 | OpenAI API Key + 网络 | 仅需下载模型权重（离线可用） |
+| 费用 | 按用量付费 | **免费** |
+| 配置 | `config.yml` 中 `transcript` 段 | 命令行参数 |
+| 运行方式 | 下载时自动触发 | 下载后独立运行或 `run.py` 交互触发 |
+| 中文输出 | 取决于模型 | 默认繁体，`--sc` 自动转简体 |
+| 精度 | 取决于所选 API 模型 | 取决于本地模型大小 |
+
+### 安装
+
+```bash
+# 核心
+pip install openai-whisper
+
+# 进度显示（如已安装 douyin-downloader 依赖则已包含）
+pip install rich
+
+# 繁体转简体（可选但推荐）
+pip install OpenCC
+
+# ffmpeg（必需）
+conda install -c conda-forge ffmpeg
+# 或将 ffmpeg.exe 放到项目根目录
+```
+
+### 独立使用
+
+```bash
+# 扫描下载目录，转录所有视频
+python cli/whisper_transcribe.py -d ./Downloaded/
+
+# 繁体转简体
+python cli/whisper_transcribe.py -d ./Downloaded/ --sc
+
+# 使用更高精度的模型
+python cli/whisper_transcribe.py -d ./Downloaded/ -m medium --sc
+
+# 同时输出 SRT 字幕文件
+python cli/whisper_transcribe.py -d ./Downloaded/ --srt --sc
+
+# 跳过已转录的视频
+python cli/whisper_transcribe.py -d ./Downloaded/ --sc --skip-existing
+
+# 转录单个文件
+python cli/whisper_transcribe.py -f ./Downloaded/video.mp4 --sc
+```
+
+### 参数说明
+
+| 参数 | 说明 | 默认值 |
+|---|---|---|
+| `-d, --dir` | 视频目录 | `./Downloaded` |
+| `-f, --file` | 单个视频文件 | - |
+| `-m, --model` | Whisper 模型：`tiny` / `base` / `small` / `medium` / `large` | `base` |
+| `-l, --language` | 语言提示 | `zh` |
+| `--srt` | 同时输出 SRT 字幕文件 | 否 |
+| `--skip-existing` | 跳过已有 `.transcript.txt` 的视频 | 否 |
+| `--sc` | 繁体中文转简体中文 | 否 |
+
+### Whisper 模型选择
+
+| 模型 | 大小 | 首次下载 | 速度 | 精度 | 推荐场景 |
+|---|---|---|---|---|---|
+| `tiny` | 39 MB | 极快 | ★★★★★ | ★★ | 快速预览 |
+| `base` | 74 MB | 快 | ★★★★ | ★★★ | **日常使用（默认）** |
+| `small` | 244 MB | 中 | ★★★ | ★★★★ | 较高精度需求 |
+| `medium` | 769 MB | 慢 | ★★ | ★★★★★ | **推荐用于中文** |
+| `large` | 1550 MB | 很慢 | ★ | ★★★★★ | 最高精度 |
+
+> 💡 中文转录推荐使用 `medium` 模型，精度显著优于 `base`。首次运行会自动下载模型权重。
+>
+> 有 NVIDIA GPU 时 Whisper 会自动使用 CUDA 加速，速度大幅提升。
+
+### 输出文件
+
+转录完成后，在视频同目录生成：
+
+```text
+Downloaded/
+└── 作者名/
+    └── post/
+        └── 2024-02-07_作品标题_aweme_id/
+            ├── ...mp4
+            ├── ...transcript.txt      # 纯文本转录结果
+            └── ...transcript.srt      # SRT 字幕（--srt 时生成）
+```
+
+## 可选功能：OpenAI API 视频转写（transcript）
 
 当前实现仅对**视频作品**生效（图文不会生成转写）。
 
@@ -210,8 +343,7 @@ export OPENAI_API_KEY="sk-xxxx"
 - `folderstyle`：控制按作品维度创建子目录
 - `browser_fallback.*`：`post` 翻页受限时启用浏览器兜底
 - `progress.quiet_logs`：进度阶段静默日志，减少刷屏
-- `transcript.*`：视频下载后的可选转写
-- `auto_cookie`：预留字段，当前主流程未使用
+- `transcript.*`：视频下载后的可选转写（OpenAI API）
 
 ## 输出目录
 
@@ -228,8 +360,9 @@ Downloaded/
             ├── ..._music.mp3
             ├── ..._data.json
             ├── ..._avatar.jpg
-            ├── ...transcript.txt      # transcript.enabled=true 且格式包含 txt
-            └── ...transcript.json     # transcript.enabled=true 且格式包含 json
+            ├── ...transcript.txt      # Whisper 或 OpenAI API 转录
+            ├── ...transcript.srt      # Whisper --srt 时生成
+            └── ...transcript.json     # OpenAI API transcript 生成
 ```
 
 ## 常见问题
@@ -257,12 +390,36 @@ python -m tools.cookie_fetcher --config config.yml
 
 ### 4) 为什么没有生成 transcript 文件？
 
-请依次检查：
+**OpenAI API 方式**，请检查：
 
 - `transcript.enabled` 是否为 `true`
 - 是否下载的是视频（图文不转写）
 - `OPENAI_API_KEY`（或 `transcript.api_key`）是否有效
 - `response_formats` 是否包含 `txt` 或 `json`
+
+**本地 Whisper 方式**，请检查：
+
+- 是否已安装 `openai-whisper`：`pip install openai-whisper`
+- 是否已安装 `ffmpeg`：终端运行 `ffmpeg -version` 确认
+- 首次运行需要下载模型权重，请确保网络可用
+
+### 5) Whisper 输出是繁体中文怎么办？
+
+添加 `--sc` 参数启用繁体→简体转换：
+
+```bash
+pip install OpenCC
+python cli/whisper_transcribe.py -d ./Downloaded/ --sc
+```
+
+### 6) Whisper 转录速度太慢？
+
+- 使用更小的模型：`-m base`（默认）或 `-m tiny`
+- 如有 NVIDIA GPU，安装 CUDA 版 PyTorch 可大幅加速：
+  ```bash
+  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+  ```
+- 使用 `--skip-existing` 避免重复转录
 
 ## 旧版切换（V1.0）
 
