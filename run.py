@@ -22,18 +22,36 @@ if __name__ == '__main__':
     if choice in ("y", "yes", "是"):
         # 读取config获取下载路径
         download_path = "./Downloaded"
-        for arg in sys.argv:
-            if arg == "-p" or arg == "--path":
-                idx = sys.argv.index(arg)
-                if idx + 1 < len(sys.argv):
-                    download_path = sys.argv[idx + 1]
+        # 从命令行参数读取
+        for i, arg in enumerate(sys.argv):
+            if arg in ("-p", "--path") and i + 1 < len(sys.argv):
+                download_path = sys.argv[i + 1]
+                break
+        # 从config.yml读取 (命令行没指定时)
+        if download_path == "./Downloaded":
+            config_path = "config.yml"
+            for i, arg in enumerate(sys.argv):
+                if arg in ("-c", "--config") and i + 1 < len(sys.argv):
+                    config_path = sys.argv[i + 1]
                     break
+            try:
+                import yaml
+                with open(config_path, encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+                if cfg.get("path"):
+                    download_path = cfg["path"]
+            except Exception:
+                pass
+
+        # transcript 输出目录 (避免原目录路径含特殊字符)
+        transcript_dir = os.path.join(download_path, "transcripts")
 
         # 构建 whisper 参数
         whisper_args = [
             sys.executable,
             str(project_root / "cli" / "whisper_transcribe.py"),
             "-d", download_path,
+            "-o", transcript_dir,
             "--sc",
             "--skip-existing",
         ]

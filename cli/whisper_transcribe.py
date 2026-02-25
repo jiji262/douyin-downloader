@@ -233,9 +233,11 @@ def extract_audio(video_path, audio_path, ffmpeg_path="ffmpeg"):
     cmd = [
         ffmpeg_path, "-i", str(video_path),
         "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-        str(audio_path), "-y", "-loglevel", "quiet",
+        str(audio_path), "-y", "-loglevel", "error",
     ]
-    result = subprocess.run(cmd, capture_output=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        console.print(f"  [{THEME['error']}]ffmpeg错误: {result.stderr.strip()}[/]")
     return result.returncode == 0 and Path(audio_path).exists()
 
 
@@ -247,18 +249,78 @@ def _format_srt_time(seconds):
     return f"{int(h):02d}:{int(m):02d}:{s:02d},{ms:03d}"
 
 
-def transcribe_file(video_path, model, ffmpeg_path, output_formats, language, converter):
+def _safe_stem(stem):
+    """清洗文件名: 去掉换行、#、特殊符号，避免 Windows 路径报错"""
+    import re
+    # 换行符 → 空格
+    stem = stem.replace("\n", " ").replace("\r", " ")
+    # Windows 不允许的字符 + # → 下划线
+    stem = re.sub(r'[<>:"/\\|?*#]', '_', stem)
+    # 连续空格/下划线 → 单个下划线
+    stem = re.sub(r'[\s_]+', '_', stem)
+    # 去首尾下划线
+    stem = stem.strip('_ ')
+    # 限制长度 (Windows MAX_PATH)
+    if len(stem) > 150:
+        stem = stem[:150]
+    return stem
+
+
+def transcribe_file(video_path, model, ffmpeg_path, output_formats, language, converter, output_dir=None):
     video_path = Path(video_path)
-    stem = video_path.stem
-    out_dir = video_path.parent
+    stem = _safe_stem(video_path.stem)
+
+    # 确定输出目录
+    out_dir = None
+    if output_dir:
+        out_dir = Path(output_dir)
+    else:
+        # 尝试用原目录，但很多抖音文件夹名含换行/#等字符，写入会失败
+        # 所以先试 mkdir + 写入测试，失败就 fallback
+        try:
+            candidate = video_path.parent
+            candidate.mkdir(parents=True, exist_ok=True)
+            # 测试是否真的能写文件
+            test_file = candidate / ".whisper_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink()
+            out_dir = candidate
+        except Exception:
+            out_dir = None
+
+    if out_dir is None:
+        out_dir = Path("./transcripts")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     txt_path = out_dir / f"{stem}.transcript.txt"
     srt_path = out_dir / f"{stem}.transcript.srt"
 
     tmpdir = tempfile.mkdtemp(prefix="whisper_")
     try:
+        # 先把视频复制到临时目录，避免原路径含特殊字符导致 ffmpeg/写入失败
+        tmp_video = os.path.join(tmpdir, "input.mp4")
+        try:
+            shutil.copy2(str(video_path), tmp_video)
+        except Exception as e:
+            # 长路径/特殊字符 fallback: 用 Windows 短路径
+            try:
+                import ctypes
+                buf = ctypes.create_unicode_buffer(512)
+                ctypes.windll.kernel32.GetShortPathNameW(str(video_path), buf, 512)
+                short_path = buf.value
+                if short_path:
+                    shutil.copy2(short_path, tmp_video)
+                else:
+                    raise
+            except Exception:
+                console.print(f"  [{THEME['error']}]无法访问视频文件: {e}[/]")
+                display.advance_file("失败", "路径不可达")
+                return False
+
         # Step 1: 提取音频
         audio_path = os.path.join(tmpdir, "audio.wav")
-        if not extract_audio(video_path, audio_path, ffmpeg_path):
+        if not extract_audio(tmp_video, audio_path, ffmpeg_path):
             display.advance_file("失败", "音频提取失败")
             return False
         audio_mb = os.path.getsize(audio_path) / 1024 / 1024
@@ -304,7 +366,7 @@ def transcribe_file(video_path, model, ffmpeg_path, output_formats, language, co
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def find_videos(directory, skip_existing=False):
+def find_videos(directory, skip_existing=False, output_dir=None):
     directory = Path(directory)
     if not directory.exists():
         display.error(f"目录不存在: {directory}")
@@ -315,9 +377,14 @@ def find_videos(directory, skip_existing=False):
     if skip_existing:
         filtered = []
         for v in videos:
-            txt2 = v.parent / f"{v.stem}.transcript.txt"
-            if txt2.exists():
-                display.info(f"跳过 {v.name} (已有transcript)")
+            safe = _safe_stem(v.stem)
+            dirs_to_check = [v.parent]
+            if output_dir:
+                dirs_to_check.append(Path(output_dir))
+            dirs_to_check.append(Path("./transcripts"))
+            found = any((d / f"{safe}.transcript.txt").exists() for d in dirs_to_check)
+            if found:
+                display.info(f"跳过 {safe[:50]}... (已有transcript)")
             else:
                 filtered.append(v)
         videos = filtered
@@ -348,6 +415,8 @@ def main():
     parser.add_argument("--srt", action="store_true", help="同时输出SRT字幕")
     parser.add_argument("--skip-existing", action="store_true", help="跳过已有transcript的视频")
     parser.add_argument("--sc", action="store_true", help="繁体转简体 (需 pip install OpenCC)")
+    parser.add_argument("-o", "--output", default=None,
+                        help="转录文件输出目录 (默认与视频同目录, 路径异常时自动fallback到 ./transcripts)")
 
     args = parser.parse_args()
 
@@ -389,7 +458,7 @@ def main():
             display.error(f"文件不存在: {args.file}")
             sys.exit(1)
     else:
-        videos = find_videos(args.dir, skip_existing=args.skip_existing)
+        videos = find_videos(args.dir, skip_existing=args.skip_existing, output_dir=args.output)
 
     if not videos:
         display.warning("没有找到需要处理的视频文件")
@@ -414,7 +483,7 @@ def main():
         for i, video in enumerate(videos, 1):
             display.start_file(i, video.name)
             try:
-                ok = transcribe_file(video, model, ffmpeg_path, output_formats, args.language, converter)
+                ok = transcribe_file(video, model, ffmpeg_path, output_formats, args.language, converter, args.output)
                 display.complete_file("success" if ok else "failed",
                                       video.name if ok else "识别失败")
             except KeyboardInterrupt:
@@ -422,6 +491,9 @@ def main():
                 raise
             except Exception as e:
                 display.complete_file("failed", str(e)[:60])
+                console.print(f"  [{THEME['error']}]错误详情: {e}[/]")
+                import traceback
+                console.print(f"[{THEME['dim']}]{traceback.format_exc()}[/]")
     except KeyboardInterrupt:
         display.warning("用户中断")
     finally:
