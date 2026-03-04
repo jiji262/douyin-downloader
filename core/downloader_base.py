@@ -311,8 +311,9 @@ class BaseDownloader(ABC):
 
         elif media_type == "gallery":
             image_urls = self._collect_image_urls(aweme_data)
-            if not image_urls:
-                logger.error(f"No images found for aweme {aweme_id}")
+            image_live_urls = self._collect_image_live_urls(aweme_data)
+            if not image_urls and not image_live_urls:
+                logger.error(f"No gallery assets found (images/live) for aweme {aweme_id}")
                 return False
 
             for index, image_url in enumerate(image_urls, start=1):
@@ -330,6 +331,22 @@ class BaseDownloader(ABC):
                     )
                     return False
                 downloaded_files.append(image_path)
+
+            for index, live_url in enumerate(image_live_urls, start=1):
+                suffix = Path(urlparse(live_url).path).suffix or ".mp4"
+                live_path = save_dir / f"{file_stem}_live_{index}{suffix}"
+                success = await self._download_with_retry(
+                    live_url,
+                    live_path,
+                    session,
+                    headers=self._download_headers(),
+                )
+                if not success:
+                    logger.error(
+                        f"Failed downloading live image {index} for aweme {aweme_id}"
+                    )
+                    return False
+                downloaded_files.append(live_path)
         else:
             logger.error(f"Unsupported media type for aweme {aweme_id}: {media_type}")
             return False
@@ -488,24 +505,80 @@ class BaseDownloader(ABC):
         return None
 
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
-        image_urls: List[str] = []
-        image_post = aweme_data.get("image_post_info", {})
-        images = image_post.get("images") or aweme_data.get("images") or []
-        for item in images:
-            url_list = item.get("url_list") if isinstance(item, dict) else None
-            if url_list:
-                image_urls.append(url_list[0])
-        return image_urls
+        image_urls = []
+        for item in self._iter_gallery_items(aweme_data):
+            if not isinstance(item, dict):
+                continue
+            image_url = self._pick_first_media_url(
+                item,
+                item.get("display_image"),
+                item.get("owner_watermark_image"),
+                item.get("download_url"),
+                item.get("download_addr"),
+            )
+            if image_url:
+                image_urls.append(image_url)
+        return self._deduplicate_urls(image_urls)
+
+    def _collect_image_live_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
+        live_urls: List[str] = []
+        for item in self._iter_gallery_items(aweme_data):
+            if not isinstance(item, dict):
+                continue
+            video = item.get("video") if isinstance(item.get("video"), dict) else {}
+            live_url = self._pick_first_media_url(
+                video.get("play_addr"),
+                video.get("download_addr"),
+                item.get("video_play_addr"),
+                item.get("video_download_addr"),
+            )
+            if live_url:
+                live_urls.append(live_url)
+        return self._deduplicate_urls(live_urls)
+
+    @staticmethod
+    def _iter_gallery_items(aweme_data: Dict[str, Any]) -> List[Any]:
+        image_post = aweme_data.get("image_post_info")
+        image_post_images = (
+            image_post.get("images") if isinstance(image_post, dict) else None
+        )
+        images = image_post_images or aweme_data.get("images") or []
+        if isinstance(images, list):
+            return images
+        return []
+
+    @staticmethod
+    def _deduplicate_urls(urls: List[str]) -> List[str]:
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            deduped.append(url)
+        return deduped
+
+    @staticmethod
+    def _pick_first_media_url(*sources: Any) -> Optional[str]:
+        for source in sources:
+            candidate = BaseDownloader._extract_first_url(source)
+            if candidate:
+                return candidate
+        return None
 
     @staticmethod
     def _extract_first_url(source: Any) -> Optional[str]:
         if isinstance(source, dict):
             url_list = source.get("url_list")
             if isinstance(url_list, list) and url_list:
-                return url_list[0]
+                first_item = url_list[0]
+                if isinstance(first_item, str) and first_item:
+                    return first_item
         elif isinstance(source, list) and source:
-            return source[0]
-        elif isinstance(source, str):
+            first_item = source[0]
+            if isinstance(first_item, str) and first_item:
+                return first_item
+        elif isinstance(source, str) and source:
             return source
         return None
 

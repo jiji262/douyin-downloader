@@ -255,3 +255,178 @@ async def test_download_aweme_assets_keeps_success_when_transcript_skipped(
     assert success is True
 
     await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_downloads_live_photo_videos(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False, cover=False, avatar=False, json=False, folderstyle=True
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121528",
+        "desc": "实况图文",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {"url_list": ["https://example.com/1.webp"]},
+                    "video": {
+                        "play_addr": {"url_list": ["https://example.com/1_live.mp4"]}
+                    },
+                },
+                {
+                    "video": {
+                        "play_addr": {"url_list": ["https://example.com/2_live.mp4"]}
+                    },
+                },
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert any(path.suffix == ".webp" for path in saved_paths)
+    assert sum(path.suffix == ".mp4" for path in saved_paths) == 2
+    assert any("_live_1.mp4" in path.name for path in saved_paths)
+    assert any("_live_2.mp4" in path.name for path in saved_paths)
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_succeeds_with_only_live_videos(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False, cover=False, avatar=False, json=False, folderstyle=True
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121529",
+        "desc": "仅实况图文",
+        "image_post_info": {
+            "images": [
+                {
+                    "video": {
+                        "play_addr": {
+                            "url_list": ["https://example.com/only_live_1.mp4"]
+                        }
+                    }
+                },
+                {
+                    "video": {
+                        "play_addr": {
+                            "url_list": ["https://example.com/only_live_2.mp4"]
+                        }
+                    }
+                },
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert len(saved_paths) == 2
+    assert all(path.suffix == ".mp4" for path in saved_paths)
+    assert any("_live_1.mp4" in path.name for path in saved_paths)
+    assert any("_live_2.mp4" in path.name for path in saved_paths)
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_fails_when_live_video_download_fails(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False, cover=False, avatar=False, json=False, folderstyle=True
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        if save_path.name.endswith("_live_2.mp4"):
+            return False
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121530",
+        "desc": "实况下载失败场景",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {"url_list": ["https://example.com/ok.webp"]},
+                    "video": {
+                        "play_addr": {"url_list": ["https://example.com/live_ok.mp4"]}
+                    },
+                },
+                {
+                    "video": {
+                        "play_addr": {"url_list": ["https://example.com/live_fail.mp4"]}
+                    }
+                },
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is False
+    assert any(path.name.endswith(".webp") for path in saved_paths)
+    assert any(path.name.endswith("_live_1.mp4") for path in saved_paths)
+    assert any(path.name.endswith("_live_2.mp4") for path in saved_paths)
+
+    await api_client.close()
