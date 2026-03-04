@@ -1,6 +1,8 @@
 # Douyin Downloader V2.0
 
-![douyin-downloader](https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=Douyin+batch+download+tool%2C+remove+watermarks%2C+support+batch+download+of+videos%2C+gallery%2C+and+author+homepages.&description=1&font=Source+Code+Pro&forks=1&owner=1&pattern=Circuit+Board&stargazers=1&theme=Light)
+<p align="center">
+  <img src="https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=Douyin+batch+download+tool%2C+remove+watermarks%2C+support+batch+download+of+videos%2C+gallery%2C+and+author+homepages.&description=1&font=Source+Code+Pro&forks=1&owner=1&pattern=Circuit+Board&stargazers=1&theme=Light" alt="douyin-downloader" width="820" />
+</p>
 
 中文文档 (Chinese): [README.zh-CN.md](./README.zh-CN.md)
 
@@ -277,7 +279,7 @@ git switch V1.0
 
 ## Community Group
 
-![qun](./img/fuye.jpg)
+<img src="./img/fuye.jpg" alt="qun" width="360" />
 
 ## Disclaimer
 
@@ -289,3 +291,7 @@ This project is for technical research, learning, and personal data management o
 - If platform policies or interfaces change and features break, this is a normal technical risk
 
 By continuing to use this project, you acknowledge and accept the statements above.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
