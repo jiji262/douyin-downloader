@@ -2,6 +2,8 @@ from typing import Dict, Any, Optional
 from core.downloader_base import BaseDownloader
 from core.video_downloader import VideoDownloader
 from core.user_downloader import UserDownloader
+from core.mix_downloader import MixDownloader
+from core.music_downloader import MusicDownloader
 from config import ConfigLoader
 from storage import Database, FileManager
 from auth import CookieManager
@@ -45,6 +47,10 @@ class DownloaderFactory:
             return UserDownloader(**common_args)
         elif url_type == 'gallery':
             return VideoDownloader(**common_args)
+        elif url_type == 'collection':
+            return MixDownloader(**common_args)
+        elif url_type == 'music':
+            return MusicDownloader(**common_args)
         else:
             logger.error(f"Unsupported URL type: {url_type}")
             return None

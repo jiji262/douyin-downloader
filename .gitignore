@@ -43,3 +43,4 @@ config*.yml
 !config.example.yml
 .cookies.json
 config/cookies.json
+.omx/

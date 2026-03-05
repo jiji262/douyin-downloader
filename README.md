@@ -22,22 +22,22 @@ A practical Douyin downloader for both single-item and profile batch downloads, 
 
 - Single video download: `/video/{aweme_id}`
 - Single image-note download: `/note/{note_id}`
+- Single collection download: `/collection/{mix_id}` and `/mix/{mix_id}`
+- Single music download: `/music/{music_id}` (prefer direct original audio, fallback to first related aweme)
 - Automatic short-link parsing: `https://v.douyin.com/...`
-- Profile batch download: `/user/{sec_uid}` + `mode: [post]`
+- Profile batch download: `/user/{sec_uid}` + `mode: [post, like, mix, music]`
 - No-watermark preferred, plus cover/music/avatar/JSON metadata downloads
 - Optional video transcription (`transcript`, using OpenAI Transcriptions API)
 - Concurrent downloads, retry logic, and rate limiting
-- SQLite deduplication and incremental download (`increase.post`)
-- Time filters (`start_time` / `end_time`, currently for `post`)
+- SQLite deduplication and incremental download (`increase.post/like/mix/music`)
+- Time filters (`start_time` / `end_time`, used for batch mode items)
 - Browser fallback when pagination is blocked (manual verification supported)
 - Progress bar display (supports `progress.quiet_logs` quiet mode)
 
-### Not Yet Implemented (do not treat as supported)
+### Current Limitations
 
-- `mode: like` liked-content download
-- `mode: mix` collection download
-- `number.like` / `number.mix` / `increase.like` / `increase.mix`
-- `collection/mix` links currently have no downloader (explicitly reported as unsupported)
+- Browser fallback is fully validated for `post`; `like/mix/music` currently relies on API pagination
+- `number.allmix` / `increase.allmix` are retained as compatibility aliases and normalized to `mix`
 
 ## Quick Start
 
@@ -207,10 +207,10 @@ If `database: true`, job status is also recorded in SQLite table `transcript_job
 
 ## Key Config Fields (based on current effective code paths)
 
-- `mode`: currently only `post` is effective
-- `number`: currently only `number.post` is effective
-- `increase`: currently only `increase.post` is effective
-- `start_time/end_time`: currently used for `post` time filtering
+- `mode`: supports `post/like/mix/music`
+- `number`: `number.post/like/mix/music` are effective (`allmix` is a compatibility alias)
+- `increase`: `increase.post/like/mix/music` are effective (`allmix` is a compatibility alias)
+- `start_time/end_time`: used for batch-mode time filtering
 - `folderstyle`: controls whether to create per-item subdirectories
 - `browser_fallback.*`: used for `post` when pagination is restricted
 - `progress.quiet_logs`: quiet logs during progress stage
