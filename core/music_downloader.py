@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import posixpath
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
@@ -89,7 +91,8 @@ class MusicDownloader(BaseDownloader):
             download_date=publish_date,
         )
 
-        music_path = save_dir / f"{file_stem}.mp3"
+        music_ext = self._infer_audio_extension(music_url)
+        music_path = save_dir / f"{file_stem}{music_ext}"
         if self.file_manager.file_exists(music_path):
             logger.info("Music already exists locally: %s", music_path.name)
             return True
@@ -204,3 +207,15 @@ class MusicDownloader(BaseDownloader):
             if url:
                 return url
         return None
+
+    @staticmethod
+    def _infer_audio_extension(music_url: str) -> str:
+        if not music_url:
+            return ".mp3"
+
+        raw_path = urlparse(music_url).path or ""
+        ext = posixpath.splitext(raw_path)[1].lower()
+        allowed_exts = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"}
+        if ext in allowed_exts:
+            return ext
+        return ".mp3"

@@ -16,8 +16,9 @@ class MusicUserModeStrategy(BaseUserModeStrategy):
         self, sec_uid: str, user_info: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         raw_items = await self._collect_paged_aweme(sec_uid, user_info)
-        if any(item.get("aweme_id") for item in raw_items):
-            return raw_items
+        aweme_items = [item for item in raw_items if item.get("aweme_id")]
+        if aweme_items:
+            return aweme_items
 
         # 用户音乐列表若返回 music 元信息，则展开到该音乐下作品。
         expanded: List[Dict[str, Any]] = []

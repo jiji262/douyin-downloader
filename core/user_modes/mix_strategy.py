@@ -16,8 +16,9 @@ class MixUserModeStrategy(BaseUserModeStrategy):
         self, sec_uid: str, user_info: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         raw_items = await self._collect_paged_aweme(sec_uid, user_info)
-        if any(item.get("aweme_id") for item in raw_items):
-            return raw_items
+        aweme_items = [item for item in raw_items if item.get("aweme_id")]
+        if aweme_items:
+            return aweme_items
 
         # 用户合集列表通常返回 mix 元信息，需再展开到 aweme 列表。
         expanded: List[Dict[str, Any]] = []
