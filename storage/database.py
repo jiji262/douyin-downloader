@@ -11,7 +11,9 @@ class Database:
 
     async def _get_conn(self) -> aiosqlite.Connection:
         if self._conn is None:
-            self._conn = await aiosqlite.connect(self.db_path)
+            async with asyncio.Lock():
+                if self._conn is None:
+                    self._conn = await aiosqlite.connect(self.db_path)
         return self._conn
 
     async def initialize(self):
