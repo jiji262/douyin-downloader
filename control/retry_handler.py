@@ -22,8 +22,8 @@ class RetryHandler:
                 last_error = e
                 if attempt < self.max_retries - 1:
                     delay = self.retry_delays[min(attempt, len(self.retry_delays) - 1)]
-                    logger.warning(f"Attempt {attempt + 1} failed: {e}, retrying in {delay}s...")
+                    logger.warning("Attempt %d failed: %s, retrying in %ds...", attempt + 1, e, delay)
                     await asyncio.sleep(delay)
 
-        logger.error(f"All {self.max_retries} attempts failed: {last_error}")
+        logger.error("All %d attempts failed: %s", self.max_retries, last_error)
         raise last_error

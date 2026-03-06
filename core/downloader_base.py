@@ -149,7 +149,7 @@ class BaseDownloader(ABC):
             return True
 
         if in_local:
-            logger.info(f"Aweme {aweme_id} already exists locally, skipping")
+            logger.info("Aweme %s already exists locally, skipping", aweme_id)
             return False
 
         return True
@@ -161,7 +161,8 @@ class BaseDownloader(ABC):
         if self._local_aweme_ids is None:
             self._build_local_aweme_index()
 
-        assert self._local_aweme_ids is not None
+        if self._local_aweme_ids is None:
+            return False
         return aweme_id in self._local_aweme_ids
 
     def _build_local_aweme_index(self):
@@ -199,20 +200,24 @@ class BaseDownloader(ABC):
         if not start_time and not end_time:
             return aweme_list
 
+        start_ts = (
+            int(datetime.strptime(start_time, "%Y-%m-%d").timestamp())
+            if start_time
+            else None
+        )
+        end_ts = (
+            int(datetime.strptime(end_time, "%Y-%m-%d").timestamp())
+            if end_time
+            else None
+        )
+
         filtered: List[Dict[str, Any]] = []
         for aweme in aweme_list:
             create_time = aweme.get("create_time", 0)
-
-            if start_time:
-                start_ts = int(datetime.strptime(start_time, "%Y-%m-%d").timestamp())
-                if create_time < start_ts:
-                    continue
-
-            if end_time:
-                end_ts = int(datetime.strptime(end_time, "%Y-%m-%d").timestamp())
-                if create_time > end_ts:
-                    continue
-
+            if start_ts is not None and create_time < start_ts:
+                continue
+            if end_ts is not None and create_time > end_ts:
+                continue
             filtered.append(aweme)
 
         return filtered
@@ -268,7 +273,7 @@ class BaseDownloader(ABC):
         if media_type == "video":
             video_info = self._build_no_watermark_url(aweme_data)
             if not video_info:
-                logger.error(f"No playable video URL found for aweme {aweme_id}")
+                logger.error("No playable video URL found for aweme %s", aweme_id)
                 return False
 
             video_url, video_headers = video_info
@@ -313,7 +318,7 @@ class BaseDownloader(ABC):
             image_urls = self._collect_image_urls(aweme_data)
             image_live_urls = self._collect_image_live_urls(aweme_data)
             if not image_urls and not image_live_urls:
-                logger.error(f"No gallery assets found (images/live) for aweme {aweme_id}")
+                logger.error("No gallery assets found (images/live) for aweme %s", aweme_id)
                 return False
 
             for index, image_url in enumerate(image_urls, start=1):
@@ -348,7 +353,7 @@ class BaseDownloader(ABC):
                     return False
                 downloaded_files.append(live_path)
         else:
-            logger.error(f"Unsupported media type for aweme {aweme_id}: {media_type}")
+            logger.error("Unsupported media type for aweme %s: %s", aweme_id, media_type)
             return False
 
         if self.config.get("avatar"):
@@ -421,7 +426,7 @@ class BaseDownloader(ABC):
                 )
 
         self._mark_local_aweme_downloaded(aweme_id)
-        logger.info(f"Downloaded {media_type}: {desc} ({aweme_id})")
+        logger.info("Downloaded %s: %s (%s)", media_type, desc, aweme_id)
         return True
 
     async def _download_with_retry(

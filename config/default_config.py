@@ -26,7 +26,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "thread": 5,
     "retry_times": 3,
+    "rate_limit": 2,
     "database": True,
+    "database_path": "dy_downloader.db",
     "progress": {
         "quiet_logs": True,
     },

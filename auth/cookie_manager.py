@@ -31,7 +31,7 @@ class CookieManager:
             with open(self.cookie_file, "w", encoding="utf-8") as f:
                 json.dump(self.cookies, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save cookies: {e}")
+            logger.error("Failed to save cookies: %s", e)
 
     def _load_cookies(self):
         if not self.cookie_file.exists():
@@ -41,7 +41,7 @@ class CookieManager:
             with open(self.cookie_file, "r", encoding="utf-8") as f:
                 self.cookies = sanitize_cookies(json.load(f))
         except Exception as e:
-            logger.error(f"Failed to load cookies: {e}")
+            logger.error("Failed to load cookies: %s", e)
 
     def validate_cookies(self) -> bool:
         required_keys = {"ttwid", "odin_tt", "passport_csrf_token"}
@@ -50,7 +50,7 @@ class CookieManager:
             key for key in required_keys if key not in cookies or not cookies.get(key)
         ]
         if missing:
-            logger.warning(f"Cookie validation failed, missing: {', '.join(missing)}")
+            logger.warning("Cookie validation failed, missing: %s", ", ".join(missing))
             return False
         if not cookies.get("msToken"):
             logger.info(

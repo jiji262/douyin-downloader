@@ -37,6 +37,8 @@ async def test_database_aweme_lifecycle(tmp_path):
         'config': json.dumps({'path': './Downloaded/'}, ensure_ascii=False),
     })
 
+    await database.close()
+
 
 @pytest.mark.asyncio
 async def test_database_transcript_job_upsert(tmp_path):
@@ -80,3 +82,5 @@ async def test_database_transcript_job_upsert(tmp_path):
     row = await database.get_transcript_job("123")
     assert row["status"] == "success"
     assert row["skip_reason"] is None
+
+    await database.close()

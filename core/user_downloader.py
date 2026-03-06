@@ -26,7 +26,7 @@ class UserDownloader(BaseDownloader):
         self._progress_update_step("获取作者信息", f"sec_uid={sec_uid}")
         user_info = await self.api_client.get_user_info(sec_uid)
         if not user_info:
-            logger.error(f"Failed to get user info: {sec_uid}")
+            logger.error("Failed to get user info: %s", sec_uid)
             return result
 
         modes_config = self.config.get("mode", ["post"])

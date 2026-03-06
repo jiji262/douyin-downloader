@@ -18,7 +18,7 @@ class QueueManager:
                 try:
                     return await task(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"Task failed: {e}")
+                    logger.error("Task failed: %s", e)
                     return None
 
         results = await asyncio.gather(*[_task_wrapper(task) for task in tasks], return_exceptions=True)
@@ -30,7 +30,7 @@ class QueueManager:
                 try:
                     return await download_func(item)
                 except Exception as e:
-                    logger.error(f"Download failed for item: {e}")
+                    logger.error("Download failed for item: %s", e)
                     return {'status': 'error', 'error': str(e), 'item': item}
 
         results = await asyncio.gather(*[_download_wrapper(item) for item in items], return_exceptions=False)
