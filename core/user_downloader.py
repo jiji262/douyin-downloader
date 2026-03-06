@@ -1,12 +1,20 @@
-from typing import Any, Dict, List
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Set
 
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.user_mode_registry import UserModeRegistry
 from utils.logger import setup_logger
 
 logger = setup_logger("UserDownloader")
 
 
 class UserDownloader(BaseDownloader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mode_registry = UserModeRegistry()
+        self._mode_strategy_cache: Dict[str, Any] = {}
+
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
 
@@ -21,111 +29,81 @@ class UserDownloader(BaseDownloader):
             logger.error(f"Failed to get user info: {sec_uid}")
             return result
 
-        modes = self.config.get("mode", ["post"])
+        modes_config = self.config.get("mode", ["post"])
+        if isinstance(modes_config, str):
+            modes = [modes_config]
+        elif isinstance(modes_config, list):
+            modes = [str(mode).strip() for mode in modes_config if str(mode).strip()]
+        else:
+            modes = ["post"]
+
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
+        seen_aweme_ids: Set[str] = set()
         for mode in modes:
-            if mode == "post":
-                self._progress_update_step("下载模式", "开始处理 post 作品")
-                mode_result = await self._download_user_post(sec_uid, user_info)
-                result.total += mode_result.total
-                result.success += mode_result.success
-                result.failed += mode_result.failed
-                result.skipped += mode_result.skipped
+            strategy = self._get_mode_strategy(mode)
+            if strategy is None:
+                logger.warning("Unsupported user mode: %s", mode)
+                continue
+
+            self._progress_update_step("下载模式", f"开始处理 {mode} 作品")
+            mode_result = await strategy.download_mode(
+                sec_uid, user_info, seen_aweme_ids=seen_aweme_ids
+            )
+            result.total += mode_result.total
+            result.success += mode_result.success
+            result.failed += mode_result.failed
+            result.skipped += mode_result.skipped
 
         return result
 
-    async def _download_user_post(
-        self, sec_uid: str, user_info: Dict[str, Any]
+    def _get_mode_strategy(self, mode: str):
+        normalized_mode = (mode or "").strip()
+        if normalized_mode in self._mode_strategy_cache:
+            return self._mode_strategy_cache[normalized_mode]
+
+        strategy_cls = self.mode_registry.get(normalized_mode)
+        if strategy_cls is None:
+            return None
+
+        strategy = strategy_cls(self)
+        self._mode_strategy_cache[normalized_mode] = strategy
+        return strategy
+
+    async def _download_mode_items(
+        self,
+        mode: str,
+        items: List[Dict[str, Any]],
+        author_name: str,
+        seen_aweme_ids: Optional[Set[str]] = None,
     ) -> DownloadResult:
+        if seen_aweme_ids is None:
+            seen_aweme_ids = set()
+        deduped_items: List[Dict[str, Any]] = []
+        local_seen: Set[str] = set()
+
+        for item in items:
+            aweme_id = str(item.get("aweme_id") or "").strip()
+            if not aweme_id:
+                continue
+            if aweme_id in seen_aweme_ids or aweme_id in local_seen:
+                continue
+            local_seen.add(aweme_id)
+            seen_aweme_ids.add(aweme_id)
+            deduped_items.append(item)
+
         result = DownloadResult()
-        aweme_list: List[Dict[str, Any]] = []
-        max_cursor = 0
-        has_more = True
-        pagination_restricted = False
-
-        increase_enabled = self.config.get("increase", {}).get("post", False)
-        latest_time = None
-
-        if increase_enabled and self.database:
-            latest_time = await self.database.get_latest_aweme_time(
-                user_info.get("uid")
-            )
-
-        self._progress_update_step("拉取作品列表", "分页抓取中")
-        while has_more:
-            await self.rate_limiter.acquire()
-
-            request_cursor = max_cursor
-            data = await self.api_client.get_user_post(sec_uid, request_cursor)
-            if not data:
-                break
-
-            not_login = (
-                (data.get("not_login_module") or {}) if isinstance(data, dict) else {}
-            )
-            if isinstance(not_login, dict) and not_login.get("guide_login_tip_exist"):
-                logger.warning(
-                    "Detected login tip in user post response, pagination may be restricted"
-                )
-
-            aweme_items = data.get("aweme_list", [])
-            if not aweme_items:
-                if request_cursor and data.get("status_code") == 0:
-                    pagination_restricted = True
-                    logger.warning(
-                        "User post pagination likely blocked at cursor=%s, switching to browser fallback",
-                        request_cursor,
-                    )
-                break
-
-            if increase_enabled and latest_time:
-                new_items = [
-                    a for a in aweme_items if a.get("create_time", 0) > latest_time
-                ]
-                aweme_list.extend(new_items)
-                if len(new_items) < len(aweme_items):
-                    break
-            else:
-                aweme_list.extend(aweme_items)
-            self._progress_update_step(
-                "拉取作品列表", f"已抓取 {len(aweme_list)} 条"
-            )
-
-            has_more = data.get("has_more", False)
-            max_cursor = data.get("max_cursor", 0)
-            if has_more and max_cursor == request_cursor:
-                logger.warning(
-                    "max_cursor did not advance (%s), stop paging to avoid loop",
-                    max_cursor,
-                )
-                break
-
-            number_limit = self.config.get("number", {}).get("post", 0)
-            if number_limit > 0 and len(aweme_list) >= number_limit:
-                aweme_list = aweme_list[:number_limit]
-                break
-
-        if pagination_restricted:
-            self._progress_update_step("拉取作品列表", "分页受限，尝试浏览器回补")
-            await self._recover_user_post_with_browser(sec_uid, user_info, aweme_list)
-
-        aweme_list = self._filter_by_time(aweme_list)
-        aweme_list = self._limit_count(aweme_list, "post")
-
-        result.total = len(aweme_list)
+        result.total = len(deduped_items)
         self._progress_set_item_total(result.total, "作品待下载")
         self._progress_update_step("下载作品", f"待处理 {result.total} 条")
 
-        author_name = user_info.get("nickname", "unknown")
-
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
-            if not await self._should_download(aweme_id):
+            if not await self._should_download(str(aweme_id or "")):
                 self._progress_advance_item("skipped", str(aweme_id or "unknown"))
                 return {"status": "skipped", "aweme_id": aweme_id}
 
-            success = await self._download_aweme_assets(item, author_name, mode="post")
+            success = await self._download_aweme_assets(item, author_name, mode=mode)
             status = "success" if success else "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
             return {
@@ -134,7 +112,7 @@ class UserDownloader(BaseDownloader):
             }
 
         download_results = await self.queue_manager.download_batch(
-            _process_aweme, aweme_list
+            _process_aweme, deduped_items
         )
 
         for entry in download_results:
@@ -150,6 +128,15 @@ class UserDownloader(BaseDownloader):
                 self._progress_advance_item("failed", "unknown")
 
         return result
+
+    # 向后兼容：旧测试仍直接调用 post 下载入口。
+    async def _download_user_post(
+        self, sec_uid: str, user_info: Dict[str, Any]
+    ) -> DownloadResult:
+        strategy = self._get_mode_strategy("post")
+        if strategy is None:
+            return DownloadResult()
+        return await strategy.download_mode(sec_uid, user_info, seen_aweme_ids=set())
 
     async def _recover_user_post_with_browser(
         self,

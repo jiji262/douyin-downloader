@@ -2,6 +2,8 @@ import asyncio
 import sys
 import types
 
+import pytest
+
 from core.api_client import DouyinAPIClient
 
 
@@ -156,3 +158,95 @@ def test_browser_fallback_caps_warmup_wait(monkeypatch):
     stats = client.pop_browser_post_stats()
     assert stats["selected_ids"] == 0
     assert client.pop_browser_post_stats() == {}
+
+
+@pytest.mark.asyncio
+async def test_get_user_post_returns_normalized_dto(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    captured_params = {}
+
+    async def _fake_request_json(path, params, suppress_error=False):
+        assert path == "/aweme/v1/web/aweme/post/"
+        captured_params.update(params)
+        return {
+            "status_code": 0,
+            "aweme_list": [{"aweme_id": "111"}],
+            "has_more": 1,
+            "max_cursor": 9,
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    data = await client.get_user_post("sec-1", max_cursor=0, count=20)
+
+    assert data["items"] == [{"aweme_id": "111"}]
+    assert data["aweme_list"] == [{"aweme_id": "111"}]
+    assert data["has_more"] is True
+    assert data["max_cursor"] == 9
+    assert data["status_code"] == 0
+    assert data["source"] == "api"
+    assert isinstance(data["raw"], dict)
+    assert captured_params["show_live_replay_strategy"] == "1"
+    assert captured_params["need_time_list"] == "1"
+    assert captured_params["time_list_query"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    called_requests = []
+
+    async def _fake_request_json(path, params, suppress_error=False):
+        called_requests.append((path, dict(params)))
+        return {"status_code": 0, "aweme_list": [], "has_more": 0, "max_cursor": 0}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    like_data = await client.get_user_like("sec-1", max_cursor=0, count=20)
+    mix_data = await client.get_user_mix("sec-1", max_cursor=0, count=20)
+    music_data = await client.get_user_music("sec-1", max_cursor=0, count=20)
+
+    assert [path for path, _params in called_requests] == [
+        "/aweme/v1/web/aweme/favorite/",
+        "/aweme/v1/web/mix/list/",
+        "/aweme/v1/web/music/list/",
+    ]
+    mix_params = called_requests[1][1]
+    music_params = called_requests[2][1]
+    for forbidden_key in (
+        "show_live_replay_strategy",
+        "need_time_list",
+        "time_list_query",
+    ):
+        assert forbidden_key not in mix_params
+        assert forbidden_key not in music_params
+    assert like_data["items"] == []
+    assert mix_data["items"] == []
+    assert music_data["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_mix_and_music_endpoints_are_normalized(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(path, _params, suppress_error=False):
+        if path == "/aweme/v1/web/mix/detail/":
+            return {"mix_info": {"mix_id": "mix-1"}}
+        if path == "/aweme/v1/web/mix/aweme/":
+            return {"status_code": 0, "aweme_list": [{"aweme_id": "a-1"}], "has_more": 0}
+        if path == "/aweme/v1/web/music/detail/":
+            return {"music_info": {"id": "music-1"}}
+        if path == "/aweme/v1/web/music/aweme/":
+            return {"status_code": 0, "aweme_list": [{"aweme_id": "a-2"}], "has_more": 0}
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    mix_detail = await client.get_mix_detail("mix-1")
+    mix_page = await client.get_mix_aweme("mix-1", cursor=0, count=20)
+    music_detail = await client.get_music_detail("music-1")
+    music_page = await client.get_music_aweme("music-1", cursor=0, count=20)
+
+    assert mix_detail == {"mix_id": "mix-1"}
+    assert music_detail == {"id": "music-1"}
+    assert mix_page["items"] == [{"aweme_id": "a-1"}]
+    assert music_page["items"] == [{"aweme_id": "a-2"}]

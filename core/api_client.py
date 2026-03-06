@@ -154,10 +154,113 @@ class DouyinAPIClient:
             logger.warning("Failed to generate a_bogus, fallback to X-Bogus: %s", exc)
             return None
 
+    async def _request_json(
+        self,
+        path: str,
+        params: Dict[str, Any],
+        *,
+        suppress_error: bool = False,
+    ) -> Dict[str, Any]:
+        await self._ensure_session()
+        signed_url, ua = self.build_signed_path(path, params)
+        try:
+            async with self._session.get(
+                signed_url,
+                headers={**self.headers, "User-Agent": ua},
+            ) as response:
+                if response.status == 200:
+                    data = await response.json(content_type=None)
+                    return data if isinstance(data, dict) else {}
+                log_fn = logger.debug if suppress_error else logger.error
+                log_fn(
+                    "Request failed: path=%s, status=%s",
+                    path,
+                    response.status,
+                )
+        except Exception as exc:
+            log_fn = logger.debug if suppress_error else logger.error
+            log_fn("Request failed: path=%s, error=%s", path, exc)
+        return {}
+
+    @staticmethod
+    def _normalize_paged_response(
+        raw_data: Any,
+        *,
+        item_keys: Optional[List[str]] = None,
+        source: str = "api",
+    ) -> Dict[str, Any]:
+        raw = raw_data if isinstance(raw_data, dict) else {}
+        keys = item_keys or []
+        keys = ["items", *keys, "aweme_list", "mix_list", "music_list"]
+
+        items: List[Dict[str, Any]] = []
+        for key in keys:
+            value = raw.get(key)
+            if isinstance(value, list):
+                items = value
+                break
+
+        has_more_value = raw.get("has_more", False)
+        try:
+            has_more = bool(int(has_more_value))
+        except (TypeError, ValueError):
+            has_more = bool(has_more_value)
+
+        max_cursor_value = raw.get("max_cursor")
+        if max_cursor_value is None:
+            max_cursor_value = raw.get("cursor", 0)
+        try:
+            max_cursor = int(max_cursor_value or 0)
+        except (TypeError, ValueError):
+            max_cursor = 0
+
+        status_code_value = raw.get("status_code", 0)
+        try:
+            status_code = int(status_code_value or 0)
+        except (TypeError, ValueError):
+            status_code = 0
+
+        risk_flags = {
+            "login_tip": bool(
+                ((raw.get("not_login_module") or {}).get("guide_login_tip_exist"))
+                if isinstance(raw.get("not_login_module"), dict)
+                else False
+            ),
+            "verify_page": bool(raw.get("verify_ticket")),
+        }
+
+        normalized = {
+            "items": items,
+            "aweme_list": items,  # 兼容旧调用方
+            "has_more": has_more,
+            "max_cursor": max_cursor,
+            "status_code": status_code,
+            "source": source,
+            "risk_flags": risk_flags,
+            "raw": raw,
+        }
+        for key, value in raw.items():
+            if key not in normalized:
+                normalized[key] = value
+        return normalized
+
+    async def _build_user_page_params(
+        self, sec_uid: str, max_cursor: int, count: int
+    ) -> Dict[str, Any]:
+        params = await self._default_query()
+        params.update(
+            {
+                "sec_user_id": sec_uid,
+                "max_cursor": max_cursor,
+                "count": count,
+                "locate_query": "false",
+            }
+        )
+        return params
+
     async def get_video_detail(
         self, aweme_id: str, *, suppress_error: bool = False
     ) -> Optional[Dict[str, Any]]:
-        await self._ensure_session()
         params = await self._default_query()
         params.update(
             {
@@ -166,38 +269,21 @@ class DouyinAPIClient:
             }
         )
 
-        signed_url, ua = self.build_signed_path("/aweme/v1/web/aweme/detail/", params)
-
-        try:
-            async with self._session.get(
-                signed_url, headers={**self.headers, "User-Agent": ua}
-            ) as response:
-                if response.status == 200:
-                    data = await response.json(content_type=None)
-                    return data.get("aweme_detail")
-                log_fn = logger.debug if suppress_error else logger.error
-                log_fn(
-                    "Video detail request failed: %s, status=%s",
-                    aweme_id,
-                    response.status,
-                )
-        except Exception as e:
-            log_fn = logger.debug if suppress_error else logger.error
-            log_fn("Failed to get video detail: %s, error: %s", aweme_id, e)
-
+        data = await self._request_json(
+            "/aweme/v1/web/aweme/detail/",
+            params,
+            suppress_error=suppress_error,
+        )
+        if data:
+            return data.get("aweme_detail")
         return None
 
     async def get_user_post(
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
     ) -> Dict[str, Any]:
-        await self._ensure_session()
-        params = await self._default_query()
+        params = await self._build_user_page_params(sec_uid, max_cursor, count)
         params.update(
             {
-                "sec_user_id": sec_uid,
-                "max_cursor": max_cursor,
-                "count": count,
-                "locate_query": "false",
                 "show_live_replay_strategy": "1",
                 "need_time_list": "1",
                 "time_list_query": "0",
@@ -206,46 +292,70 @@ class DouyinAPIClient:
                 "publish_video_strategy_type": "2",
             }
         )
+        raw = await self._request_json("/aweme/v1/web/aweme/post/", params)
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
-        signed_url, ua = self.build_signed_path("/aweme/v1/web/aweme/post/", params)
+    async def get_user_like(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 20
+    ) -> Dict[str, Any]:
+        params = await self._build_user_page_params(sec_uid, max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/aweme/favorite/", params)
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
-        try:
-            async with self._session.get(
-                signed_url, headers={**self.headers, "User-Agent": ua}
-            ) as response:
-                if response.status == 200:
-                    return await response.json(content_type=None)
-                logger.error(
-                    f"User post request failed: {sec_uid}, status={response.status}"
-                )
-        except Exception as e:
-            logger.error(f"Failed to get user post: {sec_uid}, error: {e}")
+    async def get_user_mix(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 20
+    ) -> Dict[str, Any]:
+        params = await self._build_user_page_params(sec_uid, max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/mix/list/", params)
+        return self._normalize_paged_response(raw, item_keys=["mix_list"])
 
-        return {}
+    async def get_user_music(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 20
+    ) -> Dict[str, Any]:
+        params = await self._build_user_page_params(sec_uid, max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/music/list/", params)
+        return self._normalize_paged_response(raw, item_keys=["music_list"])
 
     async def get_user_info(self, sec_uid: str) -> Optional[Dict[str, Any]]:
-        await self._ensure_session()
         params = await self._default_query()
         params.update({"sec_user_id": sec_uid})
 
-        signed_url, ua = self.build_signed_path(
-            "/aweme/v1/web/user/profile/other/", params
-        )
-
-        try:
-            async with self._session.get(
-                signed_url, headers={**self.headers, "User-Agent": ua}
-            ) as response:
-                if response.status == 200:
-                    data = await response.json(content_type=None)
-                    return data.get("user")
-                logger.error(
-                    f"User info request failed: {sec_uid}, status={response.status}"
-                )
-        except Exception as e:
-            logger.error(f"Failed to get user info: {sec_uid}, error: {e}")
-
+        data = await self._request_json("/aweme/v1/web/user/profile/other/", params)
+        if data:
+            return data.get("user")
         return None
+
+    async def get_mix_detail(self, mix_id: str) -> Optional[Dict[str, Any]]:
+        params = await self._default_query()
+        params.update({"mix_id": mix_id})
+        data = await self._request_json("/aweme/v1/web/mix/detail/", params)
+        if not data:
+            return None
+        return data.get("mix_info") or data.get("mix_detail") or data
+
+    async def get_mix_aweme(
+        self, mix_id: str, cursor: int = 0, count: int = 20
+    ) -> Dict[str, Any]:
+        params = await self._default_query()
+        params.update({"mix_id": mix_id, "cursor": cursor, "count": count})
+        raw = await self._request_json("/aweme/v1/web/mix/aweme/", params)
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
+
+    async def get_music_detail(self, music_id: str) -> Optional[Dict[str, Any]]:
+        params = await self._default_query()
+        params.update({"music_id": music_id})
+        data = await self._request_json("/aweme/v1/web/music/detail/", params)
+        if not data:
+            return None
+        return data.get("music_info") or data.get("music_detail") or data
+
+    async def get_music_aweme(
+        self, music_id: str, cursor: int = 0, count: int = 20
+    ) -> Dict[str, Any]:
+        params = await self._default_query()
+        params.update({"music_id": music_id, "cursor": cursor, "count": count})
+        raw = await self._request_json("/aweme/v1/web/music/aweme/", params)
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def resolve_short_url(self, short_url: str) -> Optional[str]:
         try:

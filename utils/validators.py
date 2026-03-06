@@ -39,4 +39,8 @@ def parse_url_type(url: str) -> Optional[str]:
         return 'user'
     if '/note/' in path or '/gallery/' in path:
         return 'gallery'
+    if '/collection/' in path or '/mix/' in path:
+        return 'collection'
+    if '/music/' in path:
+        return 'music'
     return None

@@ -1,6 +1,5 @@
 import re
 from typing import Optional, Dict, Any
-from urllib.parse import urlparse, parse_qs
 from utils.validators import parse_url_type
 from utils.logger import setup_logger
 
@@ -41,6 +40,11 @@ class URLParser:
                 result['note_id'] = note_id
                 result['aweme_id'] = note_id
 
+        elif url_type == 'music':
+            music_id = URLParser._extract_music_id(url)
+            if music_id:
+                result['music_id'] = music_id
+
         return result
 
     @staticmethod
@@ -74,6 +78,13 @@ class URLParser:
     @staticmethod
     def _extract_note_id(url: str) -> Optional[str]:
         match = re.search(r'/note/(\d+)', url)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_music_id(url: str) -> Optional[str]:
+        match = re.search(r'/music/(\d+)', url)
         if match:
             return match.group(1)
         return None

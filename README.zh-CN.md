@@ -20,22 +20,22 @@
 
 - 单个视频下载：`/video/{aweme_id}`
 - 单个图文下载：`/note/{note_id}`
+- 单个合集下载：`/collection/{mix_id}`、`/mix/{mix_id}`
+- 单个音乐下载：`/music/{music_id}`（优先原声文件，缺失时回退到该音乐下首条作品）
 - 短链自动解析：`https://v.douyin.com/...`
-- 用户主页批量下载：`/user/{sec_uid}` + `mode: [post]`
+- 用户主页批量下载：`/user/{sec_uid}` + `mode: [post, like, mix, music]`
 - 无水印优先、封面/音乐/头像/JSON 元数据下载
 - 可选视频转写（`transcript`，调用 OpenAI Transcriptions API）
 - 并发下载、失败重试、速率限制
-- SQLite 去重与增量下载（`increase.post`）
-- 时间过滤（`start_time` / `end_time`，当前用于 `post`）
+- SQLite 去重与增量下载（`increase.post/like/mix/music`）
+- 时间过滤（`start_time` / `end_time`，用于批量模式作品时间过滤）
 - 翻页受限时浏览器兜底抓取（支持人工过验证）
 - 进度条展示（支持 `progress.quiet_logs` 静默模式）
 
-### 暂未接入（请勿按已支持使用）
+### 限制说明
 
-- `mode: like` 点赞下载
-- `mode: mix` 合集下载
-- `number.like` / `number.mix` / `increase.like` / `increase.mix`
-- `collection/mix` 链接当前无对应下载器（会提示不支持）
+- 浏览器兜底当前仅针对 `post` 完整验证，`like/mix/music` 主要依赖 API 正常分页
+- `number.allmix` / `increase.allmix` 作为兼容别名保留，运行时会归一化到 `mix`
 
 ## 快速开始
 
@@ -205,10 +205,10 @@ export OPENAI_API_KEY="sk-xxxx"
 
 ## 关键配置项（按当前代码实际生效）
 
-- `mode`：当前仅 `post` 生效
-- `number`：当前仅 `number.post` 生效
-- `increase`：当前仅 `increase.post` 生效
-- `start_time/end_time`：当前用于 `post` 时间过滤
+- `mode`：支持 `post/like/mix/music`
+- `number`：`number.post/like/mix/music` 生效（`allmix` 为兼容别名）
+- `increase`：`increase.post/like/mix/music` 生效（`allmix` 为兼容别名）
+- `start_time/end_time`：用于批量模式的时间过滤
 - `folderstyle`：控制按作品维度创建子目录
 - `browser_fallback.*`：`post` 翻页受限时启用浏览器兜底
 - `progress.quiet_logs`：进度阶段静默日志，减少刷屏

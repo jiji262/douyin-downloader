@@ -111,3 +111,50 @@ path: ./Downloaded/
 
     loader_b = ConfigLoader(str(config_file))
     assert loader_b.get("progress", {}).get("quiet_logs") is True
+
+
+@pytest.mark.parametrize(
+    "number_cfg,increase_cfg,expected_mix_number,expected_mix_increase,expect_warning",
+    [
+        ({"mix": 9}, {"mix": True}, 9, True, False),
+        ({"allmix": 7}, {"allmix": True}, 7, True, False),
+        ({"mix": 8, "allmix": 8}, {"mix": False, "allmix": False}, 8, False, False),
+        ({"mix": 5, "allmix": 3}, {"mix": False, "allmix": True}, 5, False, True),
+        ({}, {}, 0, False, False),
+    ],
+)
+def test_config_loader_normalizes_mix_aliases(
+    tmp_path,
+    caplog,
+    number_cfg,
+    increase_cfg,
+    expected_mix_number,
+    expected_mix_increase,
+    expect_warning,
+):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        f"""
+link:
+  - https://www.douyin.com/video/1
+path: ./Downloaded/
+number: {number_cfg}
+increase: {increase_cfg}
+"""
+    )
+
+    loader = ConfigLoader(str(config_file))
+    number = loader.get("number", {})
+    increase = loader.get("increase", {})
+
+    assert number.get("mix") == expected_mix_number
+    assert increase.get("mix") == expected_mix_increase
+    # 内部统一后，allmix 与 mix 保持一致，避免后续使用双语义。
+    assert number.get("allmix") == expected_mix_number
+    assert increase.get("allmix") == expected_mix_increase
+
+    warning_logs = [record.message for record in caplog.records if record.levelname == "WARNING"]
+    if expect_warning:
+        assert any("mix/allmix conflict" in message for message in warning_logs)
+    else:
+        assert not any("mix/allmix conflict" in message for message in warning_logs)
