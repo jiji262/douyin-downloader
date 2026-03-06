@@ -85,6 +85,49 @@ def test_post_strategy_calls_browser_recover_when_pagination_restricted():
     assert [item["aweme_id"] for item in items] == ["111", "222"]
 
 
+def test_post_strategy_calls_browser_recover_when_cursor_stalls():
+    class _API:
+        async def get_user_post(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [_make_aweme("333")],
+                "has_more": True,
+                "max_cursor": max_cursor,
+                "status_code": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"post": 0},
+                        "increase": {"post": False},
+                        "browser_fallback": {"enabled": True},
+                    }.get(key, default)
+                },
+            )()
+            self.recovered_called = False
+            self._progress_update_step = lambda *_args, **_kwargs: None
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+        async def _recover_user_post_with_browser(self, sec_uid, user_info, aweme_list):
+            self.recovered_called = True
+            aweme_list.append(_make_aweme("444"))
+
+    downloader = _Downloader()
+    strategy = PostUserModeStrategy(downloader)
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+    assert downloader.recovered_called is True
+    assert [item["aweme_id"] for item in items] == ["333", "444"]
+
+
 def test_mix_strategy_filters_partial_aweme_items_without_metadata_inflation():
     class _API:
         async def get_user_mix(self, _sec_uid, max_cursor=0, count=20):
@@ -120,6 +163,45 @@ def test_mix_strategy_filters_partial_aweme_items_without_metadata_inflation():
     assert items == [{"aweme_id": "111"}]
 
 
+def test_mix_strategy_expansion_does_not_apply_number_limit_early():
+    class _API:
+        async def get_user_mix(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [{"mix_info": {"mix_id": "mix-1"}}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_mix_aweme(self, _mix_id, cursor=0, count=20):
+            return {
+                "items": [{"aweme_id": "m-1"}, {"aweme_id": "m-2"}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"mix": 1},
+                        "increase": {"mix": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = MixUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+    assert [item["aweme_id"] for item in items] == ["m-1", "m-2"]
+
+
 def test_music_strategy_filters_partial_aweme_items_without_metadata_inflation():
     class _API:
         async def get_user_music(self, _sec_uid, max_cursor=0, count=20):
@@ -153,3 +235,42 @@ def test_music_strategy_filters_partial_aweme_items_without_metadata_inflation()
     strategy = MusicUserModeStrategy(_Downloader())
     items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
     assert items == [{"aweme_id": "222"}]
+
+
+def test_music_strategy_expansion_does_not_apply_number_limit_early():
+    class _API:
+        async def get_user_music(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [{"music_info": {"id": "music-1"}}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_music_aweme(self, _music_id, cursor=0, count=20):
+            return {
+                "items": [{"aweme_id": "mu-1"}, {"aweme_id": "mu-2"}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"music": 1},
+                        "increase": {"music": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = MusicUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+    assert [item["aweme_id"] for item in items] == ["mu-1", "mu-2"]

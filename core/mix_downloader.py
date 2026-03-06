@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.user_modes.base_strategy import BaseUserModeStrategy
 from utils.logger import setup_logger
 
 logger = setup_logger("MixDownloader")
@@ -18,7 +19,6 @@ class MixDownloader(BaseDownloader):
             return result
 
         aweme_list = await self._collect_mix_aweme_list(str(mix_id))
-        aweme_list = self._limit_count(aweme_list, "mix")
 
         result.total = len(aweme_list)
         self._progress_set_item_total(result.total, "合集作品待下载")
@@ -73,7 +73,7 @@ class MixDownloader(BaseDownloader):
         while has_more:
             await self.rate_limiter.acquire()
             raw_page = await fetch_mix_aweme(mix_id, cursor=cursor, count=20)
-            page = self._normalize_page_data(raw_page)
+            page = BaseUserModeStrategy._normalize_page_data(raw_page)
             items = page.get("items", [])
             if not items:
                 break
@@ -120,24 +120,3 @@ class MixDownloader(BaseDownloader):
             if isinstance(value, dict) and value.get("aweme_id"):
                 return value
         return None
-
-    @staticmethod
-    def _normalize_page_data(data: Any) -> Dict[str, Any]:
-        if not isinstance(data, dict):
-            return {"items": [], "has_more": False, "max_cursor": 0}
-
-        if isinstance(data.get("items"), list):
-            items = data.get("items") or []
-            return {
-                "items": items,
-                "has_more": bool(data.get("has_more")),
-                "max_cursor": int(data.get("max_cursor", 0) or 0),
-            }
-
-        # 兼容老字段
-        items = data.get("aweme_list") or data.get("mix_aweme_list") or []
-        return {
-            "items": items if isinstance(items, list) else [],
-            "has_more": bool(data.get("has_more")),
-            "max_cursor": int(data.get("max_cursor", 0) or 0),
-        }

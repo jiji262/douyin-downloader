@@ -26,9 +26,6 @@ class MixUserModeStrategy(BaseUserModeStrategy):
         if not callable(fetch_mix_aweme):
             return expanded
 
-        number_limit = int(
-            self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0
-        )
         seen_aweme: set[str] = set()
 
         for item in raw_items:
@@ -56,9 +53,6 @@ class MixUserModeStrategy(BaseUserModeStrategy):
                         continue
                     seen_aweme.add(aweme_id)
                     expanded.append(aweme)
-
-                if number_limit > 0 and len(expanded) >= number_limit:
-                    return expanded[:number_limit]
 
                 has_more = bool(page.get("has_more", False))
                 next_cursor = int(page.get("max_cursor", 0) or 0)

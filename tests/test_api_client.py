@@ -163,9 +163,11 @@ def test_browser_fallback_caps_warmup_wait(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_user_post_returns_normalized_dto(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
+    captured_params = {}
 
-    async def _fake_request_json(path, _params, suppress_error=False):
+    async def _fake_request_json(path, params, suppress_error=False):
         assert path == "/aweme/v1/web/aweme/post/"
+        captured_params.update(params)
         return {
             "status_code": 0,
             "aweme_list": [{"aweme_id": "111"}],
@@ -183,15 +185,18 @@ async def test_get_user_post_returns_normalized_dto(monkeypatch):
     assert data["status_code"] == 0
     assert data["source"] == "api"
     assert isinstance(data["raw"], dict)
+    assert captured_params["show_live_replay_strategy"] == "1"
+    assert captured_params["need_time_list"] == "1"
+    assert captured_params["time_list_query"] == "0"
 
 
 @pytest.mark.asyncio
 async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
-    called_paths = []
+    called_requests = []
 
-    async def _fake_request_json(path, _params, suppress_error=False):
-        called_paths.append(path)
+    async def _fake_request_json(path, params, suppress_error=False):
+        called_requests.append((path, dict(params)))
         return {"status_code": 0, "aweme_list": [], "has_more": 0, "max_cursor": 0}
 
     monkeypatch.setattr(client, "_request_json", _fake_request_json)
@@ -200,11 +205,20 @@ async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
     mix_data = await client.get_user_mix("sec-1", max_cursor=0, count=20)
     music_data = await client.get_user_music("sec-1", max_cursor=0, count=20)
 
-    assert called_paths == [
+    assert [path for path, _params in called_requests] == [
         "/aweme/v1/web/aweme/favorite/",
         "/aweme/v1/web/mix/list/",
         "/aweme/v1/web/music/list/",
     ]
+    mix_params = called_requests[1][1]
+    music_params = called_requests[2][1]
+    for forbidden_key in (
+        "show_live_replay_strategy",
+        "need_time_list",
+        "time_list_query",
+    ):
+        assert forbidden_key not in mix_params
+        assert forbidden_key not in music_params
     assert like_data["items"] == []
     assert mix_data["items"] == []
     assert music_data["items"] == []

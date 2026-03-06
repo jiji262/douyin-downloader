@@ -76,6 +76,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                     "max_cursor did not advance (%s), stop paging to avoid loop",
                     max_cursor,
                 )
+                pagination_restricted = True
                 break
 
             if number_limit > 0 and len(aweme_list) >= number_limit:

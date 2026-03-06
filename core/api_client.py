@@ -254,9 +254,6 @@ class DouyinAPIClient:
                 "max_cursor": max_cursor,
                 "count": count,
                 "locate_query": "false",
-                "show_live_replay_strategy": "1",
-                "need_time_list": "1",
-                "time_list_query": "0",
             }
         )
         return params
@@ -287,6 +284,9 @@ class DouyinAPIClient:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
         params.update(
             {
+                "show_live_replay_strategy": "1",
+                "need_time_list": "1",
+                "time_list_query": "0",
                 "whale_cut_token": "",
                 "cut_version": "1",
                 "publish_video_strategy_type": "2",
