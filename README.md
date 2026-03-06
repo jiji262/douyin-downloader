@@ -6,33 +6,37 @@
 
 中文文档 (Chinese): [README.zh-CN.md](./README.zh-CN.md)
 
-A practical Douyin downloader for both single-item and profile batch downloads, with progress display, retries, SQLite deduplication, and browser fallback support.
+A practical Douyin downloader supporting videos, image-notes, collections, music, and profile batch downloads, with progress display, retries, SQLite deduplication, download integrity checks, and browser fallback support.
 
 > This document targets **V2.0 (`main` branch)**.  
 > For the legacy version, switch to **V1.0**: `git fetch --all && git switch V1.0`
-
-## Version Update Notice
-
-> This project has been significantly upgraded to **V2.0**. Ongoing feature development and fixes are mainly on the `main` branch.  
-> **V1.0 is still available**, but maintained with low frequency.
 
 ## Feature Overview
 
 ### Supported
 
-- Single video download: `/video/{aweme_id}`
-- Single image-note download: `/note/{note_id}`
-- Single collection download: `/collection/{mix_id}` and `/mix/{mix_id}`
-- Single music download: `/music/{music_id}` (prefer direct original audio, fallback to first related aweme)
-- Automatic short-link parsing: `https://v.douyin.com/...`
-- Profile batch download: `/user/{sec_uid}` + `mode: [post, like, mix, music]`
-- No-watermark preferred, plus cover/music/avatar/JSON metadata downloads
-- Optional video transcription (`transcript`, using OpenAI Transcriptions API)
-- Concurrent downloads, retry logic, and rate limiting
-- SQLite deduplication and incremental download (`increase.post/like/mix/music`)
-- Time filters (`start_time` / `end_time`, used for batch mode items)
-- Browser fallback when pagination is blocked (manual verification supported)
-- Progress bar display (supports `progress.quiet_logs` quiet mode)
+| Feature | Description |
+|---------|-------------|
+| Single video download | `/video/{aweme_id}` |
+| Single image-note download | `/note/{note_id}` |
+| Single collection download | `/collection/{mix_id}` and `/mix/{mix_id}` |
+| Single music download | `/music/{music_id}` (prefers direct audio, fallback to first related aweme) |
+| Short link parsing | `https://v.douyin.com/...` |
+| Profile batch download | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
+| No-watermark preferred | Automatically selects watermark-free video source |
+| Extra assets | Cover, music, avatar, JSON metadata |
+| Video transcription | Optional, using OpenAI Transcriptions API |
+| Concurrent downloads | Configurable concurrency, default 5 |
+| Retry with backoff | Exponential backoff (1s, 2s, 5s) |
+| Rate limiting | Default 2 req/s |
+| SQLite deduplication | Database + local file dual dedup |
+| Incremental downloads | `increase.post/like/mix/music` |
+| Time filters | `start_time` / `end_time` |
+| Browser fallback | Launches browser when pagination is blocked, manual CAPTCHA supported |
+| Download integrity check | Content-Length validation, auto-cleanup of incomplete files |
+| Progress display | Rich progress bars, supports `progress.quiet_logs` quiet mode |
+| Docker deployment | Dockerfile included |
+| CI/CD | GitHub Actions for testing and linting |
 
 ### Current Limitations
 
@@ -52,6 +56,13 @@ A practical Douyin downloader for both single-item and profile batch downloads, 
 pip install -r requirements.txt
 ```
 
+For browser fallback and automatic cookie capture:
+
+```bash
+pip install playwright
+python -m playwright install chromium
+```
+
 ### 3) Copy config file
 
 ```bash
@@ -61,12 +72,17 @@ cp config.example.yml config.yml
 ### 4) Get cookies (recommended: automatic)
 
 ```bash
-pip install playwright
-python -m playwright install chromium
 python -m tools.cookie_fetcher --config config.yml
 ```
 
 After logging into Douyin, return to the terminal and press Enter. Cookies will be written to your config automatically.
+
+### 5) Docker deployment (optional)
+
+```bash
+docker build -t douyin-downloader .
+docker run -v $(pwd)/config.yml:/app/config.yml -v $(pwd)/Downloaded:/app/Downloaded douyin-downloader
+```
 
 ## Minimal Working Config
 
@@ -129,14 +145,17 @@ python run.py -c config.yml \
   -p ./Downloaded
 ```
 
-Arguments:
+### Arguments
 
-- `-u, --url`: append download link(s), can be repeated
-- `-c, --config`: specify config file
-- `-p, --path`: specify download directory
-- `-t, --thread`: specify concurrency
-- `--show-warnings`: show warning/error logs
-- `-v, --verbose`: show info/warning/error logs
+| Argument | Description |
+|----------|-------------|
+| `-u, --url` | Append download link(s), can be repeated |
+| `-c, --config` | Specify config file (default: `config.yml`) |
+| `-p, --path` | Specify download directory |
+| `-t, --thread` | Specify concurrency |
+| `--show-warnings` | Show warning/error logs |
+| `-v, --verbose` | Show info/warning/error logs |
+| `--version` | Show version number |
 
 ## Typical Scenarios
 
@@ -154,7 +173,21 @@ link:
   - https://www.douyin.com/note/7341234567890123456
 ```
 
-### Batch download a creator profile
+### Download a collection
+
+```yaml
+link:
+  - https://www.douyin.com/collection/7341234567890123456
+```
+
+### Download a music track
+
+```yaml
+link:
+  - https://www.douyin.com/music/7341234567890123456
+```
+
+### Batch download a creator's posts
 
 ```yaml
 link:
@@ -163,6 +196,39 @@ mode:
   - post
 number:
   post: 50
+```
+
+### Batch download a creator's liked posts
+
+```yaml
+link:
+  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
+mode:
+  - like
+number:
+  like: 0    # 0 means download all
+```
+
+### Download multiple modes at once
+
+```yaml
+link:
+  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
+mode:
+  - post
+  - like
+  - mix
+  - music
+```
+
+Cross-mode deduplication: the same aweme_id won't be downloaded twice across different modes.
+
+### Incremental download (only new items)
+
+```yaml
+increase:
+  post: true
+database: true    # incremental mode requires database
 ```
 
 ### Full crawl (no item limit)
@@ -205,17 +271,21 @@ When enabled, it generates:
 
 If `database: true`, job status is also recorded in SQLite table `transcript_job` (`success/failed/skipped`).
 
-## Key Config Fields (based on current effective code paths)
+## Key Config Fields
 
-- `mode`: supports `post/like/mix/music`
-- `number`: `number.post/like/mix/music` are effective (`allmix` is a compatibility alias)
-- `increase`: `increase.post/like/mix/music` are effective (`allmix` is a compatibility alias)
-- `start_time/end_time`: used for batch-mode time filtering
-- `folderstyle`: controls whether to create per-item subdirectories
-- `browser_fallback.*`: used for `post` when pagination is restricted
-- `progress.quiet_logs`: quiet logs during progress stage
-- `transcript.*`: optional transcription after video download
-- `auto_cookie`: reserved field, not used in main flow currently
+| Field | Description |
+|-------|-------------|
+| `mode` | Supports `post`/`like`/`mix`/`music`, can be combined |
+| `number.post/like/mix/music` | Per-mode download limit, 0 = unlimited |
+| `increase.post/like/mix/music` | Per-mode incremental toggle |
+| `start_time` / `end_time` | Time filter (format: `YYYY-MM-DD`) |
+| `folderstyle` | Create per-item subdirectories |
+| `browser_fallback.*` | Browser fallback for `post` when pagination is restricted |
+| `progress.quiet_logs` | Quiet logs during progress stage |
+| `transcript.*` | Optional transcription after video download |
+| `database` | Enable SQLite deduplication and history |
+| `thread` | Concurrent download count |
+| `retry_times` | Retry count on failure |
 
 ## Output Structure
 
@@ -224,17 +294,54 @@ Default with `folderstyle: true`:
 ```text
 Downloaded/
 ├── download_manifest.jsonl
+├── dy_downloader.db          # when database: true
 └── AuthorName/
-    └── post/
-        └── 2024-02-07_Title_aweme_id/
-            ├── ...mp4
-            ├── ..._cover.jpg
-            ├── ..._music.mp3
-            ├── ..._data.json
-            ├── ..._avatar.jpg
-            ├── ...transcript.txt      # transcript.enabled=true and includes txt
-            └── ...transcript.json     # transcript.enabled=true and includes json
+    ├── post/
+    │   └── 2024-02-07_Title_aweme_id/
+    │       ├── ...mp4
+    │       ├── ..._cover.jpg
+    │       ├── ..._music.mp3
+    │       ├── ..._data.json
+    │       ├── ..._avatar.jpg
+    │       ├── ...transcript.txt
+    │       └── ...transcript.json
+    ├── like/
+    │   └── ...
+    ├── mix/
+    │   └── ...
+    └── music/
+        └── ...
 ```
+
+## Re-downloading Content
+
+The program uses a **database record + local file** dual check to decide whether to skip already-downloaded content. To force re-download, you need to clean up accordingly:
+
+### Re-download a specific item
+
+```bash
+# Delete local files (folder name contains the aweme_id)
+rm -rf Downloaded/AuthorName/post/*_<aweme_id>/
+
+# Delete database record
+sqlite3 dy_downloader.db "DELETE FROM aweme WHERE aweme_id = '<aweme_id>';"
+```
+
+### Re-download all items from a specific author
+
+```bash
+rm -rf Downloaded/AuthorName/
+sqlite3 dy_downloader.db "DELETE FROM aweme WHERE author_name = 'AuthorName';"
+```
+
+### Full reset (re-download everything)
+
+```bash
+rm -rf Downloaded/
+rm dy_downloader.db
+```
+
+> **Note:** Deleting only the database but keeping files will NOT trigger re-download — the program scans local filenames for aweme_id to detect existing downloads. Deleting only files but keeping the database WILL trigger re-download (the program treats "in DB but missing locally" as needing retry).
 
 ## FAQ
 
@@ -267,6 +374,12 @@ Check in order:
 - whether downloaded items are videos (image-notes are not transcribed)
 - whether `OPENAI_API_KEY` (or `transcript.api_key`) is valid
 - whether `response_formats` includes `txt` or `json`
+
+### 5) How to view download history?
+
+```bash
+sqlite3 dy_downloader.db "SELECT aweme_id, title, author_name, datetime(download_time, 'unixepoch', 'localtime') FROM aweme ORDER BY download_time DESC LIMIT 20;"
+```
 
 ## Legacy Version (V1.0)
 

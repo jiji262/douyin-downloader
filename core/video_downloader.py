@@ -20,7 +20,7 @@ class VideoDownloader(BaseDownloader):
         self._progress_update_step("下载作品", "单视频资源下载中")
 
         if not await self._should_download(aweme_id):
-            logger.info(f"Video {aweme_id} already downloaded, skipping")
+            logger.info("Video %s already downloaded, skipping", aweme_id)
             result.skipped += 1
             self._progress_advance_item("skipped", str(aweme_id))
             return result
@@ -29,7 +29,7 @@ class VideoDownloader(BaseDownloader):
 
         aweme_data = await self.api_client.get_video_detail(aweme_id)
         if not aweme_data:
-            logger.error(f"Failed to get video detail: {aweme_id}")
+            logger.error("Failed to get video detail: %s", aweme_id)
             result.failed += 1
             self._progress_advance_item("failed", str(aweme_id))
             return result

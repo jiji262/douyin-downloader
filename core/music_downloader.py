@@ -47,7 +47,8 @@ class MusicDownloader(BaseDownloader):
                 self._progress_advance_item("skipped", str(aweme.get("aweme_id")))
                 return result
 
-            success = await self._download_aweme_assets(aweme, "music", mode="music")
+            aweme_author = (aweme.get("author") or {}).get("nickname", "music")
+            success = await self._download_aweme_assets(aweme, aweme_author, mode="music")
             if success:
                 result.success += 1
                 self._progress_advance_item("success", str(aweme.get("aweme_id")))

@@ -115,6 +115,90 @@ class BaseUserModeStrategy(ABC):
             return [item for item in items if isinstance(item, dict)]
         return []
 
+    async def _expand_metadata_items(
+        self,
+        raw_items: List[Dict[str, Any]],
+        id_field: str,
+        id_aliases: List[str],
+        fetch_method_name: str,
+    ) -> List[Dict[str, Any]]:
+        """Shared expansion logic for mix/music strategies that receive metadata
+        items instead of aweme items. Fetches the actual aweme list for each
+        metadata entry using the given API method."""
+        fetcher = getattr(self.downloader.api_client, fetch_method_name, None)
+        if not callable(fetcher):
+            return []
+
+        expanded: List[Dict[str, Any]] = []
+        seen_aweme: set[str] = set()
+
+        for item in raw_items:
+            entry_id = item.get(id_field)
+            if not entry_id:
+                for alias in id_aliases:
+                    candidate = item.get(alias)
+                    if not candidate:
+                        info = item.get(f"{id_field.split('_')[0]}_info")
+                        if isinstance(info, dict):
+                            candidate = info.get(id_field) or info.get("id")
+                    if candidate:
+                        entry_id = candidate
+                        break
+            if not entry_id:
+                continue
+
+            cursor = 0
+            has_more = True
+            while has_more:
+                await self.downloader.rate_limiter.acquire()
+                try:
+                    page_data = await fetcher(str(entry_id), cursor=cursor, count=20)
+                except Exception as exc:
+                    logger.warning(
+                        "Expansion fetch failed for %s=%s: %s",
+                        id_field, entry_id, exc,
+                    )
+                    break
+                page = self._normalize_page_data(page_data)
+                page_items = page.get("items", [])
+                if not page_items:
+                    break
+
+                for aweme in page_items:
+                    extracted = self._extract_aweme_from_item(aweme)
+                    if not extracted:
+                        continue
+                    aweme_id = str(extracted.get("aweme_id") or "")
+                    if not aweme_id or aweme_id in seen_aweme:
+                        continue
+                    seen_aweme.add(aweme_id)
+                    expanded.append(extracted)
+
+                has_more = bool(page.get("has_more", False))
+                next_cursor = int(page.get("max_cursor", 0) or 0)
+                if has_more and next_cursor == cursor:
+                    logger.warning(
+                        "%s %s cursor did not advance",
+                        id_field,
+                        entry_id,
+                    )
+                    break
+                cursor = next_cursor
+
+        return expanded
+
+    @staticmethod
+    def _extract_aweme_from_item(item: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(item, dict):
+            return None
+        if item.get("aweme_id"):
+            return item
+        for key in ("aweme", "aweme_info", "aweme_detail"):
+            value = item.get(key)
+            if isinstance(value, dict) and value.get("aweme_id"):
+                return value
+        return None
+
     @staticmethod
     def _normalize_page_data(data: Any) -> Dict[str, Any]:
         if not isinstance(data, dict):

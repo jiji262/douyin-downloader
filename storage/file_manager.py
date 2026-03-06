@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -49,13 +50,14 @@ class FileManager:
         if session is None:
             default_headers = headers or {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 "Referer": "https://www.douyin.com/",
                 "Accept": "*/*",
             }
             session = aiohttp.ClientSession(headers=default_headers)
             should_close = True
 
+        tmp_path = save_path.with_suffix(save_path.suffix + ".tmp")
         try:
             async with session.get(
                 url,
@@ -63,9 +65,22 @@ class FileManager:
                 headers=headers,
             ) as response:
                 if response.status == 200:
-                    async with aiofiles.open(save_path, "wb") as f:
+                    expected_size = response.content_length
+                    written = 0
+                    async with aiofiles.open(tmp_path, "wb") as f:
                         async for chunk in response.content.iter_chunked(8192):
                             await f.write(chunk)
+                            written += len(chunk)
+                    if expected_size is not None and written != expected_size:
+                        logger.warning(
+                            "Size mismatch for %s: expected %d, got %d",
+                            save_path.name,
+                            expected_size,
+                            written,
+                        )
+                        tmp_path.unlink(missing_ok=True)
+                        return False
+                    os.replace(str(tmp_path), str(save_path))
                     return True
                 else:
                     logger.debug(
@@ -76,13 +91,20 @@ class FileManager:
                     return False
         except Exception as e:
             logger.debug("Download error for %s: %s", save_path.name, e)
+            tmp_path.unlink(missing_ok=True)
             return False
         finally:
             if should_close:
                 await session.close()
 
     def file_exists(self, file_path: Path) -> bool:
-        return file_path.exists() and file_path.stat().st_size > 0
+        try:
+            return file_path.exists() and file_path.stat().st_size > 0
+        except OSError:
+            return False
 
     def get_file_size(self, file_path: Path) -> int:
-        return file_path.stat().st_size if self.file_exists(file_path) else 0
+        try:
+            return file_path.stat().st_size if self.file_exists(file_path) else 0
+        except OSError:
+            return 0

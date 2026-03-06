@@ -11,7 +11,7 @@ class URLParser:
     def parse(url: str) -> Optional[Dict[str, Any]]:
         url_type = parse_url_type(url)
         if not url_type:
-            logger.error(f"Unsupported URL type: {url}")
+            logger.error("Unsupported URL type: %s", url)
             return None
 
         result = {

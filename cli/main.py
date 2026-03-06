@@ -38,7 +38,7 @@ async def download_url(
     if progress_reporter:
         progress_reporter.advance_step("初始化", "创建下载组件")
     file_manager = FileManager(config.get('path'))
-    rate_limiter = RateLimiter(max_per_second=2)
+    rate_limiter = RateLimiter(max_per_second=float(config.get('rate_limit', 2) or 2))
     retry_handler = RetryHandler(max_retries=config.get('retry_times', 3))
     queue_manager = QueueManager(max_workers=int(config.get('thread', 5) or 5))
 
@@ -98,12 +98,16 @@ async def download_url(
                 "写入数据库历史" if (result and database) else "数据库未启用，跳过",
             )
         if result and database:
+            safe_config = {
+                k: v for k, v in config.config.items()
+                if k not in ("cookies", "cookie", "transcript")
+            }
             await database.add_history({
                 'url': original_url,
                 'url_type': parsed['type'],
                 'total_count': result.total,
                 'success_count': result.success,
-                'config': json.dumps(config.config, ensure_ascii=False),
+                'config': json.dumps(safe_config, ensure_ascii=False),
             })
 
         if progress_reporter:
@@ -157,7 +161,8 @@ async def main_async(args):
 
     database = None
     if config.get('database'):
-        database = Database()
+        db_path = config.get('database_path', 'dy_downloader.db') or 'dy_downloader.db'
+        database = Database(db_path=str(db_path))
         await database.initialize()
         display.print_success("Database initialized")
 
@@ -192,6 +197,8 @@ async def main_async(args):
                 display.fail_url("下载失败或链接无效")
     finally:
         display.stop_download_session()
+        if database is not None:
+            await database.close()
         if quiet_progress_logs:
             set_console_log_level(logging.ERROR)
 
@@ -216,7 +223,11 @@ def main():
     parser.add_argument('-t', '--thread', type=int, help='Thread count')
     parser.add_argument('--show-warnings', action='store_true', help='Show warning logs in console')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose console logs')
-    parser.add_argument('--version', action='version', version='2.0.0')
+    try:
+        from __init__ import __version__
+    except ImportError:
+        __version__ = "2.0.0"
+    parser.add_argument('--version', action='version', version=__version__)
 
     args = parser.parse_args()
 

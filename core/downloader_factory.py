@@ -52,5 +52,5 @@ class DownloaderFactory:
         elif url_type == 'music':
             return MusicDownloader(**common_args)
         else:
-            logger.error(f"Unsupported URL type: {url_type}")
+            logger.error("Unsupported URL type: %s", url_type)
             return None

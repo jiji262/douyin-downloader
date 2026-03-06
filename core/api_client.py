@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -17,6 +18,29 @@ except Exception:  # pragma: no cover - optional dependency
     BrowserFingerprintGenerator = None
 
 logger = setup_logger("APIClient")
+
+_USER_AGENT_POOL = [
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) "
+        "Gecko/20100101 Firefox/133.0"
+    ),
+]
 
 
 class DouyinAPIClient:
@@ -41,11 +65,9 @@ class DouyinAPIClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._browser_post_aweme_items: Dict[str, Dict[str, Any]] = {}
         self._browser_post_stats: Dict[str, int] = {}
+        selected_ua = random.choice(_USER_AGENT_POOL)
         self.headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": selected_ua,
             "Referer": "https://www.douyin.com/",
             "Accept": "application/json",
             "Accept-Encoding": "gzip, deflate",
@@ -81,7 +103,8 @@ class DouyinAPIClient:
 
     async def get_session(self) -> aiohttp.ClientSession:
         await self._ensure_session()
-        assert self._session is not None
+        if self._session is None:
+            raise RuntimeError("Failed to create aiohttp session")
         return self._session
 
     async def _ensure_ms_token(self) -> str:
@@ -160,26 +183,46 @@ class DouyinAPIClient:
         params: Dict[str, Any],
         *,
         suppress_error: bool = False,
+        max_retries: int = 3,
     ) -> Dict[str, Any]:
         await self._ensure_session()
-        signed_url, ua = self.build_signed_path(path, params)
-        try:
-            async with self._session.get(
-                signed_url,
-                headers={**self.headers, "User-Agent": ua},
-            ) as response:
-                if response.status == 200:
-                    data = await response.json(content_type=None)
-                    return data if isinstance(data, dict) else {}
-                log_fn = logger.debug if suppress_error else logger.error
-                log_fn(
-                    "Request failed: path=%s, status=%s",
-                    path,
-                    response.status,
+        delays = [1, 2, 5]
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(max_retries):
+            signed_url, ua = self.build_signed_path(path, params)
+            try:
+                async with self._session.get(
+                    signed_url,
+                    headers={**self.headers, "User-Agent": ua},
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json(content_type=None)
+                        return data if isinstance(data, dict) else {}
+                    if response.status < 500 and response.status != 429:
+                        log_fn = logger.debug if suppress_error else logger.error
+                        log_fn(
+                            "Request failed: path=%s, status=%s",
+                            path,
+                            response.status,
+                        )
+                        return {}
+                    last_exc = RuntimeError(
+                        f"HTTP {response.status} for {path}"
+                    )
+            except Exception as exc:
+                last_exc = exc
+
+            if attempt < max_retries - 1:
+                delay = delays[min(attempt, len(delays) - 1)]
+                logger.debug(
+                    "Request retry %d/%d for %s in %ds",
+                    attempt + 1, max_retries, path, delay,
                 )
-        except Exception as exc:
-            log_fn = logger.debug if suppress_error else logger.error
-            log_fn("Request failed: path=%s, error=%s", path, exc)
+                await asyncio.sleep(delay)
+
+        log_fn = logger.debug if suppress_error else logger.error
+        log_fn("Request failed after %d attempts: path=%s, error=%s", max_retries, path, last_exc)
         return {}
 
     @staticmethod
@@ -363,7 +406,7 @@ class DouyinAPIClient:
             async with self._session.get(short_url, allow_redirects=True) as response:
                 return str(response.url)
         except Exception as e:
-            logger.error(f"Failed to resolve short URL: {short_url}, error: {e}")
+            logger.error("Failed to resolve short URL: %s, error: %s", short_url, e)
             return None
 
     async def collect_user_post_ids_via_browser(

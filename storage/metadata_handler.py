@@ -20,7 +20,7 @@ class MetadataHandler:
                 await f.write(json.dumps(data, ensure_ascii=False, indent=2))
             return True
         except Exception as e:
-            logger.error(f"Failed to save metadata: {save_path}, error: {e}")
+            logger.error("Failed to save metadata: %s, error: %s", save_path, e)
             return False
 
     async def append_download_manifest(
@@ -40,7 +40,7 @@ class MetadataHandler:
             return True
         except Exception as e:
             logger.error(
-                f"Failed to append download manifest: {manifest_path}, error: {e}"
+                "Failed to append download manifest: %s, error: %s", manifest_path, e
             )
             return False
 
@@ -50,5 +50,5 @@ class MetadataHandler:
                 content = await f.read()
                 return json.loads(content)
         except Exception as e:
-            logger.error(f"Failed to load metadata: {file_path}, error: {e}")
+            logger.error("Failed to load metadata: %s, error: %s", file_path, e)
             return {}
