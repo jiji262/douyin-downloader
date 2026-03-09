@@ -429,6 +429,49 @@ def test_collect_mix_strategy_expands_collected_mix_items():
     assert [item["aweme_id"] for item in items] == ["mix-aweme-1", "mix-aweme-2"]
 
 
+def test_collect_mix_strategy_keeps_direct_aweme_items_and_expands_remaining_metadata():
+    class _API:
+        async def get_user_collect_mix(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [
+                    {"aweme_id": "mix-preview-1"},
+                    {"mix_info": {"mix_id": "mix-1"}},
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_mix_aweme(self, mix_id, cursor=0, count=20):
+            assert mix_id == "mix-1"
+            return {
+                "items": [{"aweme_id": "mix-aweme-1"}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"collectmix": 0},
+                        "increase": {"collectmix": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = CollectMixUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
+    assert [item["aweme_id"] for item in items] == ["mix-preview-1", "mix-aweme-1"]
+
+
 def test_collect_mix_strategy_expansion_does_not_apply_number_limit_or_increase_early():
     class _Database:
         async def get_latest_aweme_time(self, _author_id):
