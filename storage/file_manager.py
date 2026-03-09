@@ -13,7 +13,7 @@ logger = setup_logger("FileManager")
 class FileManager:
     _IMAGE_CONTENT_TYPE_SUFFIXES = {
         "image/gif": ".gif",
-        "image/jpeg": ".jpeg",
+        "image/jpeg": ".jpg",
         "image/jpg": ".jpg",
         "image/png": ".png",
         "image/webp": ".webp",
