@@ -55,6 +55,8 @@ include = ["cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]

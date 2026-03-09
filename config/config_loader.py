@@ -63,6 +63,8 @@ class ConfigLoader:
                     "Invalid DOUYIN_THREAD value: %s, ignoring",
                     os.getenv("DOUYIN_THREAD"),
                 )
+        if os.getenv("DOUYIN_PROXY"):
+            env_config["proxy"] = os.getenv("DOUYIN_PROXY")
         return env_config
 
     def _normalize_mix_aliases(

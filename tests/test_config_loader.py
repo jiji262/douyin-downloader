@@ -96,6 +96,24 @@ progress:
     assert progress.get("quiet_logs") is False
 
 
+def test_config_loader_supports_proxy_from_env(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/video/1
+path: ./Downloaded/
+proxy: http://127.0.0.1:7890
+"""
+    )
+
+    monkeypatch.setenv("DOUYIN_PROXY", "http://127.0.0.1:8899")
+
+    loader = ConfigLoader(str(config_file))
+
+    assert loader.get("proxy") == "http://127.0.0.1:8899"
+
+
 def test_nested_defaults_do_not_leak_between_loader_instances(tmp_path):
     config_file = tmp_path / "config.yml"
     config_file.write_text(

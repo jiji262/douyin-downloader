@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import aiofiles
 import aiohttp
@@ -53,6 +53,7 @@ class FileManager:
         save_path: Path,
         session: aiohttp.ClientSession = None,
         headers: Optional[Dict[str, str]] = None,
+        proxy: Optional[str] = None,
         *,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
@@ -75,6 +76,7 @@ class FileManager:
                 url,
                 timeout=aiohttp.ClientTimeout(total=300),
                 headers=headers,
+                proxy=proxy or None,
             ) as response:
                 if response.status == 200:
                     final_path = self._resolve_save_path_from_content_type(

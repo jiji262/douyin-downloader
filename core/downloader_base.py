@@ -450,6 +450,7 @@ class BaseDownloader(ABC):
                 save_path,
                 session,
                 headers=headers,
+                proxy=getattr(self.api_client, "proxy", None),
                 prefer_response_content_type=prefer_response_content_type,
                 return_saved_path=return_saved_path,
             )

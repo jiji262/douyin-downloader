@@ -4,7 +4,7 @@
   <img src="https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=%E6%8A%96%E9%9F%B3%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%B7%A5%E5%85%B7%EF%BC%8C%E5%8E%BB%E6%B0%B4%E5%8D%B0%EF%BC%8C%E6%94%AF%E6%8C%81%E8%A7%86%E9%A2%91%E3%80%81%E5%9B%BE%E9%9B%86%E3%80%81%E4%BD%9C%E8%80%85%E4%B8%BB%E9%A1%B5%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E3%80%82&description=1&font=Jost&forks=1&logo=https%3A%2F%2Fraw.githubusercontent.com%2Fjiji262%2Fdouyin-downloader%2Frefs%2Fheads%2FV1.0%2Fimg%2Flogo.png&name=1&owner=1&pattern=Circuit+Board&pulls=1&stargazers=1&theme=Light" alt="douyin-downloader" width="820" />
 </p>
 
-一个面向实用场景的抖音下载工具，支持视频、图文、合集、音乐等多种类型下载，以及作者主页批量下载，默认带进度展示、重试、数据库去重、下载完整性校验和浏览器兜底能力。
+一个面向实用场景的抖音下载工具，支持视频、图文、合集、音乐、收藏夹等多种类型下载，以及作者主页批量下载，默认带进度展示、重试、数据库去重、下载完整性校验和浏览器兜底能力。
 
 > 当前文档对应 **V2.0（main 分支）**。  
 > 如需使用旧版，请切回 **V1.0**：`git fetch --all && git switch V1.0`
@@ -16,11 +16,12 @@
 | 功能 | 说明 |
 |------|------|
 | 单个视频下载 | `/video/{aweme_id}` |
-| 单个图文下载 | `/note/{note_id}` |
+| 单个图文下载 | `/note/{note_id}`、`/gallery/{note_id}` |
 | 单个合集下载 | `/collection/{mix_id}`、`/mix/{mix_id}` |
 | 单个音乐下载 | `/music/{music_id}`（优先原声文件，缺失时回退到该音乐下首条作品） |
 | 短链自动解析 | `https://v.douyin.com/...` |
 | 用户主页批量下载 | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
+| 当前登录账号收藏夹下载 | `/user/self?showTab=favorite_collection` + `mode: [collect, collectmix]` |
 | 无水印优先 | 自动选择无水印视频源 |
 | 附加资源下载 | 封面、音乐、头像、JSON 元数据 |
 | 视频转写 | 可选功能，调用 OpenAI Transcriptions API |
@@ -40,6 +41,9 @@
 
 - 浏览器兜底当前仅针对 `post` 完整验证，`like/mix/music` 主要依赖 API 正常分页
 - `number.allmix` / `increase.allmix` 作为兼容别名保留，运行时会归一化到 `mix`
+- `collect` / `collectmix` 当前仅支持当前已登录 Cookie 对应账号
+- `collect` / `collectmix` 必须单独使用，不能和 `post` / `like` / `mix` / `music` 混用
+- `increase` 当前仅支持 `post` / `like` / `mix` / `music`；收藏夹模式不支持增量截断
 
 ## 快速开始
 
@@ -94,10 +98,14 @@ mode:
 
 number:
   post: 0
+  collect: 0
+  collectmix: 0
 
 thread: 5
 retry_times: 3
+proxy: ""
 database: true
+database_path: dy_downloader.db
 
 progress:
   quiet_logs: true
@@ -221,6 +229,28 @@ mode:
 
 跨模式自动去重：同一个 aweme_id 在不同模式下不会重复下载。
 
+### 批量下载当前登录账号收藏夹作品
+
+```yaml
+link:
+  - https://www.douyin.com/user/self?showTab=favorite_collection
+mode:
+  - collect
+number:
+  collect: 0
+```
+
+### 批量下载当前登录账号收藏合集
+
+```yaml
+link:
+  - https://www.douyin.com/user/self?showTab=favorite_collection
+mode:
+  - collectmix
+number:
+  collectmix: 0
+```
+
 ### 增量下载（只下载新作品）
 
 ```yaml
@@ -269,46 +299,68 @@ export OPENAI_API_KEY="sk-xxxx"
 
 若 `database: true`，会在数据库 `transcript_job` 表记录状态（`success/failed/skipped`）。
 
+## 测试
+
+推荐使用：
+
+```bash
+python3 -m pytest -q
+```
+
+当前也支持直接运行：
+
+```bash
+pytest -q
+```
+
 ## 关键配置项
 
 | 配置项 | 说明 |
 |--------|------|
-| `mode` | 支持 `post`/`like`/`mix`/`music`，可组合 |
-| `number.post/like/mix/music` | 各模式下载数量限制，0 为不限 |
+| `mode` | 支持 `post`/`like`/`mix`/`music`；当前登录收藏夹模式额外支持单独使用的 `collect`/`collectmix` |
+| `number.post/like/mix/music/collect/collectmix` | 各模式下载数量限制，0 为不限 |
 | `increase.post/like/mix/music` | 各模式增量开关 |
 | `start_time` / `end_time` | 时间过滤（格式 `YYYY-MM-DD`） |
 | `folderstyle` | 按作品维度创建子目录 |
 | `browser_fallback.*` | `post` 翻页受限时启用浏览器兜底 |
 | `progress.quiet_logs` | 进度阶段静默日志，减少刷屏 |
 | `transcript.*` | 视频下载后的可选转写 |
+| `proxy` | 为 API 请求和媒体下载设置 HTTP/HTTPS 代理，例如 `http://127.0.0.1:7890` |
 | `database` | 启用 SQLite 去重和历史记录 |
+| `database_path` | SQLite 文件路径，默认在当前工作目录生成 `dy_downloader.db` |
 | `thread` | 并发下载数 |
 | `retry_times` | 失败重试次数 |
 
 ## 输出目录
 
-默认 `folderstyle: true` 时：
+默认 `folderstyle: true` 且 `database_path: dy_downloader.db` 时：
 
 ```text
-Downloaded/
-├── download_manifest.jsonl
-├── dy_downloader.db          # database: true 时生成
-└── 作者名/
-    ├── post/
-    │   └── 2024-02-07_作品标题_aweme_id/
-    │       ├── ...mp4
-    │       ├── ..._cover.jpg
-    │       ├── ..._music.mp3
-    │       ├── ..._data.json
-    │       ├── ..._avatar.jpg
-    │       ├── ...transcript.txt
-    │       └── ...transcript.json
-    ├── like/
-    │   └── ...
-    ├── mix/
-    │   └── ...
-    └── music/
-        └── ...
+工作目录/
+├── config.yml
+├── dy_downloader.db          # database: true 时默认生成在这里
+└── Downloaded/
+    ├── download_manifest.jsonl
+    └── 作者名/
+        ├── post/
+        │   └── 2024-02-07_作品标题_aweme_id/
+        │       ├── ...mp4
+        │       ├── ..._cover.jpg
+        │       ├── ..._music.mp3
+        │       ├── ..._data.json
+        │       ├── ..._avatar.jpg
+        │       ├── ...transcript.txt
+        │       └── ...transcript.json
+        ├── like/
+        │   └── ...
+        ├── mix/
+        │   └── ...
+        ├── music/
+        │   └── ...
+        ├── collect/
+        │   └── ...
+        └── collectmix/
+            └── ...
 ```
 
 ## 重新下载

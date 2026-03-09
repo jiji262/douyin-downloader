@@ -60,8 +60,9 @@ class DouyinAPIClient:
         "login_time",
     }
 
-    def __init__(self, cookies: Dict[str, str]):
+    def __init__(self, cookies: Dict[str, str], proxy: Optional[str] = None):
         self.cookies = sanitize_cookies(cookies or {})
+        self.proxy = str(proxy or "").strip()
         self._session: Optional[aiohttp.ClientSession] = None
         self._browser_post_aweme_items: Dict[str, Dict[str, Any]] = {}
         self._browser_post_stats: Dict[str, int] = {}
@@ -195,6 +196,7 @@ class DouyinAPIClient:
                 async with self._session.get(
                     signed_url,
                     headers={**self.headers, "User-Agent": ua},
+                    proxy=self.proxy or None,
                 ) as response:
                     if response.status == 200:
                         data = await response.json(content_type=None)
@@ -359,6 +361,54 @@ class DouyinAPIClient:
         raw = await self._request_json("/aweme/v1/web/music/list/", params)
         return self._normalize_paged_response(raw, item_keys=["music_list"])
 
+    async def _build_collect_page_params(
+        self, max_cursor: int, count: int
+    ) -> Dict[str, Any]:
+        params = await self._default_query()
+        params.update(
+            {
+                "cursor": max_cursor,
+                "count": count,
+                "version_code": "170400",
+                "version_name": "17.4.0",
+            }
+        )
+        return params
+
+    async def get_user_collects(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 10
+    ) -> Dict[str, Any]:
+        if sec_uid and sec_uid != "self":
+            logger.warning("Collect folders currently require self sec_uid, got=%s", sec_uid)
+            return self._normalize_paged_response(
+                {}, item_keys=["collects_list"], source="api"
+            )
+
+        params = await self._build_collect_page_params(max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/collects/list/", params)
+        return self._normalize_paged_response(raw, item_keys=["collects_list"])
+
+    async def get_collect_aweme(
+        self, collects_id: str, max_cursor: int = 0, count: int = 10
+    ) -> Dict[str, Any]:
+        params = await self._build_collect_page_params(max_cursor, count)
+        params.update({"collects_id": collects_id})
+        raw = await self._request_json("/aweme/v1/web/collects/video/list/", params)
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
+
+    async def get_user_collect_mix(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 12
+    ) -> Dict[str, Any]:
+        if sec_uid and sec_uid != "self":
+            logger.warning("Collect mix currently require self sec_uid, got=%s", sec_uid)
+            return self._normalize_paged_response(
+                {}, item_keys=["mix_infos"], source="api"
+            )
+
+        params = await self._build_collect_page_params(max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/mix/listcollection/", params)
+        return self._normalize_paged_response(raw, item_keys=["mix_infos"])
+
     async def get_user_info(self, sec_uid: str) -> Optional[Dict[str, Any]]:
         params = await self._default_query()
         params.update({"sec_user_id": sec_uid})
@@ -403,7 +453,11 @@ class DouyinAPIClient:
     async def resolve_short_url(self, short_url: str) -> Optional[str]:
         try:
             await self._ensure_session()
-            async with self._session.get(short_url, allow_redirects=True) as response:
+            async with self._session.get(
+                short_url,
+                allow_redirects=True,
+                proxy=self.proxy or None,
+            ) as response:
                 return str(response.url)
         except Exception as e:
             logger.error("Failed to resolve short URL: %s, error: %s", short_url, e)

@@ -1,5 +1,7 @@
 import asyncio
 
+from core.user_modes.collect_mix_strategy import CollectMixUserModeStrategy
+from core.user_modes.collect_strategy import CollectUserModeStrategy
 from core.user_modes.like_strategy import LikeUserModeStrategy
 from core.user_modes.mix_strategy import MixUserModeStrategy
 from core.user_modes.music_strategy import MusicUserModeStrategy
@@ -274,3 +276,249 @@ def test_music_strategy_expansion_does_not_apply_number_limit_early():
     strategy = MusicUserModeStrategy(_Downloader())
     items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
     assert [item["aweme_id"] for item in items] == ["mu-1", "mu-2"]
+
+
+def test_collect_strategy_expands_collect_folders_and_deduplicates_aweme():
+    class _API:
+        async def get_user_collects(self, _sec_uid, max_cursor=0, count=20):
+            if max_cursor > 0:
+                return {"items": [], "has_more": False, "max_cursor": max_cursor}
+            return {
+                "items": [
+                    {"collects_id_str": "collect-1"},
+                    {"collects_id_str": "collect-2"},
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_collect_aweme(self, collects_id, max_cursor=0, count=20):
+            assert max_cursor == 0
+            if collects_id == "collect-1":
+                return {
+                    "items": [{"aweme_id": "c-1"}, {"aweme_id": "dup"}],
+                    "has_more": False,
+                    "max_cursor": 0,
+                }
+            return {
+                "items": [{"aweme_id": "dup"}, {"aweme_id": "c-2"}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"collect": 0},
+                        "increase": {"collect": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = CollectUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
+    assert [item["aweme_id"] for item in items] == ["c-1", "dup", "c-2"]
+
+
+def test_collect_strategy_expansion_does_not_apply_number_limit_or_increase_early():
+    class _Database:
+        async def get_latest_aweme_time(self, _author_id):
+            return 1700000000
+
+    class _API:
+        async def get_user_collects(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [
+                    {"collects_id_str": "collect-1"},
+                    {"collects_id_str": "collect-2"},
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_collect_aweme(self, collects_id, max_cursor=0, count=20):
+            if collects_id == "collect-1":
+                return {
+                    "items": [{"aweme_id": "c-1", "create_time": 1700000001}],
+                    "has_more": False,
+                    "max_cursor": 0,
+                }
+            return {
+                "items": [{"aweme_id": "c-2", "create_time": 1700000002}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = _Database()
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"collect": 1},
+                        "increase": {"collect": True},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = CollectUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
+    assert [item["aweme_id"] for item in items] == ["c-1", "c-2"]
+
+
+def test_collect_mix_strategy_expands_collected_mix_items():
+    class _API:
+        async def get_user_collect_mix(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [
+                    {"mix_info": {"mix_id": "mix-1"}},
+                    {"mix_id": "mix-2"},
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_mix_aweme(self, mix_id, cursor=0, count=20):
+            if mix_id == "mix-1":
+                return {
+                    "items": [{"aweme_id": "mix-aweme-1"}],
+                    "has_more": False,
+                    "max_cursor": 0,
+                }
+            return {
+                "items": [{"aweme_id": "mix-aweme-2"}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"collectmix": 0},
+                        "increase": {"collectmix": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = CollectMixUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
+    assert [item["aweme_id"] for item in items] == ["mix-aweme-1", "mix-aweme-2"]
+
+
+def test_collect_mix_strategy_keeps_direct_aweme_items_and_expands_remaining_metadata():
+    class _API:
+        async def get_user_collect_mix(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [
+                    {"aweme_id": "mix-preview-1"},
+                    {"mix_info": {"mix_id": "mix-1"}},
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_mix_aweme(self, mix_id, cursor=0, count=20):
+            assert mix_id == "mix-1"
+            return {
+                "items": [{"aweme_id": "mix-aweme-1"}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"collectmix": 0},
+                        "increase": {"collectmix": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = CollectMixUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
+    assert [item["aweme_id"] for item in items] == ["mix-preview-1", "mix-aweme-1"]
+
+
+def test_collect_mix_strategy_expansion_does_not_apply_number_limit_or_increase_early():
+    class _Database:
+        async def get_latest_aweme_time(self, _author_id):
+            return 1700000000
+
+    class _API:
+        async def get_user_collect_mix(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [
+                    {"mix_info": {"mix_id": "mix-1"}},
+                    {"mix_info": {"mix_id": "mix-2"}},
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_mix_aweme(self, mix_id, cursor=0, count=20):
+            if mix_id == "mix-1":
+                return {
+                    "items": [{"aweme_id": "mix-aweme-1", "create_time": 1700000001}],
+                    "has_more": False,
+                    "max_cursor": 0,
+                }
+            return {
+                "items": [{"aweme_id": "mix-aweme-2", "create_time": 1700000002}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = _Database()
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"collectmix": 1},
+                        "increase": {"collectmix": True},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = CollectMixUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
+    assert [item["aweme_id"] for item in items] == ["mix-aweme-1", "mix-aweme-2"]
