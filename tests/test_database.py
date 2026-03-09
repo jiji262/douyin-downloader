@@ -1,4 +1,5 @@
 import json
+import asyncio
 
 import pytest
 
@@ -82,5 +83,37 @@ async def test_database_transcript_job_upsert(tmp_path):
     row = await database.get_transcript_job("123")
     assert row["status"] == "success"
     assert row["skip_reason"] is None
+
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_database_get_conn_reuses_single_connection_under_concurrency(
+    tmp_path, monkeypatch
+):
+    import storage.database as database_module
+
+    connect_calls = []
+
+    class _FakeConn:
+        def __init__(self, db_path: str):
+            self.db_path = db_path
+            self.closed = False
+
+        async def close(self):
+            self.closed = True
+
+    async def _fake_connect(db_path: str):
+        connect_calls.append(db_path)
+        await asyncio.sleep(0)
+        return _FakeConn(db_path)
+
+    monkeypatch.setattr(database_module.aiosqlite, "connect", _fake_connect)
+
+    database = Database(str(tmp_path / "test.db"))
+    conn_a, conn_b = await asyncio.gather(database._get_conn(), database._get_conn())
+
+    assert conn_a is conn_b
+    assert connect_calls == [str(tmp_path / "test.db")]
 
     await database.close()

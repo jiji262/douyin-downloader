@@ -225,6 +225,63 @@ async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    called_requests = []
+
+    async def _fake_request_json(path, params, suppress_error=False):
+        called_requests.append((path, dict(params)))
+        if path == "/aweme/v1/web/collects/list/":
+            return {
+                "status_code": 0,
+                "collects_list": [{"collects_id_str": "collect-1"}],
+                "has_more": 1,
+                "cursor": 9,
+            }
+        if path == "/aweme/v1/web/collects/video/list/":
+            return {
+                "status_code": 0,
+                "aweme_list": [{"aweme_id": "aweme-1"}],
+                "has_more": 0,
+                "cursor": 0,
+            }
+        if path == "/aweme/v1/web/mix/listcollection/":
+            return {
+                "status_code": 0,
+                "mix_infos": [{"mix_id": "mix-1"}],
+                "has_more": 0,
+                "cursor": 0,
+            }
+        return {"status_code": 0, "has_more": 0, "cursor": 0}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    collects_data = await client.get_user_collects("self", max_cursor=0, count=10)
+    collect_aweme_data = await client.get_collect_aweme(
+        "collect-1", max_cursor=0, count=10
+    )
+    collect_mix_data = await client.get_user_collect_mix(
+        "self", max_cursor=0, count=12
+    )
+
+    assert [path for path, _params in called_requests] == [
+        "/aweme/v1/web/collects/list/",
+        "/aweme/v1/web/collects/video/list/",
+        "/aweme/v1/web/mix/listcollection/",
+    ]
+    assert called_requests[0][1]["count"] == 10
+    assert called_requests[0][1]["version_code"] == "170400"
+    assert called_requests[1][1]["collects_id"] == "collect-1"
+    assert called_requests[1][1]["count"] == 10
+    assert called_requests[2][1]["count"] == 12
+    assert collects_data["items"] == [{"collects_id_str": "collect-1"}]
+    assert collects_data["has_more"] is True
+    assert collects_data["max_cursor"] == 9
+    assert collect_aweme_data["items"] == [{"aweme_id": "aweme-1"}]
+    assert collect_mix_data["items"] == [{"mix_id": "mix-1"}]
+
+
+@pytest.mark.asyncio
 async def test_mix_and_music_endpoints_are_normalized(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
 

@@ -258,6 +258,63 @@ async def test_download_aweme_assets_keeps_success_when_transcript_skipped(
 
 
 @pytest.mark.asyncio
+async def test_download_aweme_assets_video_writes_cover_avatar_and_json(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False,
+        cover=True,
+        avatar=True,
+        json=True,
+        folderstyle=True,
+        transcript={"enabled": False},
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121527",
+        "desc": "附加资源",
+        "create_time": 1707303025,
+        "author": {
+            "nickname": "测试作者",
+            "avatar_larger": {"url_list": ["https://example.com/avatar.jpg"]},
+        },
+        "video": {
+            "play_addr": {"url_list": ["https://example.com/video.mp4"]},
+            "cover": {"url_list": ["https://example.com/cover.jpg"]},
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert any(path.name.endswith(".mp4") for path in saved_paths)
+    assert any(path.name.endswith("_cover.jpg") for path in saved_paths)
+    assert any(path.name.endswith("_avatar.jpg") for path in saved_paths)
+    metadata_files = list(tmp_path.rglob("*_data.json"))
+    assert len(metadata_files) == 1
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_download_aweme_assets_gallery_downloads_live_photo_videos(
     tmp_path, monkeypatch
 ):

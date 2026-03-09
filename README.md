@@ -6,7 +6,7 @@
 
 中文文档 (Chinese): [README.zh-CN.md](./README.zh-CN.md)
 
-A practical Douyin downloader supporting videos, image-notes, collections, music, and profile batch downloads, with progress display, retries, SQLite deduplication, download integrity checks, and browser fallback support.
+A practical Douyin downloader supporting videos, image-notes, collections, music, favorites collections, and profile batch downloads, with progress display, retries, SQLite deduplication, download integrity checks, and browser fallback support.
 
 > This document targets **V2.0 (`main` branch)**.  
 > For the legacy version, switch to **V1.0**: `git fetch --all && git switch V1.0`
@@ -18,11 +18,12 @@ A practical Douyin downloader supporting videos, image-notes, collections, music
 | Feature | Description |
 |---------|-------------|
 | Single video download | `/video/{aweme_id}` |
-| Single image-note download | `/note/{note_id}` |
+| Single image-note download | `/note/{note_id}` and `/gallery/{note_id}` |
 | Single collection download | `/collection/{mix_id}` and `/mix/{mix_id}` |
 | Single music download | `/music/{music_id}` (prefers direct audio, fallback to first related aweme) |
 | Short link parsing | `https://v.douyin.com/...` |
 | Profile batch download | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
+| Logged-in favorites collections | `/user/self?showTab=favorite_collection` + `mode: [collect, collectmix]` |
 | No-watermark preferred | Automatically selects watermark-free video source |
 | Extra assets | Cover, music, avatar, JSON metadata |
 | Video transcription | Optional, using OpenAI Transcriptions API |
@@ -42,6 +43,9 @@ A practical Douyin downloader supporting videos, image-notes, collections, music
 
 - Browser fallback is fully validated for `post`; `like/mix/music` currently relies on API pagination
 - `number.allmix` / `increase.allmix` are retained as compatibility aliases and normalized to `mix`
+- `collect` / `collectmix` currently work for the account represented by the logged-in cookies only
+- `collect` / `collectmix` must be used alone and cannot be combined with `post` / `like` / `mix` / `music`
+- `increase` currently applies to `post` / `like` / `mix` / `music`; favorites collection modes do not support incremental stop
 
 ## Quick Start
 
@@ -96,10 +100,14 @@ mode:
 
 number:
   post: 0
+  collect: 0
+  collectmix: 0
 
 thread: 5
 retry_times: 3
+proxy: ""
 database: true
+database_path: dy_downloader.db
 
 progress:
   quiet_logs: true
@@ -223,6 +231,28 @@ mode:
 
 Cross-mode deduplication: the same aweme_id won't be downloaded twice across different modes.
 
+### Download logged-in favorites collection items
+
+```yaml
+link:
+  - https://www.douyin.com/user/self?showTab=favorite_collection
+mode:
+  - collect
+number:
+  collect: 0
+```
+
+### Download logged-in collected mixes
+
+```yaml
+link:
+  - https://www.douyin.com/user/self?showTab=favorite_collection
+mode:
+  - collectmix
+number:
+  collectmix: 0
+```
+
 ### Incremental download (only new items)
 
 ```yaml
@@ -271,46 +301,68 @@ When enabled, it generates:
 
 If `database: true`, job status is also recorded in SQLite table `transcript_job` (`success/failed/skipped`).
 
+## Testing
+
+Recommended:
+
+```bash
+python3 -m pytest -q
+```
+
+Plain `pytest` is also supported now:
+
+```bash
+pytest -q
+```
+
 ## Key Config Fields
 
 | Field | Description |
 |-------|-------------|
-| `mode` | Supports `post`/`like`/`mix`/`music`, can be combined |
-| `number.post/like/mix/music` | Per-mode download limit, 0 = unlimited |
+| `mode` | Supports `post`/`like`/`mix`/`music`; logged-in favorites mode additionally supports standalone `collect`/`collectmix` |
+| `number.post/like/mix/music/collect/collectmix` | Per-mode download limit, 0 = unlimited |
 | `increase.post/like/mix/music` | Per-mode incremental toggle |
 | `start_time` / `end_time` | Time filter (format: `YYYY-MM-DD`) |
 | `folderstyle` | Create per-item subdirectories |
 | `browser_fallback.*` | Browser fallback for `post` when pagination is restricted |
 | `progress.quiet_logs` | Quiet logs during progress stage |
 | `transcript.*` | Optional transcription after video download |
+| `proxy` | HTTP/HTTPS proxy for API requests and media downloads, e.g. `http://127.0.0.1:7890` |
 | `database` | Enable SQLite deduplication and history |
+| `database_path` | SQLite path, default is `dy_downloader.db` in the current working directory |
 | `thread` | Concurrent download count |
 | `retry_times` | Retry count on failure |
 
 ## Output Structure
 
-Default with `folderstyle: true`:
+Default with `folderstyle: true` and `database_path: dy_downloader.db`:
 
 ```text
-Downloaded/
-├── download_manifest.jsonl
-├── dy_downloader.db          # when database: true
-└── AuthorName/
-    ├── post/
-    │   └── 2024-02-07_Title_aweme_id/
-    │       ├── ...mp4
-    │       ├── ..._cover.jpg
-    │       ├── ..._music.mp3
-    │       ├── ..._data.json
-    │       ├── ..._avatar.jpg
-    │       ├── ...transcript.txt
-    │       └── ...transcript.json
-    ├── like/
-    │   └── ...
-    ├── mix/
-    │   └── ...
-    └── music/
-        └── ...
+workspace/
+├── config.yml
+├── dy_downloader.db          # default location when database: true
+└── Downloaded/
+    ├── download_manifest.jsonl
+    └── AuthorName/
+        ├── post/
+        │   └── 2024-02-07_Title_aweme_id/
+        │       ├── ...mp4
+        │       ├── ..._cover.jpg
+        │       ├── ..._music.mp3
+        │       ├── ..._data.json
+        │       ├── ..._avatar.jpg
+        │       ├── ...transcript.txt
+        │       └── ...transcript.json
+        ├── like/
+        │   └── ...
+        ├── mix/
+        │   └── ...
+        ├── music/
+        │   └── ...
+        ├── collect/
+        │   └── ...
+        └── collectmix/
+            └── ...
 ```
 
 ## Re-downloading Content

@@ -44,7 +44,10 @@ async def download_url(
 
     original_url = url
 
-    async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
+    async with DouyinAPIClient(
+        cookie_manager.get_cookies(),
+        proxy=config.get("proxy"),
+    ) as api_client:
         if progress_reporter:
             progress_reporter.advance_step("解析链接", "检查短链并解析 URL")
         if url.startswith('https://v.douyin.com'):

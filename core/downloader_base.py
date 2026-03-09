@@ -440,7 +440,11 @@ class BaseDownloader(ABC):
     ) -> bool:
         async def _task():
             success = await self.file_manager.download_file(
-                url, save_path, session, headers=headers
+                url,
+                save_path,
+                session,
+                headers=headers,
+                proxy=getattr(self.api_client, "proxy", None),
             )
             if not success:
                 raise RuntimeError(f"Download failed for {url}")

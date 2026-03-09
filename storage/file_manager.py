@@ -45,6 +45,7 @@ class FileManager:
         save_path: Path,
         session: aiohttp.ClientSession = None,
         headers: Optional[Dict[str, str]] = None,
+        proxy: Optional[str] = None,
     ) -> bool:
         should_close = False
         if session is None:
@@ -63,6 +64,7 @@ class FileManager:
                 url,
                 timeout=aiohttp.ClientTimeout(total=300),
                 headers=headers,
+                proxy=proxy or None,
             ) as response:
                 if response.status == 200:
                     expected_size = response.content_length
