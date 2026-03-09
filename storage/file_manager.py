@@ -56,7 +56,7 @@ class FileManager:
         *,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
-    ) -> bool | Path:
+    ) -> Union[bool, Path]:
         should_close = False
         if session is None:
             default_headers = headers or {
