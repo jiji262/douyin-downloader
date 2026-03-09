@@ -322,20 +322,24 @@ class BaseDownloader(ABC):
                 return False
 
             for index, image_url in enumerate(image_urls, start=1):
-                suffix = Path(urlparse(image_url).path).suffix or ".jpg"
+                suffix = self._infer_image_extension(image_url)
                 image_path = save_dir / f"{file_stem}_{index}{suffix}"
-                success = await self._download_with_retry(
+                download_result = await self._download_with_retry(
                     image_url,
                     image_path,
                     session,
                     headers=self._download_headers(),
+                    prefer_response_content_type=True,
+                    return_saved_path=True,
                 )
-                if not success:
+                if not download_result:
                     logger.error(
                         f"Failed downloading image {index} for aweme {aweme_id}"
                     )
                     return False
-                downloaded_files.append(image_path)
+                downloaded_files.append(
+                    download_result if isinstance(download_result, Path) else image_path
+                )
 
             for index, live_url in enumerate(image_live_urls, start=1):
                 suffix = Path(urlparse(live_url).path).suffix or ".mp4"
@@ -437,18 +441,24 @@ class BaseDownloader(ABC):
         *,
         headers: Optional[Dict[str, str]] = None,
         optional: bool = False,
-    ) -> bool:
+        prefer_response_content_type: bool = False,
+        return_saved_path: bool = False,
+    ) -> bool | Path:
         async def _task():
-            success = await self.file_manager.download_file(
-                url, save_path, session, headers=headers
+            download_result = await self.file_manager.download_file(
+                url,
+                save_path,
+                session,
+                headers=headers,
+                prefer_response_content_type=prefer_response_content_type,
+                return_saved_path=return_saved_path,
             )
-            if not success:
+            if not download_result:
                 raise RuntimeError(f"Download failed for {url}")
-            return True
+            return download_result
 
         try:
-            await self.retry_handler.execute_with_retry(_task)
-            return True
+            return await self.retry_handler.execute_with_retry(_task)
         except Exception as error:
             log_fn = logger.warning if optional else logger.error
             self._log_download_error(
@@ -586,6 +596,23 @@ class BaseDownloader(ABC):
         elif isinstance(source, str) and source:
             return source
         return None
+
+    @staticmethod
+    def _infer_image_extension(image_url: str) -> str:
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+        if not image_url:
+            return ".jpg"
+
+        image_path = (urlparse(image_url).path or "").lower()
+        raw_suffix = Path(image_path).suffix.lower()
+        if raw_suffix in allowed_exts:
+            return raw_suffix
+
+        matches = re.findall(r"\.(?:jpe?g|png|webp|gif)(?=[^a-z0-9]|$)", image_path)
+        if matches:
+            return matches[-1].lower()
+
+        return ".jpg"
 
     @staticmethod
     def _resolve_publish_time(create_time: Any) -> Tuple[Optional[int], str]:
