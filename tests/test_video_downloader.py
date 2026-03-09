@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from auth import CookieManager
@@ -367,6 +368,137 @@ async def test_download_aweme_assets_gallery_downloads_live_photo_videos(
     assert sum(path.suffix == ".mp4" for path in saved_paths) == 2
     assert any("_live_1.mp4" in path.name for path in saved_paths)
     assert any("_live_2.mp4" in path.name for path in saved_paths)
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_preserves_real_image_extensions(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False, cover=False, avatar=False, json=False, folderstyle=True
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121991",
+        "desc": "图集后缀归一化",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {
+                        "url_list": [
+                            "https://example.com/gallery_1.png~tplv-obj.image?x=1"
+                        ]
+                    }
+                },
+                {
+                    "display_image": {
+                        "url_list": [
+                            "https://example.com/gallery_2.jpeg~tplv-resize:1080:0.image"
+                        ]
+                    }
+                },
+                {
+                    "display_image": {
+                        "url_list": ["https://example.com/gallery_3.jpg?from=unit-test"]
+                    }
+                },
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert [path.suffix for path in saved_paths] == [".png", ".jpeg", ".jpg"]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_uses_response_content_type_for_suffix(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False, cover=False, avatar=False, json=False, folderstyle=True
+    )
+
+    content = b"fake png content"
+    publish_ts = 1707303025
+    publish_date = datetime.fromtimestamp(publish_ts).strftime("%Y-%m-%d")
+    aweme_id = "7600224486650121992"
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.content_length = len(content)
+    mock_response.headers = {"Content-Type": "image/png; charset=binary"}
+
+    async def iter_chunked(_size):
+        yield content
+
+    mock_response.content = MagicMock()
+    mock_response.content.iter_chunked = iter_chunked
+
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = ctx
+
+    async def _fake_get_session():
+        return mock_session
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    aweme_data = {
+        "aweme_id": aweme_id,
+        "desc": "响应头决定后缀",
+        "create_time": publish_ts,
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {
+                        "url_list": ["https://example.com/gallery_1.image?x=1"]
+                    }
+                }
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    save_dir = tmp_path / "测试作者" / "post" / f"{publish_date}_响应头决定后缀_{aweme_id}"
+    saved_files = sorted(path.name for path in save_dir.iterdir() if path.is_file())
+    assert saved_files == [f"{publish_date}_响应头决定后缀_{aweme_id}_1.png"]
+
+    manifest_path = tmp_path / "download_manifest.jsonl"
+    lines = manifest_path.read_text(encoding="utf-8").strip().splitlines()
+    manifest_entry = json.loads(lines[-1])
+    assert manifest_entry["file_names"] == saved_files
 
     await api_client.close()
 

@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import aiofiles
 import aiohttp
@@ -11,6 +11,14 @@ logger = setup_logger("FileManager")
 
 
 class FileManager:
+    _IMAGE_CONTENT_TYPE_SUFFIXES = {
+        "image/gif": ".gif",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+
     def __init__(self, base_path: str = "./Downloaded"):
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
@@ -46,7 +54,10 @@ class FileManager:
         session: aiohttp.ClientSession = None,
         headers: Optional[Dict[str, str]] = None,
         proxy: Optional[str] = None,
-    ) -> bool:
+        *,
+        prefer_response_content_type: bool = False,
+        return_saved_path: bool = False,
+    ) -> Union[bool, Path]:
         should_close = False
         if session is None:
             default_headers = headers or {
@@ -58,6 +69,7 @@ class FileManager:
             session = aiohttp.ClientSession(headers=default_headers)
             should_close = True
 
+        final_path = save_path
         tmp_path = save_path.with_suffix(save_path.suffix + ".tmp")
         try:
             async with session.get(
@@ -67,6 +79,12 @@ class FileManager:
                 proxy=proxy or None,
             ) as response:
                 if response.status == 200:
+                    final_path = self._resolve_save_path_from_content_type(
+                        save_path,
+                        response.headers,
+                        prefer_response_content_type=prefer_response_content_type,
+                    )
+                    tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
                     expected_size = response.content_length
                     written = 0
                     async with aiofiles.open(tmp_path, "wb") as f:
@@ -82,22 +100,44 @@ class FileManager:
                         )
                         tmp_path.unlink(missing_ok=True)
                         return False
-                    os.replace(str(tmp_path), str(save_path))
-                    return True
+                    os.replace(str(tmp_path), str(final_path))
+                    return final_path if return_saved_path else True
                 else:
                     logger.debug(
                         "Download failed for %s, status=%s",
-                        save_path.name,
+                        final_path.name,
                         response.status,
                     )
                     return False
         except Exception as e:
-            logger.debug("Download error for %s: %s", save_path.name, e)
+            logger.debug("Download error for %s: %s", final_path.name, e)
             tmp_path.unlink(missing_ok=True)
             return False
         finally:
             if should_close:
                 await session.close()
+
+    @classmethod
+    def _resolve_save_path_from_content_type(
+        cls,
+        save_path: Path,
+        response_headers,
+        *,
+        prefer_response_content_type: bool = False,
+    ) -> Path:
+        if not prefer_response_content_type:
+            return save_path
+
+        content_type = (
+            response_headers.get("Content-Type", "")
+            if response_headers
+            else ""
+        )
+        normalized_type = content_type.split(";", 1)[0].strip().lower()
+        suffix = cls._IMAGE_CONTENT_TYPE_SUFFIXES.get(normalized_type)
+        if not suffix:
+            return save_path
+        return save_path.with_suffix(suffix)
 
     def file_exists(self, file_path: Path) -> bool:
         try:
