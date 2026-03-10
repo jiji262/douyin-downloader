@@ -97,3 +97,28 @@ async def test_download_file_size_mismatch_cleans_up(tmp_path):
     assert result is False
     assert not save_path.exists()
     assert not save_path.with_suffix(".mp4.tmp").exists()
+
+
+@pytest.mark.asyncio
+async def test_download_file_raises_status_detail_on_non_200(tmp_path):
+    fm = FileManager(str(tmp_path))
+    save_path = tmp_path / "image.webp"
+
+    mock_response = AsyncMock()
+    mock_response.status = 403
+    mock_response.headers = {"es-exit": "x_signature auth failed"}
+    mock_response.text = AsyncMock(return_value="Forbidden")
+
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = ctx
+
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        await fm.download_file(
+            "https://p3-pc-sign.douyinpic.com/example.webp",
+            save_path,
+            session=mock_session,
+        )

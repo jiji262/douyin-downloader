@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 
@@ -46,6 +47,34 @@ def _build_downloader(tmp_path):
     )
 
     return downloader, api_client
+
+
+def test_collect_image_urls_prefers_download_addr_over_display_image(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121531",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {
+                        "url_list": [
+                            "https://p3-pc-sign.douyinpic.com/preview.webp?x-signature=bad"
+                        ]
+                    },
+                    "download_addr": {
+                        "url_list": ["https://v3-dy-o.zjcdn.com/original.webp"]
+                    },
+                }
+            ]
+        },
+    }
+
+    assert downloader._collect_image_urls(aweme_data) == [
+        "https://v3-dy-o.zjcdn.com/original.webp"
+    ]
+
+    asyncio.run(api_client.close())
 
 
 @pytest.mark.asyncio

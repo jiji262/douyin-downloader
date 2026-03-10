@@ -514,12 +514,13 @@ class BaseDownloader(ABC):
         for item in self._iter_gallery_items(aweme_data):
             if not isinstance(item, dict):
                 continue
+            # 优先拿可下载/原图字段，避免 preview/display 图链签名失效后整组图文失败。
             image_url = self._pick_first_media_url(
                 item,
-                item.get("display_image"),
-                item.get("owner_watermark_image"),
                 item.get("download_url"),
                 item.get("download_addr"),
+                item.get("display_image"),
+                item.get("owner_watermark_image"),
             )
             if image_url:
                 image_urls.append(image_url)

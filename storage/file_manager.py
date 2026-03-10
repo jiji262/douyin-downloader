@@ -83,19 +83,57 @@ class FileManager:
                     os.replace(str(tmp_path), str(save_path))
                     return True
                 else:
-                    logger.debug(
-                        "Download failed for %s, status=%s",
-                        save_path.name,
-                        response.status,
+                    response_text = await self._safe_response_text(response)
+                    raise RuntimeError(
+                        self._format_http_error(
+                            url,
+                            response.status,
+                            response.headers,
+                            response_text,
+                        )
                     )
-                    return False
-        except Exception as e:
-            logger.debug("Download error for %s: %s", save_path.name, e)
+        except RuntimeError:
             tmp_path.unlink(missing_ok=True)
-            return False
+            raise
+        except Exception as e:
+            tmp_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Download request raised {type(e).__name__} for {url}: {e}"
+            ) from e
         finally:
             if should_close:
                 await session.close()
+
+    @staticmethod
+    async def _safe_response_text(response: aiohttp.ClientResponse) -> str:
+        try:
+            text = await response.text()
+        except Exception:
+            return ""
+        return " ".join(text.split())
+
+    @staticmethod
+    def _format_http_error(
+        url: str,
+        status: int,
+        headers,
+        response_text: str,
+    ) -> str:
+        details = [f"HTTP {status}"]
+
+        if headers:
+            es_exit = headers.get("es-exit")
+            if es_exit:
+                details.append(f"es-exit={es_exit}")
+
+            content_type = headers.get("Content-Type")
+            if content_type:
+                details.append(f"content-type={content_type}")
+
+        if response_text:
+            details.append(f"body={response_text[:160]}")
+
+        return f"Download request failed for {url}: {', '.join(details)}"
 
     def file_exists(self, file_path: Path) -> bool:
         try:
