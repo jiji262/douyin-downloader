@@ -337,12 +337,11 @@ def filter_cookies(cookies: Dict[str, str]) -> Dict[str, str]:
     cookies = sanitize_cookies(cookies)
     picked = {}
     for key, value in cookies.items():
-        normalized = key.strip()
-        if normalized in SUGGESTED_KEYS or normalized in DEFAULT_AUXILIARY_KEYS:
-            picked[normalized] = value
+        if key in SUGGESTED_KEYS or key in DEFAULT_AUXILIARY_KEYS:
+            picked[key] = value
             continue
-        if any(normalized.startswith(prefix) for prefix in DEFAULT_AUXILIARY_PREFIXES):
-            picked[normalized] = value
+        if any(key.startswith(prefix) for prefix in DEFAULT_AUXILIARY_PREFIXES):
+            picked[key] = value
 
     if not picked:
         return cookies

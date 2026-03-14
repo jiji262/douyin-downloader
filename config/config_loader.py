@@ -226,11 +226,13 @@ class ConfigLoader:
         if not path.exists():
             return {}
         try:
-            raw_data = json.loads(path.read_text(encoding="utf-8")) or {}
+            raw_data = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
             logger.warning("Failed to load auto cookie file %s: %s", path, exc)
             return {}
 
+        if raw_data is None:
+            return {}
         if not isinstance(raw_data, dict):
             logger.warning("Auto cookie file %s is not a JSON object", path)
             return {}

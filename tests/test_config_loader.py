@@ -122,6 +122,93 @@ cookies: auto
     assert cookies["msToken"] == "nested-ms-token"
 
 
+def test_config_loader_reads_auto_cookies_when_auto_cookie_enabled(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path
+    config_file = workspace / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+auto_cookie: true
+"""
+    )
+    cookie_dir = workspace / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text(
+        """
+{
+  "ttwid": "auto-ttwid",
+  "msToken": "auto-ms-token"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    loader = ConfigLoader(str(config_file))
+    cookies = loader.get_cookies()
+
+    assert cookies["ttwid"] == "auto-ttwid"
+    assert cookies["msToken"] == "auto-ms-token"
+
+
+def test_config_loader_skips_auto_cookies_when_auto_cookie_disabled(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path
+    config_file = workspace / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+auto_cookie: false
+"""
+    )
+    cookie_dir = workspace / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text(
+        """
+{
+  "ttwid": "auto-ttwid",
+  "msToken": "auto-ms-token"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    loader = ConfigLoader(str(config_file))
+
+    assert loader.get_cookies() == {}
+
+
+def test_config_loader_warns_for_non_object_auto_cookie_file(tmp_path, caplog):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+cookies: auto
+"""
+    )
+    cookie_dir = tmp_path / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text("[]", encoding="utf-8")
+
+    loader = ConfigLoader(str(config_file))
+    cookies = loader.get_cookies()
+
+    assert cookies == {}
+    assert any(
+        "is not a JSON object" in record.message for record in caplog.records
+    )
+
+
 def test_progress_quiet_logs_default_enabled(tmp_path):
     config_file = tmp_path / "config.yml"
     config_file.write_text(
