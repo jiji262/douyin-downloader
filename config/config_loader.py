@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 from copy import deepcopy
@@ -166,15 +167,78 @@ class ConfigLoader:
         cookies_config = self.config.get("cookies") or self.config.get("cookie")
 
         if isinstance(cookies_config, str):
-            if cookies_config == "auto":
-                return {}
+            if cookies_config.strip().lower() == "auto":
+                return self._load_auto_cookies()
             return self._parse_cookie_string(cookies_config)
         elif isinstance(cookies_config, dict):
             return sanitize_cookies(cookies_config)
+        if self._auto_cookie_enabled():
+            return self._load_auto_cookies()
         return {}
 
     def _parse_cookie_string(self, cookie_str: str) -> Dict[str, str]:
         return sanitize_cookies(parse_cookie_header(cookie_str))
+
+    def _auto_cookie_enabled(self) -> bool:
+        raw_value = self.config.get("auto_cookie")
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(raw_value)
+
+    def _load_auto_cookies(self) -> Dict[str, str]:
+        for path in self._candidate_auto_cookie_paths():
+            cookies = self._load_cookie_file(path)
+            if cookies:
+                logger.info("Loaded auto cookies from %s", path)
+                return cookies
+        return {}
+
+    def _candidate_auto_cookie_paths(self) -> List[Path]:
+        config_dir = (
+            Path(self.config_path).resolve().parent
+            if self.config_path
+            else Path.cwd().resolve()
+        )
+        search_roots = [
+            config_dir,
+            config_dir.parent,
+            Path.cwd().resolve(),
+        ]
+        candidates: List[Path] = []
+        for root in search_roots:
+            candidates.extend(
+                [
+                    root / "config" / "cookies.json",
+                    root / ".cookies.json",
+                ]
+            )
+
+        unique: List[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            resolved = str(candidate.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            unique.append(candidate)
+        return unique
+
+    @staticmethod
+    def _load_cookie_file(path: Path) -> Dict[str, str]:
+        if not path.exists():
+            return {}
+        try:
+            raw_data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to load auto cookie file %s: %s", path, exc)
+            return {}
+
+        if raw_data is None:
+            return {}
+        if not isinstance(raw_data, dict):
+            logger.warning("Auto cookie file %s is not a JSON object", path)
+            return {}
+        return sanitize_cookies(raw_data)
 
     def get_links(self) -> List[str]:
         links = self.config.get("link", [])
