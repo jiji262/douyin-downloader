@@ -496,6 +496,9 @@ class BaseDownloader(ABC):
 
             fallback_candidate = (candidate, headers)
 
+        if fallback_candidate:
+            return fallback_candidate
+
         uri = (
             play_addr.get("uri")
             or video.get("vid")
@@ -514,9 +517,6 @@ class BaseDownloader(ABC):
                 "/aweme/v1/play/", params
             )
             return signed_url, self._download_headers(user_agent=ua)
-
-        if fallback_candidate:
-            return fallback_candidate
 
         return None
 
