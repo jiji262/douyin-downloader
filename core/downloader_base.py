@@ -493,19 +493,29 @@ class BaseDownloader(ABC):
         url_candidates = [c for c in (play_addr.get("url_list") or []) if c]
         url_candidates.sort(key=lambda u: 0 if "watermark=0" in u else 1)
 
+        logger.debug("Building video URL, found %d candidates", len(url_candidates))
+        for i, candidate in enumerate(url_candidates):
+            logger.debug("URL candidate %d: %s", i, candidate[:100] + "..." if len(candidate) > 100 else candidate)
+
         fallback_candidate: Optional[Tuple[str, Dict[str, str]]] = None
 
         for candidate in url_candidates:
             parsed = urlparse(candidate)
             headers = self._download_headers()
 
+            logger.debug("Checking URL domain: %s", parsed.netloc)
+
             if parsed.netloc.endswith("douyin.com"):
+                logger.info("Found douyin.com domain URL, signing...")
                 if "X-Bogus=" not in candidate:
                     signed_url, ua = self.api_client.sign_url(candidate)
                     headers = self._download_headers(user_agent=ua)
+                    logger.info("Signed URL: %s", signed_url[:100] + "..." if len(signed_url) > 100 else signed_url)
                     return signed_url, headers
+                logger.info("URL already signed")
                 return candidate, headers
 
+            logger.debug("Non-douyin domain, using as fallback: %s", parsed.netloc)
             fallback_candidate = (candidate, headers)
 
         uri = (
@@ -514,6 +524,7 @@ class BaseDownloader(ABC):
             or video.get("download_addr", {}).get("uri")
         )
         if uri:
+            logger.info("Building signed play URL from URI: %s", uri)
             params = {
                 "video_id": uri,
                 "ratio": "1080p",
@@ -525,11 +536,14 @@ class BaseDownloader(ABC):
             signed_url, ua = self.api_client.build_signed_path(
                 "/aweme/v1/play/", params
             )
+            logger.info("Built play URL: %s", signed_url[:100] + "..." if len(signed_url) > 100 else signed_url)
             return signed_url, self._download_headers(user_agent=ua)
 
         if fallback_candidate:
+            logger.info("Using fallback URL: %s", fallback_candidate[0][:100] + "..." if len(fallback_candidate[0]) > 100 else fallback_candidate[0])
             return fallback_candidate
 
+        logger.warning("No video URL found for aweme")
         return None
 
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
