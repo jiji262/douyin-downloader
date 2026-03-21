@@ -451,6 +451,7 @@ class DouyinAPIClient:
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def resolve_short_url(self, short_url: str) -> Optional[str]:
+        logger.info("Resolving short URL: %s", short_url)
         try:
             await self._ensure_session()
             async with self._session.get(
@@ -458,7 +459,9 @@ class DouyinAPIClient:
                 allow_redirects=True,
                 proxy=self.proxy or None,
             ) as response:
-                return str(response.url)
+                resolved_url = str(response.url)
+                logger.info("Short URL resolved: %s -> %s", short_url, resolved_url)
+                return resolved_url
         except Exception as e:
             logger.error("Failed to resolve short URL: %s, error: %s", short_url, e)
             return None

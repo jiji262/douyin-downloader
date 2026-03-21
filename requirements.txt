@@ -5,3 +5,6 @@ rich>=13.7.0
 pyyaml>=6.0.1
 python-dateutil>=2.8.2
 gmssl>=3.2.2
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6

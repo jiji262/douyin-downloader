@@ -211,6 +211,73 @@ class Database:
             'updated_at': row[10],
         }
 
+    async def get_history(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        url_type: Optional[str] = None,
+    ):
+        db = await self._get_conn()
+        if url_type:
+            cursor = await db.execute(
+                '''
+                SELECT id, url, url_type, download_time, total_count, success_count
+                FROM download_history
+                WHERE url_type = ?
+                ORDER BY download_time DESC
+                LIMIT ? OFFSET ?
+                ''',
+                (url_type, limit, offset),
+            )
+        else:
+            cursor = await db.execute(
+                '''
+                SELECT id, url, url_type, download_time, total_count, success_count
+                FROM download_history
+                ORDER BY download_time DESC
+                LIMIT ? OFFSET ?
+                ''',
+                (limit, offset),
+            )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            results.append({
+                'id': row[0],
+                'url': row[1],
+                'url_type': row[2],
+                'created_at': datetime.fromtimestamp(row[3]).isoformat() if row[3] else '',
+                'total_count': row[4] or 0,
+                'success_count': row[5] or 0,
+            })
+        return results
+
+    async def count_history(self, url_type: Optional[str] = None) -> int:
+        db = await self._get_conn()
+        if url_type:
+            cursor = await db.execute(
+                'SELECT COUNT(*) FROM download_history WHERE url_type = ?',
+                (url_type,),
+            )
+        else:
+            cursor = await db.execute('SELECT COUNT(*) FROM download_history')
+        result = await cursor.fetchone()
+        return result[0] if result else 0
+
+    async def delete_history_record(self, record_id: int) -> bool:
+        db = await self._get_conn()
+        cursor = await db.execute(
+            'DELETE FROM download_history WHERE id = ?',
+            (record_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+    async def clear_history(self):
+        db = await self._get_conn()
+        await db.execute('DELETE FROM download_history')
+        await db.commit()
+
     async def close(self):
         if self._conn is not None:
             await self._conn.close()

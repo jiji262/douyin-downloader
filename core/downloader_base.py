@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import json
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Set, Tuple, Union
 from urllib.parse import urlparse
 
 from auth import CookieManager
@@ -67,7 +69,7 @@ class BaseDownloader(ABC):
         self.transcript_manager = TranscriptManager(
             self.config, self.file_manager, self.database
         )
-        self._local_aweme_ids: Optional[set[str]] = None
+        self._local_aweme_ids: Optional[Set[str]] = None
         self._aweme_id_pattern = re.compile(r"(?<!\d)(\d{15,20})(?!\d)")
         self._local_media_suffixes = {
             ".mp4",
@@ -138,6 +140,11 @@ class BaseDownloader(ABC):
         if self.database:
             in_db = await self.database.is_downloaded(aweme_id)
 
+        logger.debug(
+            "Should download check for aweme %s: in_local=%s, in_db=%s, database=%s",
+            aweme_id, in_local, in_db, self.database is not None
+        )
+
         if in_db and in_local:
             return False
 
@@ -169,7 +176,10 @@ class BaseDownloader(ABC):
         base_path = self.file_manager.base_path
         aweme_ids: set[str] = set()
 
+        logger.debug("Building local aweme index, base_path: %s, exists: %s", base_path, base_path.exists())
+
         if base_path.exists():
+            file_count = 0
             for path in base_path.rglob("*"):
                 if not path.is_file():
                     continue
@@ -180,8 +190,10 @@ class BaseDownloader(ABC):
                         continue
                 except OSError:
                     continue
+                file_count += 1
                 for match in self._aweme_id_pattern.finditer(path.name):
                     aweme_ids.add(match.group(1))
+            logger.debug("Scanned %d files, found %d aweme_ids", file_count, len(aweme_ids))
 
         self._local_aweme_ids = aweme_ids
 
@@ -443,7 +455,7 @@ class BaseDownloader(ABC):
         optional: bool = False,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
-    ) -> bool | Path:
+    ) -> Union[bool, Path]:
         async def _task():
             download_result = await self.file_manager.download_file(
                 url,

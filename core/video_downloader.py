@@ -15,11 +15,16 @@ class VideoDownloader(BaseDownloader):
             logger.error("No aweme_id found in parsed URL")
             return result
 
+        logger.info("VideoDownloader: processing aweme_id=%s", aweme_id)
+
         result.total = 1
         self._progress_set_item_total(1, "单视频下载")
         self._progress_update_step("下载作品", "单视频资源下载中")
 
-        if not await self._should_download(aweme_id):
+        should_download = await self._should_download(aweme_id)
+        logger.info("VideoDownloader: should_download=%s for aweme_id=%s", should_download, aweme_id)
+
+        if not should_download:
             logger.info("Video %s already downloaded, skipping", aweme_id)
             result.skipped += 1
             self._progress_advance_item("skipped", str(aweme_id))

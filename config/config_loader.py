@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import logging
@@ -159,6 +161,20 @@ class ConfigLoader:
                     self.config[key] = value
             else:
                 self.config[key] = value
+
+    def update_cookies(self, cookies: Dict[str, str]):
+        sanitized = sanitize_cookies(cookies)
+        self.config["cookies"] = sanitized
+        if self.config_path and os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    file_config = yaml.safe_load(f) or {}
+                file_config["cookies"] = sanitized
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    yaml.safe_dump(file_config, f, allow_unicode=True, sort_keys=False)
+                logger.info("Cookies saved to config file: %s", self.config_path)
+            except Exception as e:
+                logger.warning("Failed to save cookies to config file: %s", e)
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.config.get(key, default)
