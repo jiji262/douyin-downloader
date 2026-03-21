@@ -213,7 +213,9 @@ async def wait_for_login_confirmation(
 ) -> None:
     # 页面导航放到后台执行，避免在导航等待期间终端无法响应 Enter。
     nav_task = asyncio.create_task(goto_with_fallback(page, url))
-    await asyncio.to_thread(input_func)
+    # Python 3.8 兼容性：使用 run_in_executor 替代 asyncio.to_thread
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, input_func)
 
     if not nav_task.done():
         nav_task.cancel()
