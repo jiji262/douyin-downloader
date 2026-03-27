@@ -485,7 +485,11 @@ class BaseDownloader(ABC):
     _GALLERY_AWEME_TYPES = {2, 68, 150}
 
     def _detect_media_type(self, aweme_data: Dict[str, Any]) -> str:
-        if aweme_data.get("image_post_info") or aweme_data.get("images"):
+        if (
+            aweme_data.get("image_post_info")
+            or aweme_data.get("images")
+            or aweme_data.get("image_list")
+        ):
             return "gallery"
         aweme_type = aweme_data.get("aweme_type")
         if isinstance(aweme_type, int) and aweme_type in self._GALLERY_AWEME_TYPES:
