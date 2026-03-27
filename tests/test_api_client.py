@@ -311,8 +311,8 @@ async def test_mix_and_music_endpoints_are_normalized(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_video_detail_retries_with_different_aid_on_filter():
-    """When aid=1128 returns filter_reason (e.g. images_base for notes),
-    get_video_detail should retry with aid=6383 and return the detail."""
+    """When the first aid candidate returns filter_reason, get_video_detail
+    should retry with the next candidate and return the detail."""
     client = DouyinAPIClient({"msToken": "t"})
     call_count = 0
 
@@ -320,8 +320,8 @@ async def test_get_video_detail_retries_with_different_aid_on_filter():
         nonlocal call_count
         call_count += 1
         aid = params.get("aid")
-        if aid == "1128":
-            # Simulate filter for image/note content
+        if aid == client._DETAIL_AID_CANDIDATES[0]:
+            # Simulate filter on the first candidate
             return {
                 "aweme_detail": None,
                 "filter_detail": {
@@ -330,7 +330,7 @@ async def test_get_video_detail_retries_with_different_aid_on_filter():
                 },
                 "status_code": 0,
             }
-        # aid=6383 returns the detail successfully
+        # Second candidate returns the detail successfully
         return {
             "aweme_detail": {
                 "aweme_id": "123",
@@ -352,7 +352,7 @@ async def test_get_video_detail_retries_with_different_aid_on_filter():
 
 @pytest.mark.asyncio
 async def test_get_video_detail_returns_on_first_success():
-    """When aid=1128 returns valid detail, no retry should happen."""
+    """When the first aid candidate returns valid detail, no retry happens."""
     client = DouyinAPIClient({"msToken": "t"})
     call_count = 0
 

@@ -305,7 +305,7 @@ class DouyinAPIClient:
 
     # aid=1128 works for videos but filters out image/note content;
     # aid=6383 works for notes/gallery but may miss some video content.
-    _DETAIL_AID_CANDIDATES = ("1128", "6383")
+    _DETAIL_AID_CANDIDATES = ("6383", "1128")
 
     async def get_video_detail(
         self, aweme_id: str, *, suppress_error: bool = False
