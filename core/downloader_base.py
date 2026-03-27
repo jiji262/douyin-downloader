@@ -317,8 +317,21 @@ class BaseDownloader(ABC):
         elif media_type == "gallery":
             image_urls = self._collect_image_urls(aweme_data)
             image_live_urls = self._collect_image_live_urls(aweme_data)
+            logger.info(
+                "Gallery aweme %s: %d image(s), %d live photo(s)",
+                aweme_id,
+                len(image_urls),
+                len(image_live_urls),
+            )
             if not image_urls and not image_live_urls:
-                logger.error("No gallery assets found (images/live) for aweme %s", aweme_id)
+                logger.error(
+                    "No gallery assets found for aweme %s (aweme_type=%s, "
+                    "has image_post_info=%s, has images=%s)",
+                    aweme_id,
+                    aweme_data.get("aweme_type"),
+                    "image_post_info" in aweme_data,
+                    "images" in aweme_data,
+                )
                 return False
 
             for index, image_url in enumerate(image_urls, start=1):
@@ -468,8 +481,23 @@ class BaseDownloader(ABC):
             )
             return False
 
+    # aweme_type codes that indicate image/note content
+    _GALLERY_AWEME_TYPES = {2, 68, 150}
+
     def _detect_media_type(self, aweme_data: Dict[str, Any]) -> str:
-        if aweme_data.get("image_post_info") or aweme_data.get("images"):
+        if (
+            aweme_data.get("image_post_info")
+            or aweme_data.get("images")
+            or aweme_data.get("image_list")
+        ):
+            return "gallery"
+        aweme_type = aweme_data.get("aweme_type")
+        if isinstance(aweme_type, int) and aweme_type in self._GALLERY_AWEME_TYPES:
+            logger.info(
+                "Detected gallery via aweme_type=%s for aweme %s",
+                aweme_type,
+                aweme_data.get("aweme_id"),
+            )
             return "gallery"
         return "video"
 
@@ -525,15 +553,40 @@ class BaseDownloader(ABC):
         for item in self._iter_gallery_items(aweme_data):
             if not isinstance(item, dict):
                 continue
+            # 优先拿可下载/原图字段，避免 preview/display 图链签名失效后整组图文失败。
+            # 同时兼容旧格式 download_url_list（直接 list）和新格式 download_url（dict with url_list）。
             image_url = self._pick_first_media_url(
+                item.get("download_url"),
+                item.get("download_addr"),
+                item.get("download_url_list"),
                 item,
                 item.get("display_image"),
                 item.get("owner_watermark_image"),
-                item.get("download_url"),
-                item.get("download_addr"),
             )
             if image_url:
                 image_urls.append(image_url)
+        gallery_items = self._iter_gallery_items(aweme_data)
+        for item in gallery_items:
+            if not isinstance(item, dict):
+                continue
+            # 优先拿可下载/原图字段，避免 preview/display 图链签名失效后整组图文失败。
+            # 同时兼容旧格式 download_url_list（直接 list）和新格式 download_url（dict with url_list）。
+            image_url = self._pick_first_media_url(
+                item.get("download_url"),
+                item.get("download_addr"),
+                item.get("download_url_list"),
+                item,
+                item.get("display_image"),
+                item.get("owner_watermark_image"),
+            )
+            if image_url:
+                image_urls.append(image_url)
+        if not image_urls:
+            logger.warning(
+                "No image URLs extracted for aweme %s; gallery items count=%d",
+                aweme_data.get("aweme_id"),
+                len(gallery_items),
+            )
         return self._deduplicate_urls(image_urls)
 
     def _collect_image_live_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
@@ -555,10 +608,12 @@ class BaseDownloader(ABC):
     @staticmethod
     def _iter_gallery_items(aweme_data: Dict[str, Any]) -> List[Any]:
         image_post = aweme_data.get("image_post_info")
-        image_post_images = (
-            image_post.get("images") if isinstance(image_post, dict) else None
-        )
-        images = image_post_images or aweme_data.get("images") or []
+        if isinstance(image_post, dict):
+            for key in ("images", "image_list"):
+                candidate = image_post.get(key)
+                if isinstance(candidate, list) and candidate:
+                    return candidate
+        images = aweme_data.get("images") or aweme_data.get("image_list") or []
         if isinstance(images, list):
             return images
         return []
