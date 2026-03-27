@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -619,3 +620,122 @@ async def test_download_aweme_assets_gallery_fails_when_live_video_download_fail
     assert any(path.name.endswith("_live_2.mp4") for path in saved_paths)
 
     await api_client.close()
+
+
+def test_detect_media_type_by_aweme_type(tmp_path):
+    """aweme_type 2/68/150 should be detected as gallery even without images key."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    for aweme_type in (2, 68, 150):
+        assert downloader._detect_media_type({"aweme_type": aweme_type}) == "gallery"
+
+    assert downloader._detect_media_type({"aweme_type": 4}) == "video"
+    assert downloader._detect_media_type({"aweme_type": 0}) == "video"
+    assert downloader._detect_media_type({}) == "video"
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_old_format_url_list(tmp_path):
+    """Old format: items have url_list directly."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100001",
+        "images": [
+            {"url_list": ["https://example.com/img1.webp"]},
+            {"url_list": ["https://example.com/img2.webp"]},
+        ],
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    assert urls == [
+        "https://example.com/img1.webp",
+        "https://example.com/img2.webp",
+    ]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_old_format_download_url_list(tmp_path):
+    """Old format: items have download_url_list (list) directly."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100002",
+        "images": [
+            {
+                "url_list": ["https://example.com/preview1.webp"],
+                "download_url_list": ["https://example.com/download1.webp"],
+            },
+        ],
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    # download_url_list should be preferred over url_list
+    assert urls == ["https://example.com/download1.webp"]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_new_format_download_url_preferred(tmp_path):
+    """New format: download_url dict is preferred over display_image."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100003",
+        "image_post_info": {
+            "images": [
+                {
+                    "download_url": {
+                        "url_list": ["https://cdn.example.com/download.webp"]
+                    },
+                    "display_image": {
+                        "url_list": ["https://cdn.example.com/display.webp"]
+                    },
+                },
+            ]
+        },
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    assert urls == ["https://cdn.example.com/download.webp"]
+
+    asyncio.run(api_client.close())
+
+
+def test_iter_gallery_items_image_list_key(tmp_path):
+    """Some responses use image_list instead of images."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100004",
+        "image_post_info": {
+            "image_list": [
+                {"display_image": {"url_list": ["https://example.com/img.webp"]}}
+            ]
+        },
+    }
+
+    items = downloader._iter_gallery_items(aweme_data)
+    assert len(items) == 1
+    assert items[0]["display_image"]["url_list"][0] == "https://example.com/img.webp"
+
+    asyncio.run(api_client.close())
+
+
+def test_iter_gallery_items_top_level_image_list(tmp_path):
+    """Fallback: top-level image_list key."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100005",
+        "image_list": [
+            {"url_list": ["https://example.com/top.webp"]}
+        ],
+    }
+
+    items = downloader._iter_gallery_items(aweme_data)
+    assert len(items) == 1
+
+    asyncio.run(api_client.close())
