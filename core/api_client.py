@@ -303,24 +303,49 @@ class DouyinAPIClient:
         )
         return params
 
+    # aid=1128 works for videos but filters out image/note content;
+    # aid=6383 works for notes/gallery but may miss some video content.
+    _DETAIL_AID_CANDIDATES = ("1128", "6383")
+
     async def get_video_detail(
         self, aweme_id: str, *, suppress_error: bool = False
     ) -> Optional[Dict[str, Any]]:
-        params = await self._default_query()
-        params.update(
-            {
-                "aweme_id": aweme_id,
-                "aid": "1128",
-            }
-        )
+        for aid in self._DETAIL_AID_CANDIDATES:
+            params = await self._default_query()
+            params.update(
+                {
+                    "aweme_id": aweme_id,
+                    "aid": aid,
+                }
+            )
 
-        data = await self._request_json(
-            "/aweme/v1/web/aweme/detail/",
-            params,
-            suppress_error=suppress_error,
-        )
-        if data:
-            return data.get("aweme_detail")
+            data = await self._request_json(
+                "/aweme/v1/web/aweme/detail/",
+                params,
+                suppress_error=(suppress_error or aid != self._DETAIL_AID_CANDIDATES[-1]),
+            )
+            if not data:
+                continue
+
+            detail = data.get("aweme_detail")
+            if detail:
+                return detail
+
+            # API returned data but aweme_detail is null — check if content was
+            # filtered (e.g. filter_reason="images_base" for note/gallery).
+            filter_info = data.get("filter_detail")
+            if isinstance(filter_info, dict) and filter_info.get("filter_reason"):
+                logger.info(
+                    "Aweme %s filtered with aid=%s (reason=%s), retrying",
+                    aweme_id,
+                    aid,
+                    filter_info["filter_reason"],
+                )
+                continue
+
+            # aweme_detail is null without a filter reason — no retry needed
+            break
+
         return None
 
     async def get_user_post(
