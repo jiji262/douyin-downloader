@@ -77,7 +77,7 @@ class URLParser:
 
     @staticmethod
     def _extract_note_id(url: str) -> Optional[str]:
-        match = re.search(r'/(?:note|gallery)/(\d+)', url)
+        match = re.search(r'/(?:note|gallery|slides)/(\d+)', url)
         if match:
             return match.group(1)
         return None

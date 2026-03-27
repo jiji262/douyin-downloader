@@ -1,4 +1,5 @@
 import asyncio
+import random
 import time
 
 
@@ -19,5 +20,8 @@ class RateLimiter:
             if time_since_last < self.min_interval:
                 wait_time = self.min_interval - time_since_last
                 await asyncio.sleep(wait_time)
+
+            # Random jitter (0~0.5s) to mimic real user behavior
+            await asyncio.sleep(random.uniform(0, 0.5))
 
             self.last_request = time.time()
