@@ -524,6 +524,11 @@ class BaseDownloader(ABC):
 
             fallback_candidate = (candidate, headers)
 
+        # Prefer direct CDN URLs (e.g. douyinvod.com) over the /aweme/v1/play/
+        # signed endpoint: the latter redirects to a URL that returns 403 Forbidden.
+        if fallback_candidate:
+            return fallback_candidate
+
         uri = (
             play_addr.get("uri")
             or video.get("vid")
@@ -542,9 +547,6 @@ class BaseDownloader(ABC):
                 "/aweme/v1/play/", params
             )
             return signed_url, self._download_headers(user_agent=ua)
-
-        if fallback_candidate:
-            return fallback_candidate
 
         return None
 
