@@ -307,3 +307,67 @@ async def test_mix_and_music_endpoints_are_normalized(monkeypatch):
     assert music_detail == {"id": "music-1"}
     assert mix_page["items"] == [{"aweme_id": "a-1"}]
     assert music_page["items"] == [{"aweme_id": "a-2"}]
+
+
+@pytest.mark.asyncio
+async def test_get_video_detail_retries_with_different_aid_on_filter():
+    """When the first aid candidate returns filter_reason, get_video_detail
+    should retry with the next candidate and return the detail."""
+    client = DouyinAPIClient({"msToken": "t"})
+    call_count = 0
+
+    async def _fake_request_json(path, params, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        aid = params.get("aid")
+        if aid == client._DETAIL_AID_CANDIDATES[0]:
+            # Simulate filter on the first candidate
+            return {
+                "aweme_detail": None,
+                "filter_detail": {
+                    "filter_reason": "images_base",
+                    "aweme_id": "123",
+                },
+                "status_code": 0,
+            }
+        # Second candidate returns the detail successfully
+        return {
+            "aweme_detail": {
+                "aweme_id": "123",
+                "aweme_type": 68,
+                "images": [{"url_list": ["https://example.com/img.webp"]}],
+            },
+            "status_code": 0,
+        }
+
+    client._request_json = _fake_request_json
+
+    detail = await client.get_video_detail("123")
+
+    assert detail is not None
+    assert detail["aweme_id"] == "123"
+    assert detail["aweme_type"] == 68
+    assert call_count == 2  # first call filtered, second succeeded
+
+
+@pytest.mark.asyncio
+async def test_get_video_detail_returns_on_first_success():
+    """When the first aid candidate returns valid detail, no retry happens."""
+    client = DouyinAPIClient({"msToken": "t"})
+    call_count = 0
+
+    async def _fake_request_json(path, params, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "aweme_detail": {"aweme_id": "456", "aweme_type": 4},
+            "status_code": 0,
+        }
+
+    client._request_json = _fake_request_json
+
+    detail = await client.get_video_detail("456")
+
+    assert detail is not None
+    assert detail["aweme_id"] == "456"
+    assert call_count == 1  # no retry needed

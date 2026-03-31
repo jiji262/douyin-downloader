@@ -550,27 +550,10 @@ class BaseDownloader(ABC):
 
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
         image_urls = []
-        for item in self._iter_gallery_items(aweme_data):
-            if not isinstance(item, dict):
-                continue
-            # 优先拿可下载/原图字段，避免 preview/display 图链签名失效后整组图文失败。
-            # 同时兼容旧格式 download_url_list（直接 list）和新格式 download_url（dict with url_list）。
-            image_url = self._pick_first_media_url(
-                item.get("download_url"),
-                item.get("download_addr"),
-                item.get("download_url_list"),
-                item,
-                item.get("display_image"),
-                item.get("owner_watermark_image"),
-            )
-            if image_url:
-                image_urls.append(image_url)
         gallery_items = self._iter_gallery_items(aweme_data)
         for item in gallery_items:
             if not isinstance(item, dict):
                 continue
-            # 优先拿可下载/原图字段，避免 preview/display 图链签名失效后整组图文失败。
-            # 同时兼容旧格式 download_url_list（直接 list）和新格式 download_url（dict with url_list）。
             image_url = self._pick_first_media_url(
                 item.get("download_url"),
                 item.get("download_addr"),

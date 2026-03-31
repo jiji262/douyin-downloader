@@ -129,27 +129,28 @@ class DouyinAPIClient:
             "device_platform": "webapp",
             "aid": "6383",
             "channel": "channel_pc_web",
+            "update_version_code": "170400",
             "pc_client_type": "1",
-            "version_code": "170400",
-            "version_name": "17.4.0",
+            "version_code": "290100",
+            "version_name": "29.1.0",
             "cookie_enabled": "true",
             "screen_width": "1920",
             "screen_height": "1080",
             "browser_language": "zh-CN",
             "browser_platform": "Win32",
             "browser_name": "Chrome",
-            "browser_version": "123.0.0.0",
+            "browser_version": "130.0.0.0",
             "browser_online": "true",
             "engine_name": "Blink",
-            "engine_version": "123.0.0.0",
+            "engine_version": "130.0.0.0",
             "os_name": "Windows",
             "os_version": "10",
-            "cpu_core_num": "8",
+            "cpu_core_num": "12",
             "device_memory": "8",
             "platform": "PC",
             "downlink": "10",
             "effective_type": "4g",
-            "round_trip_time": "50",
+            "round_trip_time": "100",
             "msToken": ms_token,
         }
 
@@ -303,24 +304,49 @@ class DouyinAPIClient:
         )
         return params
 
+    # aid=1128 works for videos but filters out image/note content;
+    # aid=6383 works for notes/gallery but may miss some video content.
+    _DETAIL_AID_CANDIDATES = ("6383", "1128")
+
     async def get_video_detail(
         self, aweme_id: str, *, suppress_error: bool = False
     ) -> Optional[Dict[str, Any]]:
-        params = await self._default_query()
-        params.update(
-            {
-                "aweme_id": aweme_id,
-                "aid": "1128",
-            }
-        )
+        for aid in self._DETAIL_AID_CANDIDATES:
+            params = await self._default_query()
+            params.update(
+                {
+                    "aweme_id": aweme_id,
+                    "aid": aid,
+                }
+            )
 
-        data = await self._request_json(
-            "/aweme/v1/web/aweme/detail/",
-            params,
-            suppress_error=suppress_error,
-        )
-        if data:
-            return data.get("aweme_detail")
+            data = await self._request_json(
+                "/aweme/v1/web/aweme/detail/",
+                params,
+                suppress_error=(suppress_error or aid != self._DETAIL_AID_CANDIDATES[-1]),
+            )
+            if not data:
+                continue
+
+            detail = data.get("aweme_detail")
+            if detail:
+                return detail
+
+            # API returned data but aweme_detail is null — check if content was
+            # filtered (e.g. filter_reason="images_base" for note/gallery).
+            filter_info = data.get("filter_detail")
+            if isinstance(filter_info, dict) and filter_info.get("filter_reason"):
+                logger.info(
+                    "Aweme %s filtered with aid=%s (reason=%s), retrying",
+                    aweme_id,
+                    aid,
+                    filter_info["filter_reason"],
+                )
+                continue
+
+            # aweme_detail is null without a filter reason — no retry needed
+            break
+
         return None
 
     async def get_user_post(
