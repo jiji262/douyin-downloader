@@ -496,6 +496,8 @@ class BaseDownloader(ABC):
 
             fallback_candidate = (candidate, headers)
 
+        # Prefer direct CDN URLs (e.g. douyinvod.com) over the /aweme/v1/play/
+        # signed endpoint: the latter redirects to a URL that returns 403 Forbidden.
         if fallback_candidate:
             return fallback_candidate
 
