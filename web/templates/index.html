@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音下载器 - Web 管理界面</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录页面 -->
+        <div id="login-page" class="page">
+            <div class="login-container">
+                <div class="login-card">
+                    <h1 class="login-title">🎬 抖音下载器</h1>
+                    <p class="login-subtitle">Web 管理界面</p>
+                    
+                    <form id="login-form" class="login-form">
+                        <div class="form-group">
+                            <label for="username">用户名</label>
+                            <input type="text" id="username" name="username" required placeholder="请输入用户名">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="password">密码</label>
+                            <input type="password" id="password" name="password" required placeholder="请输入密码">
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary btn-block">登录</button>
+                        
+                        <div id="login-error" class="error-message"></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 主界面 -->
+        <div id="main-page" class="page hidden">
+            <!-- 顶部导航 -->
+            <nav class="navbar">
+                <div class="nav-brand">🎬 抖音下载器</div>
+                <div class="nav-links">
+                    <a href="#" class="nav-link active" data-tab="video">视频下载</a>
+                    <a href="#" class="nav-link" data-tab="homepage">主页管理</a>
+                    <a href="#" class="nav-link" data-tab="records">下载记录</a>
+                    <a href="#" class="nav-link" data-tab="settings">系统设置</a>
+                </div>
+                <div class="nav-user">
+                    <span id="user-name">admin</span>
+                    <button id="logout-btn" class="btn btn-sm">退出</button>
+                </div>
+            </nav>
+            
+            <!-- 内容区域 -->
+            <main class="main-content">
+                <!-- 视频下载标签页 -->
+                <section id="tab-video" class="tab-content active">
+                    <div class="card">
+                        <h2>📥 视频模式下载</h2>
+                        <p class="hint">粘贴包含抖音视频链接的文本，系统将自动解析并下载所有视频</p>
+                        
+                        <div class="form-group">
+                            <textarea id="video-text" rows="6" placeholder="示例：7.66 ChB:/ c@A.Gi 07/18 韩国胖熊  https://v.douyin.com/iP1Xhxjo/  复制此链接..."></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>下载模式</label>
+                                <select id="video-mode">
+                                    <option value="fast">🚀 急速 (高并发)</option>
+                                    <option value="balance" selected>⚖️ 平衡 (中等并发)</option>
+                                    <option value="stable">🛡️ 稳定 (低并发)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>下载目录 (可选)</label>
+                                <input type="text" id="video-download-dir" placeholder="留空使用默认目录">
+                            </div>
+                        </div>
+                        
+                        <button id="video-download-btn" class="btn btn-primary">
+                            <span class="btn-icon">⬇️</span> 开始下载
+                        </button>
+                        
+                        <!-- 进度条 -->
+                        <div id="video-progress-container" class="progress-container hidden">
+                            <div class="progress-header">
+                                <span id="video-progress-status">准备中...</span>
+                                <span id="video-progress-percent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div id="video-progress-fill" class="progress-fill"></div>
+                            </div>
+                            <div class="progress-details">
+                                <span id="video-progress-detail"></span>
+                                <button id="video-cancel-btn" class="btn btn-sm btn-danger">取消</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 主页管理标签页 -->
+                <section id="tab-homepage" class="tab-content hidden">
+                    <div class="card">
+                        <h2>🏠 主页链接管理</h2>
+                        
+                        <div class="form-row">
+                            <div class="form-group flex-grow">
+                                <input type="text" id="homepage-url" placeholder="粘贴主页链接，如：https://www.douyin.com/user/MS4wLjABAAAA...">
+                            </div>
+                            <button id="homepage-add-btn" class="btn btn-primary">添加</button>
+                        </div>
+                        
+                        <div class="toolbar">
+                            <button id="homepage-start-btn" class="btn btn-success">▶️ 启动扫描</button>
+                            <button id="homepage-stop-btn" class="btn btn-danger">⏹️ 停止扫描</button>
+                            <button id="homepage-refresh-btn" class="btn btn-secondary">🔄 刷新列表</button>
+                        </div>
+                        
+                        <div class="status-bar">
+                            <span id="scanner-status">扫描状态：<span class="status-indicator offline">未运行</span></span>
+                        </div>
+                        
+                        <!-- 扫描进度 -->
+                        <div id="homepage-progress-container" class="progress-container hidden">
+                            <div class="progress-header">
+                                <span id="homepage-progress-status">扫描中...</span>
+                                <span id="homepage-progress-percent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div id="homepage-progress-fill" class="progress-fill"></div>
+                            </div>
+                            <div class="progress-details">
+                                <span id="homepage-progress-detail"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- 主页列表 -->
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>序号</th>
+                                        <th>主页链接</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="homepage-list">
+                                    <!-- 动态填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 下载记录标签页 -->
+                <section id="tab-records" class="tab-content hidden">
+                    <div class="card">
+                        <h2>📊 下载记录</h2>
+                        
+                        <div class="toolbar">
+                            <select id="record-filter">
+                                <option value="">全部记录</option>
+                                <option value="video">视频模式</option>
+                                <option value="homepage">主页模式</option>
+                            </select>
+                            <button id="record-refresh-btn" class="btn btn-secondary">🔄 刷新</button>
+                        </div>
+                        
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-total-downloads">0</div>
+                                <div class="stat-label">总下载数</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-active-homepages">0</div>
+                                <div class="stat-label">活跃主页</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-inactive-homepages">0</div>
+                                <div class="stat-label">失效主页</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="stat-errors">0</div>
+                                <div class="stat-label">错误日志</div>
+                            </div>
+                        </div>
+                        
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>模式</th>
+                                        <th>URL</th>
+                                        <th>状态</th>
+                                        <th>耗时</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="download-records">
+                                    <!-- 动态填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>⚠️ 错误日志</h2>
+                        
+                        <div class="toolbar">
+                            <button id="error-clear-btn" class="btn btn-danger btn-sm">清空日志</button>
+                            <button id="error-refresh-btn" class="btn btn-secondary btn-sm">🔄 刷新</button>
+                        </div>
+                        
+                        <div class="log-container" id="error-logs">
+                            <!-- 动态填充 -->
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 系统设置标签页 -->
+                <section id="tab-settings" class="tab-content hidden">
+                    <div class="card">
+                        <h2>⚙️ 系统设置</h2>
+                        
+                        <div class="form-group">
+                            <label>默认下载目录</label>
+                            <div class="input-with-btn">
+                                <input type="text" id="setting-download-dir" readonly>
+                                <button id="setting-change-dir-btn" class="btn btn-secondary">选择目录</button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>主页扫描间隔（分钟）</label>
+                            <input type="number" id="setting-scan-interval" min="5" max="1440" value="30">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>默认下载模式</label>
+                            <select id="setting-download-mode">
+                                <option value="fast">🚀 急速</option>
+                                <option value="balance" selected>⚖️ 平衡</option>
+                                <option value="stable">🛡️ 稳定</option>
+                            </select>
+                        </div>
+                        
+                        <button id="setting-save-btn" class="btn btn-primary">💾 保存设置</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h2>🍪 Cookie 验证</h2>
+                        <p class="hint">通过 VNC 浏览器进行抖音登录获取 Cookie</p>
+                        
+                        <div class="vnc-controls">
+                            <button id="vnc-start-btn" class="btn btn-success">▶️ 启动 VNC</button>
+                            <button id="vnc-stop-btn" class="btn btn-danger">⏹️ 停止 VNC</button>
+                            <button id="vnc-open-cookie-btn" class="btn btn-primary">🌐 打开登录页</button>
+                        </div>
+                        
+                        <div id="vnc-status" class="status-info">
+                            VNC 状态：<span class="status-indicator offline">未启动</span>
+                        </div>
+                        
+                        <div id="vnc-frame-container" class="hidden">
+                            <iframe id="vnc-frame" src="" title="VNC Viewer"></iframe>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+        
+        <!-- Toast 通知 -->
+        <div id="toast" class="toast hidden"></div>
+    </div>
+    
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+Flask==2.3.3
+Flask-Login==0.6.2
+Flask-CORS==4.0.0
+Flask-SocketIO==5.3.6
+python-socketio==5.10.0
+eventlet==0.34.2
+noVNC==1.4.0
