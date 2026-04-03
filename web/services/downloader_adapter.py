@@ -73,7 +73,7 @@ class DownloaderAdapter:
         
         # 如果指定了下载目录，覆盖配置
         if download_dir:
-            config._config['download'] = {'path': download_dir}
+            config.config['path'] = download_dir
         
         self._cookie_manager = CookieManager(config)
         cookies = self._cookie_manager.load_cookies()
