@@ -1,21 +1,37 @@
+# ==========================================================
+# 抖音下载器 (Douyin-Downloader) 配置文件
+# 参考文档: README.zh-CN.md
+# ==========================================================
+
+# 1. 下载链接列表 (支持抖音主页、单个视频、图文、合集、音乐链接，可添加多个)
 link:
-  - https://www.douyin.com/user/MS4wLjABAAAA6O7EZyfDRYXxJrUTpf91K3tmB4rBROkAw-nYMfld8ss
+  # - https://www.douyin.com/user/MS4wLjABAAAA6O7EZyfDRYXxJrUTpf91K3tmB4rBROkAw-nYMfld8ss
+  - https://www.douyin.com/user/MS4wLjABAAAAWprbGx1RXp-hN0AUNeHTo1mCIBXFL96QBkmhqTek-nvIWHe8vN_7oJ5V2b3HrPfe?from_tab_name=main
+  - https://www.douyin.com/user/MS4wLjABAAAAZjGjZjXrW4wZV4bUtF7hhC9a_J_2fBRa1VihjmeAQso?from_tab_name=main
 
-path: ./Downloaded/
+# 2. 下载保存路径
+path: D:\导出视频\抖音下载视频\
+# ./Downloaded/
 
+# 3. 附加资源下载开关 (是否连带下载音频、封面、头像、JSON数据)
 music: true
 cover: true
 avatar: true
 json: true
 
+# 4. 时间过滤 (格式 YYYY-MM-DD，留空表示不限制)
 start_time: ""
 end_time: ""
 
+# 5. 文件夹样式 (设为 true 则每个作品都会存放在以作品命名的单独子文件夹中)
 folderstyle: true
 
+# 6. 下载模式 (支持: post主页作品, like点赞, mix合集, music音乐, collect收藏夹, collectmix收藏合集)
+# 注意: collect/collectmix 必须单独使用，不能和其它模式混用
 mode:
   - post
 
+# 7. 下载数量限制 (对上面指定的每种 mode 的限制，0 表示不限制，全量下载)
 number:
   post: 1
   like: 0
@@ -25,6 +41,7 @@ number:
   collect: 0
   collectmix: 0
 
+# 8. 增量下载开关 (设为 true 则只下载上次之后更新的新作品，必须搭配 database: true 使用)
 increase:
   post: false
   like: false
@@ -32,15 +49,20 @@ increase:
   mix: false
   music: false
 
-thread: 5
-retry_times: 3
-proxy: ""
+# 9. 网络与并发控制
+thread: 5             # 并发下载数
+retry_times: 3        # 下载失败重试次数
+proxy: ""             # 代理地址，例如: http://127.0.0.1:7890
+
+# 10. 数据库设置 (强烈建议开启，用于文件去重、断点续传和增量下载)
 database: true
 database_path: dy_downloader.db
 
+# 11. 控制台界面设置
 progress:
-  quiet_logs: true
+  quiet_logs: true    # 下载进度阶段是否静默日志，减少刷屏
 
+# 12. 在线视频转写 (调用 OpenAI API 等进行识别。若使用本地 Whisper 请忽略此项)
 transcript:
   enabled: false
   model: gpt-4o-mini-transcribe
@@ -52,16 +74,25 @@ transcript:
   api_key_env: OPENAI_API_KEY
   api_key: ""
 
+# 13. 浏览器兜底 (应对抖音反爬限制，当你只能抓取到前20个视频页面被掐断时自动启用)
 browser_fallback:
-  enabled: true
-  headless: false
+  enabled: true       # 开启兜底功能 (需要安装 playwright)
+  headless: false     # 是否无头模式。设为 false 可以看到弹出的浏览器，方便手动拖动过滑块验证码
   max_scrolls: 240
   idle_rounds: 8
   wait_timeout_seconds: 600
 
+# 14. 账号登录 Cookie (通过 python -m tools.cookie_fetcher 自动获取并填入)
 cookies:
   msToken: YOUR_MS_TOKEN
   ttwid: YOUR_TTWID
   odin_tt: YOUR_ODIN_TT
   passport_csrf_token: YOUR_CSRF_TOKEN
   sid_guard: YOUR_SID_GUARD
+
+# 15. 本地 Whisper 视频转写配置 (运行 python cli/whisper_transcribe.py 生效)
+local_whisper:
+  model: turbo # 填模型：tiny, base, small, medium, large, turbo
+  sc: true # 设为 true 则自动将繁体转简体
+  srt: false # 设为 true 则同时生成时间轴字幕
+  skip_existing: false # 设为 true 则跳过已经转录过的视频

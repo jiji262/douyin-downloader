@@ -12,6 +12,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich.table import Table
+import sys
 
 console = Console()
 
@@ -21,6 +22,7 @@ class ProgressDisplay:
 
     def __init__(self):
         self.console = console
+        self._is_tty = sys.stdout.isatty()
         self._progress_ctx: Optional[Progress] = None
         self._progress: Optional[Progress] = None
         self._overall_task_id: Optional[int] = None
@@ -60,6 +62,11 @@ class ProgressDisplay:
         if self._progress is not None:
             return
 
+        if not self._is_tty:
+            # 非终端模式：跳过 rich Progress，直接用 print
+            self._single_url_item_mode = False
+            return
+
         self._progress_ctx = self.create_progress()
         self._progress = self._progress_ctx.__enter__()
         self._single_url_item_mode = False
@@ -88,6 +95,10 @@ class ProgressDisplay:
         self._item_total = 0
         self._item_completed = 0
         self._item_stats = {"success": 0, "failed": 0, "skipped": 0}
+
+        if not self._is_tty:
+            print(f"[{index}/{total}] 开始处理: {self._shorten(url, max_len=80)}", flush=True)
+            return
 
         self._cleanup_url_tasks()
         if not self._progress:
@@ -140,6 +151,13 @@ class ProgressDisplay:
                 self._progress.advance(self._overall_task_id, 1)
 
     def advance_step(self, step: str, detail: str = ""):
+        if not self._is_tty:
+            msg = f"  → {step}"
+            if detail:
+                msg += f" | {self._shorten(detail, max_len=60)}"
+            print(msg, flush=True)
+            return
+
         if not self._progress or self._url_task_id is None:
             return
 
@@ -152,6 +170,9 @@ class ProgressDisplay:
         )
 
     def update_step(self, step: str, detail: str = ""):
+        if not self._is_tty:
+            return  # 非终端下 advance_step 已输出，无需重复
+
         if not self._progress or self._url_task_id is None:
             return
 
@@ -162,12 +183,16 @@ class ProgressDisplay:
         )
 
     def set_item_total(self, total: int, detail: str = ""):
-        if not self._progress:
-            return
-
         self._item_total = max(total, 1)
         self._item_completed = 1 if total == 0 else 0
         self._item_stats = {"success": 0, "failed": 0, "skipped": 0}
+
+        if not self._is_tty:
+            print(f"  📦 发现 {total} 个作品待处理", flush=True)
+            return
+
+        if not self._progress:
+            return
 
         if self._url_total == 1 and self._overall_task_id is not None:
             self._single_url_item_mode = True
@@ -199,19 +224,27 @@ class ProgressDisplay:
         )
 
     def advance_item(self, status: str, detail: str = ""):
+        if status in self._item_stats:
+            self._item_stats[status] += 1
+        if self._item_completed < self._item_total:
+            self._item_completed += 1
+
+        status_map = {"success": "✅", "failed": "❌", "skipped": "⏭️"}
+        status_icon = status_map.get(status, "·")
+
+        if not self._is_tty:
+            short = self._shorten(detail, max_len=50)
+            print(f"  {status_icon} [{self._item_completed}/{self._item_total}] {short}", flush=True)
+            return
+
         if not self._progress:
             return
         if self._item_task_id is None:
             self.set_item_total(1, "初始化条目进度")
         assert self._item_task_id is not None
 
-        if status in self._item_stats:
-            self._item_stats[status] += 1
-        if self._item_completed < self._item_total:
-            self._item_completed += 1
-
-        status_map = {"success": "成功", "failed": "失败", "skipped": "跳过"}
-        status_text = status_map.get(status, status)
+        status_text_map = {"success": "成功", "failed": "失败", "skipped": "跳过"}
+        status_text = status_text_map.get(status, status)
         item_detail = f"最近: {status_text} {self._shorten(detail, max_len=36)}"
 
         self._progress.update(

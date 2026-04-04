@@ -35,6 +35,11 @@ def parse_url_type(url: str) -> Optional[str]:
 
     if '/video/' in path:
         return 'video'
+        
+    # 支持从搜索栏或发现页点开带有 modal_id 的视频链接
+    if 'modal_id=' in url:
+        return 'video'
+        
     if '/user/' in path:
         return 'user'
     if '/note/' in path or '/gallery/' in path or '/slides/' in path:
