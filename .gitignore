@@ -44,3 +44,6 @@ config*.yml
 .cookies.json
 config/cookies.json
 .omx/
+
+
+nut_venv/

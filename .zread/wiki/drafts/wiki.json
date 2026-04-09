@@ -1,0 +1,249 @@
+{
+  "id": "2026-04-09-223831",
+  "generated_at": "2026-04-09T14:38:31.433378Z",
+  "language": "zh",
+  "pages": [
+    {
+      "slug": "1-xiang-mu-gai-lan-dou-yin-pi-liang-xia-zai-gong-ju-de-she-ji-mu-biao-yu-he-xin-neng-li",
+      "title": "项目概览：抖音批量下载工具的设计目标与核心能力",
+      "file": "1-xiang-mu-gai-lan-dou-yin-pi-liang-xia-zai-gong-ju-de-she-ji-mu-biao-yu-he-xin-neng-li.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "2-kuai-su-qi-dong-huan-jing-zhun-bei-an-zhuang-yi-lai-yu-shou-ci-yun-xing",
+      "title": "快速启动：环境准备、安装依赖与首次运行",
+      "file": "2-kuai-su-qi-dong-huan-jing-zhun-bei-an-zhuang-yi-lai-yu-shou-ci-yun-xing.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "3-pei-zhi-wen-jian-xiang-jie-config-yml-quan-zi-duan-shuo-ming-yu-dian-xing-chang-jing-shi-li",
+      "title": "配置文件详解：config.yml 全字段说明与典型场景示例",
+      "file": "3-pei-zhi-wen-jian-xiang-jie-config-yml-quan-zi-duan-shuo-ming-yu-dian-xing-chang-jing-shi-li.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "4-ming-ling-xing-can-shu-yu-yun-xing-mo-shi",
+      "title": "命令行参数与运行模式",
+      "file": "4-ming-ling-xing-can-shu-yu-yun-xing-mo-shi.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "5-cookie-huo-qu-yu-ren-zheng-pei-zhi",
+      "title": "Cookie 获取与认证配置",
+      "file": "5-cookie-huo-qu-yu-ren-zheng-pei-zhi.md",
+      "section": "快速入门",
+      "level": "Beginner"
+    },
+    {
+      "slug": "6-zheng-ti-jia-gou-mo-kuai-hua-fen-yu-shu-ju-liu-quan-jing",
+      "title": "整体架构：模块划分与数据流全景",
+      "file": "6-zheng-ti-jia-gou-mo-kuai-hua-fen-yu-shu-ju-liu-quan-jing.md",
+      "section": "深入理解",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "7-url-jie-xi-yu-lu-you-fen-fa-ji-zhi",
+      "title": "URL 解析与路由分发机制",
+      "file": "7-url-jie-xi-yu-lu-you-fen-fa-ji-zhi.md",
+      "section": "深入理解",
+      "group": "核心下载流程",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "8-xia-zai-qi-gong-han-mo-shi-an-url-lei-xing-chuang-jian-xia-zai-qi",
+      "title": "下载器工厂模式：按 URL 类型创建下载器",
+      "file": "8-xia-zai-qi-gong-han-mo-shi-an-url-lei-xing-chuang-jian-xia-zai-qi.md",
+      "section": "深入理解",
+      "group": "核心下载流程",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "9-ji-chu-xia-zai-qi-basedownloader-de-zi-chan-xia-zai-yu-qu-zhong-luo-ji",
+      "title": "基础下载器（BaseDownloader）的资产下载与去重逻辑",
+      "file": "9-ji-chu-xia-zai-qi-basedownloader-de-zi-chan-xia-zai-yu-qu-zhong-luo-ji.md",
+      "section": "深入理解",
+      "group": "核心下载流程",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "10-shi-pin-tu-wen-yin-le-xia-zai-de-ju-ti-shi-xian",
+      "title": "视频/图文/音乐下载的具体实现",
+      "file": "10-shi-pin-tu-wen-yin-le-xia-zai-de-ju-ti-shi-xian.md",
+      "section": "深入理解",
+      "group": "核心下载流程",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "11-dou-yin-api-ke-hu-duan-douyinapiclient-de-qing-qiu-feng-zhuang-yu-fen-ye-biao-zhun-hua",
+      "title": "抖音 API 客户端（DouyinAPIClient）的请求封装与分页标准化",
+      "file": "11-dou-yin-api-ke-hu-duan-douyinapiclient-de-qing-qiu-feng-zhuang-yu-fen-ye-biao-zhun-hua.md",
+      "section": "深入理解",
+      "group": "API 客户端与请求签名",
+      "level": "Advanced"
+    },
+    {
+      "slug": "12-x-bogus-yu-a-bogus-qian-ming-suan-fa-yuan-li",
+      "title": "X-Bogus 与 A-Bogus 签名算法原理",
+      "file": "12-x-bogus-yu-a-bogus-qian-ming-suan-fa-yuan-li.md",
+      "section": "深入理解",
+      "group": "API 客户端与请求签名",
+      "level": "Advanced"
+    },
+    {
+      "slug": "13-duan-lian-jie-xi-yu-mstoken-zi-dong-sheng-cheng-ji-zhi",
+      "title": "短链解析与 msToken 自动生成机制",
+      "file": "13-duan-lian-jie-xi-yu-mstoken-zi-dong-sheng-cheng-ji-zhi.md",
+      "section": "深入理解",
+      "group": "API 客户端与请求签名",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "14-userdownloader-yu-usermoderegistry-de-she-ji",
+      "title": "UserDownloader 与 UserModeRegistry 的设计",
+      "file": "14-userdownloader-yu-usermoderegistry-de-she-ji.md",
+      "section": "深入理解",
+      "group": "用户批量下载与策略模式",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "15-liu-chong-xia-zai-mo-shi-ce-lue-post-like-mix-music-collect-collectmix",
+      "title": "六种下载模式策略（post/like/mix/music/collect/collectmix）",
+      "file": "15-liu-chong-xia-zai-mo-shi-ce-lue-post-like-mix-music-collect-collectmix.md",
+      "section": "深入理解",
+      "group": "用户批量下载与策略模式",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "16-fen-ye-shou-xian-shi-de-liu-lan-qi-dou-di-cai-ji-ji-zhi",
+      "title": "分页受限时的浏览器兜底采集机制",
+      "file": "16-fen-ye-shou-xian-shi-de-liu-lan-qi-dou-di-cai-ji-ji-zhi.md",
+      "section": "深入理解",
+      "group": "用户批量下载与策略模式",
+      "level": "Advanced"
+    },
+    {
+      "slug": "17-bing-fa-dui-lie-guan-li-queuemanager-yu-semaphore-diao-du",
+      "title": "并发队列管理（QueueManager）与 Semaphore 调度",
+      "file": "17-bing-fa-dui-lie-guan-li-queuemanager-yu-semaphore-diao-du.md",
+      "section": "深入理解",
+      "group": "流量控制与可靠性",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "18-su-lu-xian-zhi-qi-ratelimiter-de-jie-liu-yu-sui-ji-dou-dong",
+      "title": "速率限制器（RateLimiter）的节流与随机抖动",
+      "file": "18-su-lu-xian-zhi-qi-ratelimiter-de-jie-liu-yu-sui-ji-dou-dong.md",
+      "section": "深入理解",
+      "group": "流量控制与可靠性",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "19-zhi-shu-tui-bi-zhong-shi-retryhandler-yu-xia-zai-wan-zheng-xing-xiao-yan",
+      "title": "指数退避重试（RetryHandler）与下载完整性校验",
+      "file": "19-zhi-shu-tui-bi-zhong-shi-retryhandler-yu-xia-zai-wan-zheng-xing-xiao-yan.md",
+      "section": "深入理解",
+      "group": "流量控制与可靠性",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "20-sqlite-shu-ju-ku-she-ji-yu-qu-zhong-zeng-liang-xia-zai-zhi-chi",
+      "title": "SQLite 数据库设计与去重、增量下载支持",
+      "file": "20-sqlite-shu-ju-ku-she-ji-yu-qu-zhong-zeng-liang-xia-zai-zhi-chi.md",
+      "section": "深入理解",
+      "group": "数据持久化与文件管理",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "21-wen-jian-guan-li-qi-filemanager-de-lu-jing-gou-jian-yu-yi-bu-xia-zai",
+      "title": "文件管理器（FileManager）的路径构建与异步下载",
+      "file": "21-wen-jian-guan-li-qi-filemanager-de-lu-jing-gou-jian-yu-yi-bu-xia-zai.md",
+      "section": "深入理解",
+      "group": "数据持久化与文件管理",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "22-yuan-shu-ju-yu-xia-zai-qing-dan-manifest-de-xie-ru-yu-yong-tu",
+      "title": "元数据与下载清单（Manifest）的写入与用途",
+      "file": "22-yuan-shu-ju-yu-xia-zai-qing-dan-manifest-de-xie-ru-yu-yong-tu.md",
+      "section": "深入理解",
+      "group": "数据持久化与文件管理",
+      "level": "Beginner"
+    },
+    {
+      "slug": "23-pei-zhi-jia-zai-qi-de-he-bing-ce-lue-yu-huan-jing-bian-liang-fu-gai",
+      "title": "配置加载器的合并策略与环境变量覆盖",
+      "file": "23-pei-zhi-jia-zai-qi-de-he-bing-ce-lue-yu-huan-jing-bian-liang-fu-gai.md",
+      "section": "深入理解",
+      "group": "配置系统",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "24-mo-ren-pei-zhi-zi-dian-default_config-quan-zi-duan-shi-yi",
+      "title": "默认配置字典（default_config）全字段释义",
+      "file": "24-mo-ren-pei-zhi-zi-dian-default_config-quan-zi-duan-shi-yi.md",
+      "section": "深入理解",
+      "group": "配置系统",
+      "level": "Beginner"
+    },
+    {
+      "slug": "25-rich-jin-du-tiao-progressdisplay-de-jiao-hu-she-ji",
+      "title": "Rich 进度条（ProgressDisplay）的交互设计",
+      "file": "25-rich-jin-du-tiao-progressdisplay-de-jiao-hu-she-ji.md",
+      "section": "深入理解",
+      "group": "进度展示与日志",
+      "level": "Beginner"
+    },
+    {
+      "slug": "26-ri-zhi-xi-tong-yu-jing-mo-mo-shi-kong-zhi",
+      "title": "日志系统与静默模式控制",
+      "file": "26-ri-zhi-xi-tong-yu-jing-mo-mo-shi-kong-zhi.md",
+      "section": "深入理解",
+      "group": "进度展示与日志",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "27-shi-pin-zhuan-xie-transcriptmanager-yu-openai-api-ji-cheng",
+      "title": "视频转写（TranscriptManager）与 OpenAI API 集成",
+      "file": "27-shi-pin-zhuan-xie-transcriptmanager-yu-openai-api-ji-cheng.md",
+      "section": "深入理解",
+      "group": "扩展功能",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "28-playwright-cookie-zhua-qu-gong-ju-cookie_fetcher",
+      "title": "Playwright Cookie 抓取工具（cookie_fetcher）",
+      "file": "28-playwright-cookie-zhua-qu-gong-ju-cookie_fetcher.md",
+      "section": "深入理解",
+      "group": "扩展功能",
+      "level": "Intermediate"
+    },
+    {
+      "slug": "29-xiang-mu-da-bao-pei-zhi-pyproject-toml-yu-yi-lai-guan-li",
+      "title": "项目打包配置（pyproject.toml）与依赖管理",
+      "file": "29-xiang-mu-da-bao-pei-zhi-pyproject-toml-yu-yi-lai-guan-li.md",
+      "section": "深入理解",
+      "group": "工程化与质量保障",
+      "level": "Beginner"
+    },
+    {
+      "slug": "30-docker-rong-qi-hua-bu-shu",
+      "title": "Docker 容器化部署",
+      "file": "30-docker-rong-qi-hua-bu-shu.md",
+      "section": "深入理解",
+      "group": "工程化与质量保障",
+      "level": "Beginner"
+    },
+    {
+      "slug": "31-ce-shi-ti-xi-pytest-yi-bu-ce-shi-yu-he-xin-mo-kuai-fu-gai",
+      "title": "测试体系：pytest 异步测试与核心模块覆盖",
+      "file": "31-ce-shi-ti-xi-pytest-yi-bu-ce-shi-yu-he-xin-mo-kuai-fu-gai.md",
+      "section": "深入理解",
+      "group": "工程化与质量保障",
+      "level": "Intermediate"
+    }
+  ]
+}

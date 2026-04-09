@@ -448,9 +448,6 @@ git fetch --all
 git switch V1.0
 ```
 
-## Community Group
-
-<img src="./img/fuye.jpg" alt="qun" width="360" />
 
 ## Disclaimer
 
