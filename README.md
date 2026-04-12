@@ -452,6 +452,8 @@ git switch V1.0
 
 <img src="./img/fuye.jpg" alt="qun" width="360" />
 
+点击链接加入群聊【QQ群】：[https://qm.qq.com/q/GDCzZCO3mM](https://qm.qq.com/q/GDCzZCO3mM)
+
 ## Disclaimer
 
 This project is for technical research, learning, and personal data management only. Please use it legally and responsibly:
