@@ -396,6 +396,26 @@ def find_videos(directory, skip_existing=False, output_dir=None):
 # Main
 # ============================================================
 def main():
+    # ==== 读取 config.yml 默认配置 ====
+    local_cfg = {}
+    base_path = "./Downloaded"
+    try:
+        import yaml
+        config_path = Path(__file__).parent.parent / "config.yml"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+                if cfg:
+                    if "local_whisper" in cfg:
+                        local_cfg = cfg.get("local_whisper", {})
+                    if "path" in cfg and cfg["path"]:
+                        # 处理路径两端的引号和空白
+                        base_path = cfg["path"].strip().strip('"\'')
+    except ImportError:
+        pass
+    except Exception as e:
+        console.print(f"[dim]读取 config.yml 时出错: {e}[/]")
+
     parser = argparse.ArgumentParser(
         description="Whisper 视频转录工具 — 批量语音识别",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -406,15 +426,15 @@ def main():
             "  python whisper_transcribe.py -d ./Downloaded/ --srt --sc --skip-existing"
         ),
     )
-    parser.add_argument("-d", "--dir", default="./Downloaded", help="视频目录 (默认 ./Downloaded/)")
+    parser.add_argument("-d", "--dir", default=base_path, help=f"视频目录 (默认 config.yml 中的 path 或 ./Downloaded)")
     parser.add_argument("-f", "--file", help="单个视频文件")
-    parser.add_argument("-m", "--model", default="base",
-                        choices=["tiny", "base", "small", "medium", "large"],
-                        help="Whisper模型 (默认 base)")
+    parser.add_argument("-m", "--model", default=local_cfg.get("model", "turbo"),
+                        choices=["tiny", "base", "small", "medium", "large", "turbo"],
+                        help="Whisper模型 (默认使用 config.yml 或 turbo)")
     parser.add_argument("-l", "--language", default="zh", help="语言 (默认 zh)")
-    parser.add_argument("--srt", action="store_true", help="同时输出SRT字幕")
-    parser.add_argument("--skip-existing", action="store_true", help="跳过已有transcript的视频")
-    parser.add_argument("--sc", action="store_true", help="繁体转简体 (需 pip install OpenCC)")
+    parser.add_argument("--srt", action="store_true", default=local_cfg.get("srt", False), help="同时输出SRT字幕")
+    parser.add_argument("--skip-existing", action="store_true", default=local_cfg.get("skip_existing", False), help="跳过已有transcript的视频")
+    parser.add_argument("--sc", action="store_true", default=local_cfg.get("sc", False), help="繁体转简体 (需 pip install OpenCC)")
     parser.add_argument("-o", "--output", default=None,
                         help="转录文件输出目录 (默认与视频同目录, 路径异常时自动fallback到 ./transcripts)")
 

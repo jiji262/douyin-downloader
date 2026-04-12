@@ -13,29 +13,29 @@
 
 ### 已支持
 
-| 功能 | 说明 |
-|------|------|
-| 单个视频下载 | `/video/{aweme_id}` |
-| 单个图文下载 | `/note/{note_id}`、`/gallery/{note_id}` |
-| 单个合集下载 | `/collection/{mix_id}`、`/mix/{mix_id}` |
-| 单个音乐下载 | `/music/{music_id}`（优先原声文件，缺失时回退到该音乐下首条作品） |
-| 短链自动解析 | `https://v.douyin.com/...` |
-| 用户主页批量下载 | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
+| 功能                   | 说明                                                                     |
+| ---------------------- | ------------------------------------------------------------------------ |
+| 单个视频下载           | `/video/{aweme_id}`                                                      |
+| 单个图文下载           | `/note/{note_id}`、`/gallery/{note_id}`                                  |
+| 单个合集下载           | `/collection/{mix_id}`、`/mix/{mix_id}`                                  |
+| 单个音乐下载           | `/music/{music_id}`（优先原声文件，缺失时回退到该音乐下首条作品）        |
+| 短链自动解析           | `https://v.douyin.com/...`                                               |
+| 用户主页批量下载       | `/user/{sec_uid}` + `mode: [post, like, mix, music]`                     |
 | 当前登录账号收藏夹下载 | `/user/self?showTab=favorite_collection` + `mode: [collect, collectmix]` |
-| 无水印优先 | 自动选择无水印视频源 |
-| 附加资源下载 | 封面、音乐、头像、JSON 元数据 |
-| 视频转写 | 可选功能，调用 OpenAI Transcriptions API |
-| 并发下载 | 可配置并发数，默认 5 |
-| 失败重试 | 指数退避重试（1s, 2s, 5s） |
-| 速率限制 | 默认 2 请求/秒 |
-| SQLite 去重 | 数据库 + 本地文件双重去重 |
-| 增量下载 | `increase.post/like/mix/music` |
-| 时间过滤 | `start_time` / `end_time` |
-| 浏览器兜底 | 翻页受限时启动浏览器，支持人工过验证码 |
-| 下载完整性校验 | Content-Length 比对，不完整文件自动清理并重试 |
-| 进度条展示 | Rich 进度条，支持 `progress.quiet_logs` 静默模式 |
-| Docker 部署 | 提供 Dockerfile |
-| CI/CD | GitHub Actions 自动测试和 lint |
+| 无水印优先             | 自动选择无水印视频源                                                     |
+| 附加资源下载           | 封面、音乐、头像、JSON 元数据                                            |
+| 视频转写               | 可选功能，调用 OpenAI Transcriptions API                                 |
+| 并发下载               | 可配置并发数，默认 5                                                     |
+| 失败重试               | 指数退避重试（1s, 2s, 5s）                                               |
+| 速率限制               | 默认 2 请求/秒                                                           |
+| SQLite 去重            | 数据库 + 本地文件双重去重                                                |
+| 增量下载               | `increase.post/like/mix/music`                                           |
+| 时间过滤               | `start_time` / `end_time`                                                |
+| 浏览器兜底             | 翻页受限时启动浏览器，支持人工过验证码                                   |
+| 下载完整性校验         | Content-Length 比对，不完整文件自动清理并重试                            |
+| 进度条展示             | Rich 进度条，支持 `progress.quiet_logs` 静默模式                         |
+| Docker 部署            | 提供 Dockerfile                                                          |
+| CI/CD                  | GitHub Actions 自动测试和 lint                                           |
 
 ### 限制说明
 
@@ -153,15 +153,15 @@ python run.py -c config.yml \
 
 ### 参数说明
 
-| 参数 | 说明 |
-|------|------|
-| `-u, --url` | 追加下载链接（可重复传入） |
-| `-c, --config` | 指定配置文件（默认 `config.yml`） |
-| `-p, --path` | 指定下载目录 |
-| `-t, --thread` | 指定并发数 |
-| `--show-warnings` | 显示 warning/error 日志 |
-| `-v, --verbose` | 显示 info/warning/error 日志 |
-| `--version` | 显示版本号 |
+| 参数              | 说明                              |
+| ----------------- | --------------------------------- |
+| `-u, --url`       | 追加下载链接（可重复传入）        |
+| `-c, --config`    | 指定配置文件（默认 `config.yml`） |
+| `-p, --path`      | 指定下载目录                      |
+| `-t, --thread`    | 指定并发数                        |
+| `--show-warnings` | 显示 warning/error 日志           |
+| `-v, --verbose`   | 显示 info/warning/error 日志      |
+| `--version`       | 显示版本号                        |
 
 ## 典型场景
 
@@ -212,7 +212,7 @@ link:
 mode:
   - like
 number:
-  like: 0    # 0 表示全量下载
+  like: 0 # 0 表示全量下载
 ```
 
 ### 同时下载多种模式
@@ -256,7 +256,7 @@ number:
 ```yaml
 increase:
   post: true
-database: true    # 增量模式依赖数据库记录
+database: true # 增量模式依赖数据库记录
 ```
 
 ### 全量抓取（不限制数量）
@@ -276,12 +276,12 @@ number:
 transcript:
   enabled: true
   model: gpt-4o-mini-transcribe
-  output_dir: ""        # 留空: 与视频同目录；非空: 镜像到指定目录
+  output_dir: "" # 留空: 与视频同目录；非空: 镜像到指定目录
   response_formats:
     - txt
     - json
   api_key_env: OPENAI_API_KEY
-  api_key: ""           # 可直接填，或使用环境变量
+  api_key: "" # 可直接填，或使用环境变量
 ```
 
 推荐通过环境变量提供密钥：
@@ -315,21 +315,21 @@ pytest -q
 
 ## 关键配置项
 
-| 配置项 | 说明 |
-|--------|------|
-| `mode` | 支持 `post`/`like`/`mix`/`music`；当前登录收藏夹模式额外支持单独使用的 `collect`/`collectmix` |
-| `number.post/like/mix/music/collect/collectmix` | 各模式下载数量限制，0 为不限 |
-| `increase.post/like/mix/music` | 各模式增量开关 |
-| `start_time` / `end_time` | 时间过滤（格式 `YYYY-MM-DD`） |
-| `folderstyle` | 按作品维度创建子目录 |
-| `browser_fallback.*` | `post` 翻页受限时启用浏览器兜底 |
-| `progress.quiet_logs` | 进度阶段静默日志，减少刷屏 |
-| `transcript.*` | 视频下载后的可选转写 |
-| `proxy` | 为 API 请求和媒体下载设置 HTTP/HTTPS 代理，例如 `http://127.0.0.1:7890` |
-| `database` | 启用 SQLite 去重和历史记录 |
-| `database_path` | SQLite 文件路径，默认在当前工作目录生成 `dy_downloader.db` |
-| `thread` | 并发下载数 |
-| `retry_times` | 失败重试次数 |
+| 配置项                                          | 说明                                                                                          |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `mode`                                          | 支持 `post`/`like`/`mix`/`music`；当前登录收藏夹模式额外支持单独使用的 `collect`/`collectmix` |
+| `number.post/like/mix/music/collect/collectmix` | 各模式下载数量限制，0 为不限                                                                  |
+| `increase.post/like/mix/music`                  | 各模式增量开关                                                                                |
+| `start_time` / `end_time`                       | 时间过滤（格式 `YYYY-MM-DD`）                                                                 |
+| `folderstyle`                                   | 按作品维度创建子目录                                                                          |
+| `browser_fallback.*`                            | `post` 翻页受限时启用浏览器兜底                                                               |
+| `progress.quiet_logs`                           | 进度阶段静默日志，减少刷屏                                                                    |
+| `transcript.*`                                  | 视频下载后的可选转写                                                                          |
+| `proxy`                                         | 为 API 请求和媒体下载设置 HTTP/HTTPS 代理，例如 `http://127.0.0.1:7890`                       |
+| `database`                                      | 启用 SQLite 去重和历史记录                                                                    |
+| `database_path`                                 | SQLite 文件路径，默认在当前工作目录生成 `dy_downloader.db`                                    |
+| `thread`                                        | 并发下载数                                                                                    |
+| `retry_times`                                   | 失败重试次数                                                                                  |
 
 ## 输出目录
 

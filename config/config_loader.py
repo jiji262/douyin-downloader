@@ -243,8 +243,8 @@ class ConfigLoader:
     def get_links(self) -> List[str]:
         links = self.config.get("link", [])
         if isinstance(links, str):
-            return [links]
-        return links
+            links = [links]
+        return [l for l in links if isinstance(l, str) and not l.strip().startswith('#')]
 
     def validate(self) -> bool:
         if not self.get_links():
