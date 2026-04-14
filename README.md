@@ -448,9 +448,6 @@ git fetch --all
 git switch V1.0
 ```
 
-## Community Group
-
-<img src="./img/fuye.jpg" alt="qun" width="360" />
 
 点击链接加入群聊【QQ群】：[https://qm.qq.com/q/GDCzZCO3mM](https://qm.qq.com/q/GDCzZCO3mM)
 
