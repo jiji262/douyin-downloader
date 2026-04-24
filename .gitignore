@@ -49,3 +49,4 @@ config/cookies.json
 .claude/
 .idea/
 .vscode/
+.omc/
