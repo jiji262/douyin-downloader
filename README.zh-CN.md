@@ -19,9 +19,15 @@
 | 单个图文下载 | `/note/{note_id}` |
 | 单个合集下载 | `/collection/{mix_id}`、`/mix/{mix_id}` |
 | 单个音乐下载 | `/music/{music_id}`（优先原声文件，缺失时回退到该音乐下首条作品） |
-| 短链自动解析 | `https://v.douyin.com/...` |
+| 短链自动解析 | `https://v.douyin.com/...`、`v.iesdouyin.com`，含裸 host |
 | 用户主页批量下载 | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
 | 无水印优先 | 自动选择无水印视频源 |
+| 最高清自动挑选 | 基于 `video.bit_rate` 数组自动选最高码率（视频 + 实况图生效） |
+| **直播录制** | `live.douyin.com/{room_id}` → FLV/HLS，主播下播时保留已录数据 |
+| **评论采集** | 按作品抓评论（可含二级回复），输出 `*_comments.json` |
+| **热搜榜 + 关键词搜索** | `--hot-board [N]` / `--search "关键词"`，结果落 JSONL |
+| **REST API 服务模式** | `--serve --serve-port 8000`（可选 `fastapi + uvicorn`） |
+| **完成通知推送** | 下载完成后推 Bark / Telegram / Webhook |
 | 附加资源下载 | 封面、音乐、头像、JSON 元数据 |
 | 视频转写 | 可选功能，调用 OpenAI Transcriptions API |
 | 并发下载 | 可配置并发数，默认 5 |
@@ -40,6 +46,8 @@
 
 - 浏览器兜底当前仅针对 `post` 完整验证，`like/mix/music` 主要依赖 API 正常分页
 - `number.allmix` / `increase.allmix` 作为兼容别名保留，运行时会归一化到 `mix`
+- 直播录制 FLV 可直接播放；HLS 源只保存 playlist 文件（需要用 ffmpeg 后处理）
+- webcast 直播接口未覆盖所有场景，视为 experimental
 
 ## 快速开始
 
@@ -153,6 +161,12 @@ python run.py -c config.yml \
 | `-t, --thread` | 指定并发数 |
 | `--show-warnings` | 显示 warning/error 日志 |
 | `-v, --verbose` | 显示 info/warning/error 日志 |
+| `--hot-board [N]` | 拉取抖音热搜榜并导出 JSONL，可选上限 N |
+| `--search KEYWORD` | 按关键词搜索作品并导出 JSONL |
+| `--search-max N` | `--search` 场景下最多拉取条数（默认 50） |
+| `--serve` | 以 REST API 服务模式运行（需要 `pip install fastapi uvicorn`） |
+| `--serve-host HOST` | REST 服务监听地址（默认 127.0.0.1） |
+| `--serve-port PORT` | REST 服务监听端口（默认 8000） |
 | `--version` | 显示版本号 |
 
 ## 典型场景
@@ -221,6 +235,87 @@ mode:
 
 跨模式自动去重：同一个 aweme_id 在不同模式下不会重复下载。
 
+### 录制直播（实验性）
+
+```yaml
+link:
+  - https://live.douyin.com/123456789   # 也支持 /follow/live/{room_id}
+live:
+  max_duration_seconds: 3600   # 0 = 录到主播下播
+  chunk_size: 65536
+  idle_timeout_seconds: 30
+```
+
+录制的 FLV 会保存在 `Downloaded/{作者}/live/` 下，并附带 `*_room.json` 直播间元数据快照。
+主播下播、网络空闲或 Ctrl+C 中断时，**已录制的字节会被保留**（.tmp 文件自动提升为正式文件）。
+
+### 采集作品评论
+
+```yaml
+comments:
+  enabled: true
+  include_replies: false   # 设为 true 会多拉每条评论的二级回复（额外请求量）
+  max_comments: 500        # 0 = 不限
+  page_size: 20
+```
+
+会在媒体文件旁生成 `{date}_{title}_{aweme_id}_comments.json`。
+
+### 导出热搜榜快照
+
+```bash
+python run.py --hot-board 30 -p ./Downloaded
+# 输出：./Downloaded/hot_board/20260424_221530.jsonl
+```
+
+### 关键词搜索
+
+```bash
+python run.py --search "猫咪" --search-max 100 -p ./Downloaded
+# 输出：./Downloaded/search/猫咪_20260424_221530.jsonl
+```
+
+### 以 REST API 服务模式运行
+
+```bash
+pip install fastapi uvicorn       # 一次性可选依赖
+python run.py --serve --serve-port 8000
+```
+
+接口：
+
+| Method | Path | 说明 |
+|--------|------|------|
+| POST | `/api/v1/download` | 提交 `{"url": "..."}`，返回 `{job_id, status}` |
+| GET | `/api/v1/jobs/{job_id}` | 查询指定 job 的状态/计数 |
+| GET | `/api/v1/jobs` | 列出最近的 job（按 TTL + 容量剪裁） |
+| GET | `/api/v1/health` | 健康探针 |
+
+完成态的 job 会按 TTL（默认 24 小时）+ 最大数量（默认 500）自动剪裁；in-flight 的 job 永不被裁掉。
+可通过 `server.max_jobs` / `server.job_ttl_seconds` 调整。
+
+### 完成后发送通知
+
+```yaml
+notifications:
+  enabled: true
+  on_success: true
+  on_failure: true
+  providers:
+    - type: bark
+      url: https://api.day.app/YOUR_DEVICE_KEY
+      sound: bell
+    - type: telegram
+      bot_token: "123456:ABC..."
+      chat_id: "987654321"
+    - type: webhook                 # 企业微信/飞书/钉钉 bot URL 同样可用
+      url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+      extra_body:
+        msgtype: text
+```
+
+所有启用的 provider 会并发推送；单个 provider 失败不会阻塞主下载流程。
+
 ### 增量下载（只下载新作品）
 
 ```yaml
@@ -281,6 +376,10 @@ export OPENAI_API_KEY="sk-xxxx"
 | `browser_fallback.*` | `post` 翻页受限时启用浏览器兜底 |
 | `progress.quiet_logs` | 进度阶段静默日志，减少刷屏 |
 | `transcript.*` | 视频下载后的可选转写 |
+| `comments.*` | 按作品采集评论（默认关闭） |
+| `live.*` | 直播录制参数（max_duration_seconds / chunk_size / idle_timeout_seconds） |
+| `notifications.*` | 下载完成后 Bark/Telegram/Webhook 推送 |
+| `server.*` | REST API 服务调优（max_jobs、job_ttl_seconds） |
 | `database` | 启用 SQLite 去重和历史记录 |
 | `thread` | 并发下载数 |
 | `retry_times` | 失败重试次数 |
@@ -293,6 +392,10 @@ export OPENAI_API_KEY="sk-xxxx"
 Downloaded/
 ├── download_manifest.jsonl
 ├── dy_downloader.db          # database: true 时生成
+├── hot_board/                # 使用 --hot-board 时生成
+│   └── 20260424_221530.jsonl
+├── search/                   # 使用 --search 时生成
+│   └── 猫咪_20260424_221530.jsonl
 └── 作者名/
     ├── post/
     │   └── 2024-02-07_作品标题_aweme_id/
@@ -301,14 +404,19 @@ Downloaded/
     │       ├── ..._music.mp3
     │       ├── ..._data.json
     │       ├── ..._avatar.jpg
+    │       ├── ..._comments.json    # comments.enabled 时生成
     │       ├── ...transcript.txt
     │       └── ...transcript.json
     ├── like/
     │   └── ...
     ├── mix/
     │   └── ...
-    └── music/
-        └── ...
+    ├── music/
+    │   └── ...
+    └── live/                 # 录制直播时生成
+        └── 2026-04-24_2215_直播标题_房间号/
+            ├── ...flv
+            └── ..._room.json
 ```
 
 ## 重新下载
