@@ -375,6 +375,22 @@ class BaseDownloader(ABC):
             if await self.metadata_handler.save_metadata(aweme_data, json_path):
                 downloaded_files.append(json_path)
 
+        comments_cfg = self.config.get("comments") or {}
+        if isinstance(comments_cfg, dict) and comments_cfg.get("enabled"):
+            from core.comments_collector import CommentsCollector
+
+            collector = CommentsCollector(
+                self.api_client,
+                self.metadata_handler,
+                include_replies=bool(comments_cfg.get("include_replies", False)),
+                max_comments=int(comments_cfg.get("max_comments", 0) or 0),
+                page_size=int(comments_cfg.get("page_size", 20) or 20),
+            )
+            comments_path = save_dir / f"{file_stem}_comments.json"
+            saved = await collector.collect_and_save(aweme_id, comments_path)
+            if saved is not None:
+                downloaded_files.append(comments_path)
+
         author = aweme_data.get("author", {})
         if self.database:
             metadata_json = json.dumps(aweme_data, ensure_ascii=False)
@@ -466,7 +482,9 @@ class BaseDownloader(ABC):
         self, aweme_data: Dict[str, Any]
     ) -> Optional[Tuple[str, Dict[str, str]]]:
         video = aweme_data.get("video", {})
-        play_addr = video.get("play_addr", {})
+        play_addr = self._pick_highest_quality_play_addr(video) or video.get(
+            "play_addr", {}
+        )
         url_candidates = [c for c in (play_addr.get("url_list") or []) if c]
         url_candidates.sort(key=lambda u: 0 if "watermark=0" in u else 1)
 
@@ -509,6 +527,37 @@ class BaseDownloader(ABC):
 
         return None
 
+    @staticmethod
+    def _pick_highest_quality_play_addr(video: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """从 video.bit_rate 多档率中挑选最高码率的 play_addr。
+
+        Douyin 返回的 video.bit_rate 是按质量排序的字典列表，每项包含 bit_rate 与
+        play_addr。优先选 bit_rate 数字最大的那一档；若整个结构缺失则返回 None。
+        """
+        bit_rates = video.get("bit_rate") if isinstance(video, dict) else None
+        if not isinstance(bit_rates, list) or not bit_rates:
+            return None
+
+        best: Optional[Dict[str, Any]] = None
+        best_score = -1
+        for entry in bit_rates:
+            if not isinstance(entry, dict):
+                continue
+            play_addr = entry.get("play_addr")
+            if not isinstance(play_addr, dict):
+                continue
+            try:
+                bit_rate = int(entry.get("bit_rate") or 0)
+            except (TypeError, ValueError):
+                bit_rate = 0
+            # tie-breaker：同等码率时取更高分辨率
+            width = int(play_addr.get("width") or entry.get("width") or 0)
+            score = bit_rate * 10_000 + width
+            if score > best_score:
+                best_score = score
+                best = play_addr
+        return best
+
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
         image_urls = []
         for item in self._iter_gallery_items(aweme_data):
@@ -531,7 +580,10 @@ class BaseDownloader(ABC):
             if not isinstance(item, dict):
                 continue
             video = item.get("video") if isinstance(item.get("video"), dict) else {}
+            # 实况图同样会有 bit_rate 多档，优先选最高清档的 play_addr。
+            preferred_play_addr = self._pick_highest_quality_play_addr(video)
             live_url = self._pick_first_media_url(
+                preferred_play_addr,
                 video.get("play_addr"),
                 video.get("download_addr"),
                 item.get("video_play_addr"),

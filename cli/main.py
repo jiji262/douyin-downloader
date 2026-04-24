@@ -13,6 +13,8 @@ from control import QueueManager, RateLimiter, RetryHandler
 from core import DouyinAPIClient, URLParser, DownloaderFactory
 from cli.progress_display import ProgressDisplay
 from utils.logger import setup_logger, set_console_log_level
+from utils.notifier import build_notifier
+from utils.validators import is_short_url, normalize_short_url
 
 logger = setup_logger('CLI')
 display = ProgressDisplay()
@@ -47,8 +49,9 @@ async def download_url(
     async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
         if progress_reporter:
             progress_reporter.advance_step("解析链接", "检查短链并解析 URL")
-        if url.startswith('https://v.douyin.com'):
-            resolved_url = await api_client.resolve_short_url(url)
+        # 支持多种短链变体：v.douyin.com / v.iesdouyin.com / 无 scheme 的裸链接
+        if is_short_url(url):
+            resolved_url = await api_client.resolve_short_url(normalize_short_url(url))
             if resolved_url:
                 url = resolved_url
             else:
@@ -130,20 +133,32 @@ async def main_async(args):
     else:
         config_path = 'config.yml'
 
+    # 若 config 不存在且使用了 --hot-board / --search / --serve 等独立子命令，
+    # 允许以默认配置运行（只要命令行提供了 --path）。
     if not Path(config_path).exists():
-        display.print_error(f"Config file not found: {config_path}")
-        return
+        if not (args.hot_board is not None or args.search or args.serve):
+            display.print_error(f"Config file not found: {config_path}")
+            return
+        config = ConfigLoader(None)
+    else:
+        config = ConfigLoader(config_path)
 
-    config = ConfigLoader(config_path)
+    if args.path:
+        config.update(path=args.path)
+
+    # 独立子命令：热榜 / 搜索 / 服务
+    if args.hot_board is not None or args.search:
+        await _run_discovery_subcommand(args, config)
+        return
+    if args.serve:
+        await _run_serve_subcommand(args, config)
+        return
 
     if args.url:
         urls = args.url if isinstance(args.url, list) else [args.url]
         for url in urls:
             if url not in config.get('link', []):
                 config.update(link=config.get('link', []) + [url])
-
-    if args.path:
-        config.update(path=args.path)
 
     if args.thread:
         config.update(thread=args.thread)
@@ -214,6 +229,94 @@ async def main_async(args):
         display.print_success("\n=== Overall Summary ===")
         display.show_result(total_result)
 
+        await _dispatch_notifications(config, total_result, len(urls))
+    else:
+        # 所有链接都失败时，也发通知（若启用）
+        await _dispatch_notifications(config, None, len(urls))
+
+
+async def _run_discovery_subcommand(args, config: ConfigLoader) -> None:
+    """处理 --hot-board 与 --search 子命令。"""
+    from core.discovery import dump_hot_board, search_and_dump
+
+    cookies = config.get_cookies()
+    cookie_manager = CookieManager()
+    cookie_manager.set_cookies(cookies)
+
+    base_path = Path(config.get('path') or './Downloaded/')
+
+    async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
+        if args.hot_board is not None:
+            display.print_info("拉取抖音热搜榜...")
+            result = await dump_hot_board(
+                api_client, base_path, limit=int(args.hot_board or 0)
+            )
+            display.print_success(
+                f"热榜已保存：{result['count']} 条 -> {result['path']}"
+            )
+        if args.search:
+            display.print_info(f"搜索关键词：{args.search}")
+            result = await search_and_dump(
+                api_client,
+                args.search,
+                base_path,
+                max_items=int(args.search_max or 50),
+            )
+            display.print_success(
+                f"搜索结果已保存：{result['count']} 条 -> {result['path']}"
+            )
+
+
+async def _run_serve_subcommand(args, config: ConfigLoader) -> None:
+    """启动 REST API 服务模式（fastapi + uvicorn 为可选依赖）。"""
+    try:
+        from server.app import run_server
+    except ImportError as exc:
+        display.print_error(
+            f"REST 服务模式需要安装可选依赖 fastapi + uvicorn："
+            f"\n  pip install fastapi uvicorn\n原始错误：{exc}"
+        )
+        return
+
+    display.print_info(
+        f"启动 REST 服务：http://{args.serve_host}:{args.serve_port}"
+    )
+    await run_server(config, host=args.serve_host, port=args.serve_port)
+
+
+async def _dispatch_notifications(
+    config: ConfigLoader, total_result: Any, url_count: int
+) -> None:
+    notifier = build_notifier(config)
+    if not notifier.enabled:
+        return
+
+    if total_result is None:
+        title = "抖音下载器：全部失败"
+        body = f"共处理 {url_count} 个链接，无成功结果"
+        level = "failure"
+    else:
+        fail_or_partial = total_result.failed > 0 or total_result.success == 0
+        level = "failure" if fail_or_partial else "success"
+        title = "抖音下载完成" if level == "success" else "抖音下载部分失败"
+        body = (
+            f"链接 {url_count} / 总作品 {total_result.total} / "
+            f"成功 {total_result.success} / 失败 {total_result.failed} / "
+            f"跳过 {total_result.skipped}"
+        )
+
+    try:
+        summary = await notifier.send(title=title, body=body, level=level)
+        if summary:
+            succ = sum(1 for ok in summary.values() if ok)
+            logger.info(
+                "Notification dispatched to %d provider(s), %d ok",
+                len(summary),
+                succ,
+            )
+    except Exception as exc:  # 通知失败不应影响主流程
+        logger.warning("Notification dispatch error: %s", exc)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Douyin Downloader - 抖音批量下载工具')
@@ -223,6 +326,39 @@ def main():
     parser.add_argument('-t', '--thread', type=int, help='Thread count')
     parser.add_argument('--show-warnings', action='store_true', help='Show warning logs in console')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose console logs')
+    parser.add_argument(
+        '--hot-board',
+        type=int,
+        nargs='?',
+        const=0,
+        default=None,
+        metavar='N',
+        help='拉取抖音热搜榜并导出 JSONL，可选上限 N（默认全部）',
+    )
+    parser.add_argument(
+        '--search',
+        type=str,
+        default=None,
+        metavar='KEYWORD',
+        help='按关键词搜索作品并导出 JSONL',
+    )
+    parser.add_argument(
+        '--search-max',
+        type=int,
+        default=50,
+        help='--search 场景下最多拉取条数（默认 50）',
+    )
+    parser.add_argument(
+        '--serve',
+        action='store_true',
+        help='以 REST API 服务模式运行（需要安装 fastapi + uvicorn）',
+    )
+    parser.add_argument(
+        '--serve-host', type=str, default='127.0.0.1', help='REST 服务监听地址'
+    )
+    parser.add_argument(
+        '--serve-port', type=int, default=8000, help='REST 服务监听端口'
+    )
     try:
         from __init__ import __version__
     except ImportError:

@@ -27,11 +27,51 @@ def sanitize_filename(filename: str, max_length: int = 80) -> str:
     return filename or 'untitled'
 
 
-def parse_url_type(url: str) -> Optional[str]:
-    if 'v.douyin.com' in url:
-        return 'video'
+SHORT_URL_HOSTS = (
+    'v.douyin.com',
+    'v.iesdouyin.com',
+    'iesdouyin.com',
+)
 
-    path = urlparse(url).path
+
+def is_short_url(url: str) -> bool:
+    """判断是否为需要预先解析的短链。"""
+    if not url:
+        return False
+    # 允许用户粘贴不带 scheme 的短链（例如直接从 App 复制）
+    candidate = url.strip()
+    lowered = candidate.lower()
+    for scheme in ('https://', 'http://'):
+        if lowered.startswith(scheme):
+            lowered = lowered[len(scheme):]
+            break
+    for host in SHORT_URL_HOSTS:
+        if lowered.startswith(f'{host}/') or lowered == host:
+            return True
+    return False
+
+
+def normalize_short_url(url: str) -> str:
+    """确保短链带 https:// 前缀，便于传给 aiohttp。"""
+    stripped = (url or '').strip()
+    if stripped.lower().startswith(('http://', 'https://')):
+        return stripped
+    return f'https://{stripped}'
+
+
+def parse_url_type(url: str) -> Optional[str]:
+    # 短链在调用方（CLI/调度层）统一先解析为真实 URL 后再判断类型；
+    # 若仍是短链，返回 'short' 明确提示需要解析，而不是错误地全部落到 'video'。
+    if is_short_url(url):
+        return 'short'
+
+    parsed = urlparse(url)
+    host = (parsed.netloc or '').lower()
+    path = parsed.path
+
+    # live.douyin.com/{room_id} — 直播间专用子域，path 仅有一段数字。
+    if host.startswith('live.douyin.com'):
+        return 'live'
 
     if '/video/' in path:
         return 'video'
@@ -43,4 +83,6 @@ def parse_url_type(url: str) -> Optional[str]:
         return 'collection'
     if '/music/' in path:
         return 'music'
+    if '/live/' in path or '/follow/live/' in path:
+        return 'live'
     return None

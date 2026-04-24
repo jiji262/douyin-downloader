@@ -49,4 +49,24 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "idle_rounds": 8,
         "wait_timeout_seconds": 600,
     },
+    # 下载完成通知（可选）。providers 支持 bark / telegram / webhook。
+    "notifications": {
+        "enabled": False,
+        "on_success": True,
+        "on_failure": True,
+        "providers": [],
+    },
+    # 评论采集（可选）。启用后每个作品会额外生成 *_comments.json。
+    "comments": {
+        "enabled": False,
+        "include_replies": False,
+        "max_comments": 0,  # 0 = 不限
+        "page_size": 20,
+    },
+    # 直播录制（可选）。由 live.douyin.com / /follow/live/ 链接触发。
+    "live": {
+        "max_duration_seconds": 0,  # 0 = 直到流结束
+        "chunk_size": 65536,
+        "idle_timeout_seconds": 30,
+    },
 }

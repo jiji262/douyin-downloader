@@ -38,20 +38,26 @@ browser = [
 transcribe = [
     "openai-whisper>=20231117",
 ]
+server = [
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "pydantic>=2.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "ruff>=0.4.0",
+    "httpx>=0.25",
 ]
 all = [
-    "douyin-downloader[browser,transcribe,dev]",
+    "douyin-downloader[browser,transcribe,server,dev]",
 ]
 
 [project.scripts]
 douyin-dl = "cli.main:main"
 
 [tool.setuptools.packages.find]
-include = ["cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*", "tools*"]
+include = ["cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*", "tools*", "server*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
