@@ -46,7 +46,10 @@ async def download_url(
 
     original_url = url
 
-    async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
+    async with DouyinAPIClient(
+        cookie_manager.get_cookies(),
+        proxy=config.get("proxy"),
+    ) as api_client:
         if progress_reporter:
             progress_reporter.advance_step("解析链接", "检查短链并解析 URL")
         # 支持多种短链变体：v.douyin.com / v.iesdouyin.com / 无 scheme 的裸链接

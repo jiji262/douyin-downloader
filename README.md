@@ -4,9 +4,15 @@
   <img src="https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=Douyin+batch+download+tool%2C+remove+watermarks%2C+support+batch+download+of+videos%2C+gallery%2C+and+author+homepages.&description=1&font=Source+Code+Pro&forks=1&owner=1&pattern=Circuit+Board&stargazers=1&theme=Light" alt="douyin-downloader" width="820" />
 </p>
 
+<p align="center">
+    <a href="https://linux.do" alt="LINUX DO">
+        <img
+            src="https://img.shields.io/badge/LINUX-DO-FFB003.svg?logo=data:image/svg%2bxml;base64,DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiPjxwYXRoIGQ9Ik00Ni44Mi0uMDU1aDYuMjVxMjMuOTY5IDIuMDYyIDM4IDIxLjQyNmM1LjI1OCA3LjY3NiA4LjIxNSAxNi4xNTYgOC44NzUgMjUuNDV2Ni4yNXEtMi4wNjQgMjMuOTY4LTIxLjQzIDM4LTExLjUxMiA3Ljg4NS0yNS40NDUgOC44NzRoLTYuMjVxLTIzLjk3LTIuMDY0LTM4LjAwNC0yMS40M1EuOTcxIDY3LjA1Ni0uMDU0IDUzLjE4di02LjQ3M0MxLjM2MiAzMC43ODEgOC41MDMgMTguMTQ4IDIxLjM3IDguODE3IDI5LjA0NyAzLjU2MiAzNy41MjcuNjA0IDQ2LjgyMS0uMDU2IiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZWNlY2VjO2ZpbGwtb3BhY2l0eToxIi8+PHBhdGggZD0iTTQ3LjI2NiAyLjk1N3EyMi41My0uNjUgMzcuNzc3IDE1LjczOGE0OS43IDQ5LjcgMCAwIDEgNi44NjcgMTAuMTU3cS00MS45NjQuMjIyLTgzLjkzIDAgOS43NS0xOC42MTYgMzAuMDI0LTI0LjM4N2E2MSA2MSAwIDAgMSA5LjI2Mi0xLjUwOCIgc3R5bGU9InN0cm9rZTpub25lO2ZpbGwtcnVsZTpldmVub2RkO2ZpbGw6IzE5MTkxOTtmaWxsLW9wYWNpdHk6MSIvPjxwYXRoIGQ9Ik03Ljk4IDcwLjkyNmMyNy45NzctLjAzNSA1NS45NTQgMCA4My45My4xMTNRODMuNDI2IDg3LjQ3MyA2Ni4xMyA5NC4wODZxLTE4LjgxIDYuNTQ0LTM2LjgzMi0xLjg5OC0xNC4yMDMtNy4wOS0yMS4zMTctMjEuMjYyIiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZjlhZjAwO2ZpbGwtb3BhY2l0eToxIi8+PC9zdmc+" /></a>
+</p>
 中文文档 (Chinese): [README.zh-CN.md](./README.zh-CN.md)
 
-A practical Douyin downloader supporting videos, image-notes, collections, music, and profile batch downloads, with progress display, retries, SQLite deduplication, download integrity checks, and browser fallback support.
+
+A practical Douyin downloader supporting videos, image-notes, collections, music, favorites collections, and profile batch downloads, with progress display, retries, SQLite deduplication, download integrity checks, and browser fallback support.
 
 > This document targets **V2.0 (`main` branch)**.  
 > For the legacy version, switch to **V1.0**: `git fetch --all && git switch V1.0`
@@ -18,11 +24,12 @@ A practical Douyin downloader supporting videos, image-notes, collections, music
 | Feature | Description |
 |---------|-------------|
 | Single video download | `/video/{aweme_id}` |
-| Single image-note download | `/note/{note_id}` |
+| Single image-note download | `/note/{note_id}` and `/gallery/{note_id}` |
 | Single collection download | `/collection/{mix_id}` and `/mix/{mix_id}` |
 | Single music download | `/music/{music_id}` (prefers direct audio, fallback to first related aweme) |
 | Short link parsing | `https://v.douyin.com/...`, `v.iesdouyin.com`, bare hosts |
 | Profile batch download | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
+| Logged-in favorites collections | `/user/self?showTab=favorite_collection` + `mode: [collect, collectmix]` |
 | No-watermark preferred | Automatically selects watermark-free video source |
 | Highest-quality selection | Auto-picks highest bitrate from `video.bit_rate` ladder (video + live-photo) |
 | **Live stream recording** | `live.douyin.com/{room_id}` → FLV/HLS, preserves partial data on stream end |
@@ -48,6 +55,9 @@ A practical Douyin downloader supporting videos, image-notes, collections, music
 
 - Browser fallback is fully validated for `post`; `like/mix/music` currently relies on API pagination
 - `number.allmix` / `increase.allmix` are retained as compatibility aliases and normalized to `mix`
+- `collect` / `collectmix` currently work for the account represented by the logged-in cookies only
+- `collect` / `collectmix` must be used alone and cannot be combined with `post` / `like` / `mix` / `music`
+- `increase` currently applies to `post` / `like` / `mix` / `music`; favorites collection modes do not support incremental stop
 - Live stream recording saves FLV natively; HLS sources only save the playlist (use ffmpeg for playable output)
 - The webcast room endpoint is not verified against every live scenario — treat as experimental
 
@@ -104,10 +114,14 @@ mode:
 
 number:
   post: 0
+  collect: 0
+  collectmix: 0
 
 thread: 5
 retry_times: 3
+proxy: ""
 database: true
+database_path: dy_downloader.db
 
 progress:
   quiet_logs: true
@@ -237,6 +251,28 @@ mode:
 
 Cross-mode deduplication: the same aweme_id won't be downloaded twice across different modes.
 
+### Download logged-in favorites collection items
+
+```yaml
+link:
+  - https://www.douyin.com/user/self?showTab=favorite_collection
+mode:
+  - collect
+number:
+  collect: 0
+```
+
+### Download logged-in collected mixes
+
+```yaml
+link:
+  - https://www.douyin.com/user/self?showTab=favorite_collection
+mode:
+  - collectmix
+number:
+  collectmix: 0
+```
+
 ### Record a live stream (experimental)
 
 ```yaml
@@ -319,6 +355,7 @@ notifications:
 
 All enabled providers are notified in parallel; a failing provider never blocks the download flow.
 
+
 ### Incremental download (only new items)
 
 ```yaml
@@ -367,12 +404,26 @@ When enabled, it generates:
 
 If `database: true`, job status is also recorded in SQLite table `transcript_job` (`success/failed/skipped`).
 
+## Testing
+
+Recommended:
+
+```bash
+python3 -m pytest -q
+```
+
+Plain `pytest` is also supported now:
+
+```bash
+pytest -q
+```
+
 ## Key Config Fields
 
 | Field | Description |
 |-------|-------------|
-| `mode` | Supports `post`/`like`/`mix`/`music`, can be combined |
-| `number.post/like/mix/music` | Per-mode download limit, 0 = unlimited |
+| `mode` | Supports `post`/`like`/`mix`/`music`; logged-in favorites mode additionally supports standalone `collect`/`collectmix` |
+| `number.post/like/mix/music/collect/collectmix` | Per-mode download limit, 0 = unlimited |
 | `increase.post/like/mix/music` | Per-mode incremental toggle |
 | `start_time` / `end_time` | Time filter (format: `YYYY-MM-DD`) |
 | `folderstyle` | Create per-item subdirectories |
@@ -383,43 +434,51 @@ If `database: true`, job status is also recorded in SQLite table `transcript_job
 | `live.*` | Live stream recording options (max_duration_seconds / chunk_size / idle_timeout_seconds) |
 | `notifications.*` | Bark/Telegram/Webhook push on completion |
 | `server.*` | REST API server tuning (max_jobs, job_ttl_seconds) |
+| `proxy` | HTTP/HTTPS proxy for API requests and media downloads, e.g. `http://127.0.0.1:7890` |
 | `database` | Enable SQLite deduplication and history |
+| `database_path` | SQLite path, default is `dy_downloader.db` in the current working directory |
 | `thread` | Concurrent download count |
 | `retry_times` | Retry count on failure |
 
 ## Output Structure
 
-Default with `folderstyle: true`:
+Default with `folderstyle: true` and `database_path: dy_downloader.db`:
 
 ```text
-Downloaded/
-├── download_manifest.jsonl
-├── dy_downloader.db          # when database: true
-├── hot_board/                # when --hot-board is used
-│   └── 20260424_221530.jsonl
-├── search/                   # when --search is used
-│   └── 猫咪_20260424_221530.jsonl
-└── AuthorName/
-    ├── post/
-    │   └── 2024-02-07_Title_aweme_id/
-    │       ├── ...mp4
-    │       ├── ..._cover.jpg
-    │       ├── ..._music.mp3
-    │       ├── ..._data.json
-    │       ├── ..._avatar.jpg
-    │       ├── ..._comments.json    # when comments.enabled
-    │       ├── ...transcript.txt
-    │       └── ...transcript.json
-    ├── like/
-    │   └── ...
-    ├── mix/
-    │   └── ...
-    ├── music/
-    │   └── ...
-    └── live/                 # when recording live streams
-        └── 2026-04-24_2215_LiveTitle_RoomId/
-            ├── ...flv
-            └── ..._room.json
+workspace/
+├── config.yml
+├── dy_downloader.db          # default location when database: true
+└── Downloaded/
+    ├── download_manifest.jsonl
+    ├── hot_board/                # when --hot-board is used
+    │   └── 20260424_221530.jsonl
+    ├── search/                   # when --search is used
+    │   └── 猫咪_20260424_221530.jsonl
+    └── AuthorName/
+        ├── post/
+        │   └── 2024-02-07_Title_aweme_id/
+        │       ├── ...mp4
+        │       ├── ..._cover.jpg
+        │       ├── ..._music.mp3
+        │       ├── ..._data.json
+        │       ├── ..._avatar.jpg
+        │       ├── ..._comments.json    # when comments.enabled
+        │       ├── ...transcript.txt
+        │       └── ...transcript.json
+        ├── like/
+        │   └── ...
+        ├── mix/
+        │   └── ...
+        ├── music/
+        │   └── ...
+        ├── collect/
+        │   └── ...
+        ├── collectmix/
+        │   └── ...
+        └── live/                 # when recording live streams
+            └── 2026-04-24_2215_LiveTitle_RoomId/
+                ├── ...flv
+                └── ..._room.json
 ```
 
 ## Re-downloading Content
@@ -502,6 +561,8 @@ git switch V1.0
 ## Community Group
 
 <img src="./img/fuye.jpg" alt="qun" width="360" />
+
+点击链接加入群聊【QQ群】：[https://qm.qq.com/q/GDCzZCO3mM](https://qm.qq.com/q/GDCzZCO3mM)
 
 ## Disclaimer
 

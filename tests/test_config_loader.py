@@ -60,6 +60,155 @@ cookies:
     assert cookies["msToken"] == "token"
 
 
+def test_config_loader_reads_auto_cookies_from_default_file(tmp_path):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+cookies: auto
+"""
+    )
+    cookie_dir = tmp_path / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text(
+        """
+{
+  "ttwid": "auto-ttwid",
+  "msToken": "auto-ms-token",
+  "_waftokenid": "auto-waf-token"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    loader = ConfigLoader(str(config_file))
+    cookies = loader.get_cookies()
+
+    assert cookies["ttwid"] == "auto-ttwid"
+    assert cookies["msToken"] == "auto-ms-token"
+    assert cookies["_waftokenid"] == "auto-waf-token"
+
+
+def test_config_loader_reads_auto_cookies_for_nested_config_path(tmp_path, monkeypatch):
+    workspace = tmp_path
+    config_dir = workspace / "config"
+    config_dir.mkdir()
+    config_file = config_dir / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+cookies: auto
+"""
+    )
+    (workspace / "config" / "cookies.json").write_text(
+        """
+{
+  "ttwid": "nested-ttwid",
+  "msToken": "nested-ms-token"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    loader = ConfigLoader(str(config_file))
+    cookies = loader.get_cookies()
+
+    assert cookies["ttwid"] == "nested-ttwid"
+    assert cookies["msToken"] == "nested-ms-token"
+
+
+def test_config_loader_reads_auto_cookies_when_auto_cookie_enabled(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path
+    config_file = workspace / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+auto_cookie: true
+"""
+    )
+    cookie_dir = workspace / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text(
+        """
+{
+  "ttwid": "auto-ttwid",
+  "msToken": "auto-ms-token"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    loader = ConfigLoader(str(config_file))
+    cookies = loader.get_cookies()
+
+    assert cookies["ttwid"] == "auto-ttwid"
+    assert cookies["msToken"] == "auto-ms-token"
+
+
+def test_config_loader_skips_auto_cookies_when_auto_cookie_disabled(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path
+    config_file = workspace / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+auto_cookie: false
+"""
+    )
+    cookie_dir = workspace / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text(
+        """
+{
+  "ttwid": "auto-ttwid",
+  "msToken": "auto-ms-token"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+
+    loader = ConfigLoader(str(config_file))
+
+    assert loader.get_cookies() == {}
+
+
+def test_config_loader_warns_for_non_object_auto_cookie_file(tmp_path, caplog):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/note/1
+path: ./Downloaded/
+cookies: auto
+"""
+    )
+    cookie_dir = tmp_path / "config"
+    cookie_dir.mkdir()
+    (cookie_dir / "cookies.json").write_text("[]", encoding="utf-8")
+
+    loader = ConfigLoader(str(config_file))
+    cookies = loader.get_cookies()
+
+    assert cookies == {}
+    assert any(
+        "is not a JSON object" in record.message for record in caplog.records
+    )
+
+
 def test_progress_quiet_logs_default_enabled(tmp_path):
     config_file = tmp_path / "config.yml"
     config_file.write_text(
@@ -94,6 +243,24 @@ progress:
 
     assert isinstance(progress, dict)
     assert progress.get("quiet_logs") is False
+
+
+def test_config_loader_supports_proxy_from_env(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/video/1
+path: ./Downloaded/
+proxy: http://127.0.0.1:7890
+"""
+    )
+
+    monkeypatch.setenv("DOUYIN_PROXY", "http://127.0.0.1:8899")
+
+    loader = ConfigLoader(str(config_file))
+
+    assert loader.get("proxy") == "http://127.0.0.1:8899"
 
 
 def test_nested_defaults_do_not_leak_between_loader_instances(tmp_path):

@@ -20,6 +20,16 @@ def test_parse_gallery_url_sets_aweme_id():
     assert parsed['note_id'] == '7320876060210373923'
 
 
+def test_parse_gallery_path_url_sets_aweme_id():
+    url = "https://www.douyin.com/gallery/7320876060210373923"
+    parsed = URLParser.parse(url)
+
+    assert parsed is not None
+    assert parsed["type"] == "gallery"
+    assert parsed["aweme_id"] == "7320876060210373923"
+    assert parsed["note_id"] == "7320876060210373923"
+
+
 def test_parse_collection_url_sets_mix_id():
     url = "https://www.douyin.com/collection/7320876060210373923"
     parsed = URLParser.parse(url)

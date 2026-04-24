@@ -16,6 +16,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "allmix": 0,
         "mix": 0,
         "music": 0,
+        "collect": 0,
+        "collectmix": 0,
     },
     "increase": {
         "post": False,
@@ -27,6 +29,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "thread": 5,
     "retry_times": 3,
     "rate_limit": 2,
+    "proxy": "",
     "database": True,
     "database_path": "dy_downloader.db",
     "progress": {

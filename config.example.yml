@@ -22,6 +22,8 @@ number:
   allmix: 0
   mix: 0
   music: 0
+  collect: 0
+  collectmix: 0
 
 increase:
   post: false
@@ -32,7 +34,9 @@ increase:
 
 thread: 5
 retry_times: 3
+proxy: ""
 database: true
+database_path: dy_downloader.db
 
 progress:
   quiet_logs: true

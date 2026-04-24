@@ -115,6 +115,38 @@ class BaseUserModeStrategy(ABC):
             return [item for item in items if isinstance(item, dict)]
         return []
 
+    async def _collect_paged_entries(
+        self,
+        fetcher,
+        *fetch_args: Any,
+        count: int = 20,
+    ) -> List[Dict[str, Any]]:
+        entries: List[Dict[str, Any]] = []
+        max_cursor = 0
+        has_more = True
+
+        while has_more:
+            await self.downloader.rate_limiter.acquire()
+            request_cursor = max_cursor
+            page_data = await fetcher(*fetch_args, request_cursor, count)
+            page = self._normalize_page_data(page_data)
+            page_items = self.select_items(page)
+            if not page_items:
+                break
+
+            entries.extend(page_items)
+            has_more = bool(page.get("has_more", False))
+            max_cursor = int(page.get("max_cursor", 0) or 0)
+            if has_more and max_cursor == request_cursor:
+                logger.warning(
+                    "Mode %s cursor did not advance (%s), stop paging",
+                    self.mode_name,
+                    max_cursor,
+                )
+                break
+
+        return entries
+
     async def _expand_metadata_items(
         self,
         raw_items: List[Dict[str, Any]],

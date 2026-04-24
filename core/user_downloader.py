@@ -10,6 +10,8 @@ logger = setup_logger("UserDownloader")
 
 
 class UserDownloader(BaseDownloader):
+    SELF_COLLECT_MODES = {"collect", "collectmix"}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode_registry = UserModeRegistry()
@@ -23,12 +25,6 @@ class UserDownloader(BaseDownloader):
             logger.error("No sec_uid found in parsed URL")
             return result
 
-        self._progress_update_step("获取作者信息", f"sec_uid={sec_uid}")
-        user_info = await self.api_client.get_user_info(sec_uid)
-        if not user_info:
-            logger.error("Failed to get user info: %s", sec_uid)
-            return result
-
         modes_config = self.config.get("mode", ["post"])
         if isinstance(modes_config, str):
             modes = [modes_config]
@@ -36,6 +32,14 @@ class UserDownloader(BaseDownloader):
             modes = [str(mode).strip() for mode in modes_config if str(mode).strip()]
         else:
             modes = ["post"]
+
+        if not self._validate_mode_scope(sec_uid, modes):
+            return result
+
+        user_info = await self._resolve_user_info(sec_uid, modes)
+        if not user_info:
+            logger.error("Failed to get user info: %s", sec_uid)
+            return result
 
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
@@ -56,6 +60,38 @@ class UserDownloader(BaseDownloader):
             result.skipped += mode_result.skipped
 
         return result
+
+    def _validate_mode_scope(self, sec_uid: str, modes: List[str]) -> bool:
+        normalized_modes = {str(mode or "").strip() for mode in modes}
+        has_collect_mode = bool(normalized_modes & self.SELF_COLLECT_MODES)
+        has_regular_mode = bool(normalized_modes - self.SELF_COLLECT_MODES)
+
+        if has_collect_mode and sec_uid != "self":
+            logger.error(
+                "Modes collect/collectmix only support /user/self?showTab=favorite_collection"
+            )
+            return False
+        if has_collect_mode and has_regular_mode:
+            logger.error(
+                "Modes collect/collectmix cannot be combined with post/like/mix/music"
+            )
+            return False
+        return True
+
+    async def _resolve_user_info(
+        self, sec_uid: str, modes: List[str]
+    ) -> Optional[Dict[str, Any]]:
+        normalized_modes = {str(mode or "").strip() for mode in modes}
+        if sec_uid == "self" and normalized_modes.issubset(self.SELF_COLLECT_MODES):
+            self._progress_update_step("获取作者信息", "使用当前登录账号收藏夹上下文")
+            return {
+                "uid": "self",
+                "sec_uid": "self",
+                "nickname": "self",
+            }
+
+        self._progress_update_step("获取作者信息", f"sec_uid={sec_uid}")
+        return await self.api_client.get_user_info(sec_uid)
 
     def _get_mode_strategy(self, mode: str):
         normalized_mode = (mode or "").strip()
