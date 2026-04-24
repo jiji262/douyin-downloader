@@ -119,12 +119,12 @@ class WebhookProvider(_BaseProvider):
         url = str(self.settings.get("url") or "")
         if not url:
             logger.warning("Webhook notification skipped: missing url")
-        text = f"<b>{title}</b>\n{body}" if title else body
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
+            return False
+        extra_headers = {
+            str(k): str(v) for k, v in (self.settings.get("headers") or {}).items()
         }
+        payload: Dict[str, Any] = {"title": title, "body": body, "level": level}
+        # 允许通过 extra_body 合并到 payload，便于适配某些平台（企业微信 msgtype 等）。
         extra_body = self.settings.get("extra_body")
         if isinstance(extra_body, dict):
             payload.update(extra_body)
