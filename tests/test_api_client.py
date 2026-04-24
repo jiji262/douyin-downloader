@@ -225,6 +225,63 @@ async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    called_requests = []
+
+    async def _fake_request_json(path, params, suppress_error=False):
+        called_requests.append((path, dict(params)))
+        if path == "/aweme/v1/web/collects/list/":
+            return {
+                "status_code": 0,
+                "collects_list": [{"collects_id_str": "collect-1"}],
+                "has_more": 1,
+                "cursor": 9,
+            }
+        if path == "/aweme/v1/web/collects/video/list/":
+            return {
+                "status_code": 0,
+                "aweme_list": [{"aweme_id": "aweme-1"}],
+                "has_more": 0,
+                "cursor": 0,
+            }
+        if path == "/aweme/v1/web/mix/listcollection/":
+            return {
+                "status_code": 0,
+                "mix_infos": [{"mix_id": "mix-1"}],
+                "has_more": 0,
+                "cursor": 0,
+            }
+        return {"status_code": 0, "has_more": 0, "cursor": 0}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    collects_data = await client.get_user_collects("self", max_cursor=0, count=10)
+    collect_aweme_data = await client.get_collect_aweme(
+        "collect-1", max_cursor=0, count=10
+    )
+    collect_mix_data = await client.get_user_collect_mix(
+        "self", max_cursor=0, count=12
+    )
+
+    assert [path for path, _params in called_requests] == [
+        "/aweme/v1/web/collects/list/",
+        "/aweme/v1/web/collects/video/list/",
+        "/aweme/v1/web/mix/listcollection/",
+    ]
+    assert called_requests[0][1]["count"] == 10
+    assert called_requests[0][1]["version_code"] == "170400"
+    assert called_requests[1][1]["collects_id"] == "collect-1"
+    assert called_requests[1][1]["count"] == 10
+    assert called_requests[2][1]["count"] == 12
+    assert collects_data["items"] == [{"collects_id_str": "collect-1"}]
+    assert collects_data["has_more"] is True
+    assert collects_data["max_cursor"] == 9
+    assert collect_aweme_data["items"] == [{"aweme_id": "aweme-1"}]
+    assert collect_mix_data["items"] == [{"mix_id": "mix-1"}]
+
+
+@pytest.mark.asyncio
 async def test_mix_and_music_endpoints_are_normalized(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
 
@@ -270,7 +327,7 @@ class _FakeSession:
         self._final_url = final_url
         self.closed = False
 
-    def get(self, url, allow_redirects=True, timeout=None):
+    def get(self, url, allow_redirects=True, timeout=None, proxy=None):
         return _FakeRedirectResp(self._status, self._final_url)
 
     async def close(self):
@@ -303,3 +360,67 @@ async def test_resolve_short_url_returns_none_on_500():
     resolved = await client.resolve_short_url("https://v.douyin.com/xyz")
     assert resolved is None
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_video_detail_retries_with_different_aid_on_filter():
+    """When the first aid candidate returns filter_reason, get_video_detail
+    should retry with the next candidate and return the detail."""
+    client = DouyinAPIClient({"msToken": "t"})
+    call_count = 0
+
+    async def _fake_request_json(path, params, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        aid = params.get("aid")
+        if aid == client._DETAIL_AID_CANDIDATES[0]:
+            # Simulate filter on the first candidate
+            return {
+                "aweme_detail": None,
+                "filter_detail": {
+                    "filter_reason": "images_base",
+                    "aweme_id": "123",
+                },
+                "status_code": 0,
+            }
+        # Second candidate returns the detail successfully
+        return {
+            "aweme_detail": {
+                "aweme_id": "123",
+                "aweme_type": 68,
+                "images": [{"url_list": ["https://example.com/img.webp"]}],
+            },
+            "status_code": 0,
+        }
+
+    client._request_json = _fake_request_json
+
+    detail = await client.get_video_detail("123")
+
+    assert detail is not None
+    assert detail["aweme_id"] == "123"
+    assert detail["aweme_type"] == 68
+    assert call_count == 2  # first call filtered, second succeeded
+
+
+@pytest.mark.asyncio
+async def test_get_video_detail_returns_on_first_success():
+    """When the first aid candidate returns valid detail, no retry happens."""
+    client = DouyinAPIClient({"msToken": "t"})
+    call_count = 0
+
+    async def _fake_request_json(path, params, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return {
+            "aweme_detail": {"aweme_id": "456", "aweme_type": 4},
+            "status_code": 0,
+        }
+
+    client._request_json = _fake_request_json
+
+    detail = await client.get_video_detail("456")
+
+    assert detail is not None
+    assert detail["aweme_id"] == "456"
+    assert call_count == 1  # no retry needed

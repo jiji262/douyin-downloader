@@ -14,6 +14,22 @@ DEFAULT_URL = "https://www.douyin.com/"
 DEFAULT_OUTPUT = Path("config/cookies.json")
 REQUIRED_KEYS = {"msToken", "ttwid", "odin_tt", "passport_csrf_token"}
 SUGGESTED_KEYS = REQUIRED_KEYS | {"sid_guard", "sessionid", "sid_tt"}
+DEFAULT_AUXILIARY_KEYS = {
+    "_waftokenid",
+    "s_v_web_id",
+    "__ac_nonce",
+    "__ac_signature",
+    "UIFID",
+    "UIFID_TEMP",
+    "d_ticket",
+    "x-web-secsdk-uid",
+    "__security_server_data_status",
+}
+DEFAULT_AUXILIARY_PREFIXES = (
+    "__security_mc_",
+    "bd_ticket_guard_",
+    "_bd_ticket_crypt_",
+)
 PRIMARY_WAIT_UNTIL = "networkidle"
 FALLBACK_WAIT_UNTIL = "domcontentloaded"
 PRIMARY_TIMEOUT_MS = 300_000
@@ -323,7 +339,14 @@ def extract_ms_token_from_text(text: str) -> Optional[str]:
 
 def filter_cookies(cookies: Dict[str, str]) -> Dict[str, str]:
     cookies = sanitize_cookies(cookies)
-    picked = {k: v for k, v in cookies.items() if k in SUGGESTED_KEYS}
+    picked = {}
+    for key, value in cookies.items():
+        if key in SUGGESTED_KEYS or key in DEFAULT_AUXILIARY_KEYS:
+            picked[key] = value
+            continue
+        if any(key.startswith(prefix) for prefix in DEFAULT_AUXILIARY_PREFIXES):
+            picked[key] = value
+
     if not picked:
         return cookies
     return picked

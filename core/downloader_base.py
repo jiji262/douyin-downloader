@@ -317,25 +317,42 @@ class BaseDownloader(ABC):
         elif media_type == "gallery":
             image_urls = self._collect_image_urls(aweme_data)
             image_live_urls = self._collect_image_live_urls(aweme_data)
+            logger.info(
+                "Gallery aweme %s: %d image(s), %d live photo(s)",
+                aweme_id,
+                len(image_urls),
+                len(image_live_urls),
+            )
             if not image_urls and not image_live_urls:
-                logger.error("No gallery assets found (images/live) for aweme %s", aweme_id)
+                logger.error(
+                    "No gallery assets found for aweme %s (aweme_type=%s, "
+                    "has image_post_info=%s, has images=%s)",
+                    aweme_id,
+                    aweme_data.get("aweme_type"),
+                    "image_post_info" in aweme_data,
+                    "images" in aweme_data,
+                )
                 return False
 
             for index, image_url in enumerate(image_urls, start=1):
-                suffix = Path(urlparse(image_url).path).suffix or ".jpg"
+                suffix = self._infer_image_extension(image_url)
                 image_path = save_dir / f"{file_stem}_{index}{suffix}"
-                success = await self._download_with_retry(
+                download_result = await self._download_with_retry(
                     image_url,
                     image_path,
                     session,
                     headers=self._download_headers(),
+                    prefer_response_content_type=True,
+                    return_saved_path=True,
                 )
-                if not success:
+                if not download_result:
                     logger.error(
                         f"Failed downloading image {index} for aweme {aweme_id}"
                     )
                     return False
-                downloaded_files.append(image_path)
+                downloaded_files.append(
+                    download_result if isinstance(download_result, Path) else image_path
+                )
 
             for index, live_url in enumerate(image_live_urls, start=1):
                 suffix = Path(urlparse(live_url).path).suffix or ".mp4"
@@ -453,18 +470,25 @@ class BaseDownloader(ABC):
         *,
         headers: Optional[Dict[str, str]] = None,
         optional: bool = False,
-    ) -> bool:
+        prefer_response_content_type: bool = False,
+        return_saved_path: bool = False,
+    ) -> bool | Path:
         async def _task():
-            success = await self.file_manager.download_file(
-                url, save_path, session, headers=headers
+            download_result = await self.file_manager.download_file(
+                url,
+                save_path,
+                session,
+                headers=headers,
+                proxy=getattr(self.api_client, "proxy", None),
+                prefer_response_content_type=prefer_response_content_type,
+                return_saved_path=return_saved_path,
             )
-            if not success:
+            if not download_result:
                 raise RuntimeError(f"Download failed for {url}")
-            return True
+            return download_result
 
         try:
-            await self.retry_handler.execute_with_retry(_task)
-            return True
+            return await self.retry_handler.execute_with_retry(_task)
         except Exception as error:
             log_fn = logger.warning if optional else logger.error
             self._log_download_error(
@@ -473,8 +497,23 @@ class BaseDownloader(ABC):
             )
             return False
 
+    # aweme_type codes that indicate image/note content
+    _GALLERY_AWEME_TYPES = {2, 68, 150}
+
     def _detect_media_type(self, aweme_data: Dict[str, Any]) -> str:
-        if aweme_data.get("image_post_info") or aweme_data.get("images"):
+        if (
+            aweme_data.get("image_post_info")
+            or aweme_data.get("images")
+            or aweme_data.get("image_list")
+        ):
+            return "gallery"
+        aweme_type = aweme_data.get("aweme_type")
+        if isinstance(aweme_type, int) and aweme_type in self._GALLERY_AWEME_TYPES:
+            logger.info(
+                "Detected gallery via aweme_type=%s for aweme %s",
+                aweme_type,
+                aweme_data.get("aweme_id"),
+            )
             return "gallery"
         return "video"
 
@@ -503,6 +542,11 @@ class BaseDownloader(ABC):
 
             fallback_candidate = (candidate, headers)
 
+        # Prefer direct CDN URLs (e.g. douyinvod.com) over the /aweme/v1/play/
+        # signed endpoint: the latter redirects to a URL that returns 403 Forbidden.
+        if fallback_candidate:
+            return fallback_candidate
+
         uri = (
             play_addr.get("uri")
             or video.get("vid")
@@ -521,9 +565,6 @@ class BaseDownloader(ABC):
                 "/aweme/v1/play/", params
             )
             return signed_url, self._download_headers(user_agent=ua)
-
-        if fallback_candidate:
-            return fallback_candidate
 
         return None
 
@@ -560,18 +601,26 @@ class BaseDownloader(ABC):
 
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
         image_urls = []
-        for item in self._iter_gallery_items(aweme_data):
+        gallery_items = self._iter_gallery_items(aweme_data)
+        for item in gallery_items:
             if not isinstance(item, dict):
                 continue
             image_url = self._pick_first_media_url(
+                item.get("download_url"),
+                item.get("download_addr"),
+                item.get("download_url_list"),
                 item,
                 item.get("display_image"),
                 item.get("owner_watermark_image"),
-                item.get("download_url"),
-                item.get("download_addr"),
             )
             if image_url:
                 image_urls.append(image_url)
+        if not image_urls:
+            logger.warning(
+                "No image URLs extracted for aweme %s; gallery items count=%d",
+                aweme_data.get("aweme_id"),
+                len(gallery_items),
+            )
         return self._deduplicate_urls(image_urls)
 
     def _collect_image_live_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
@@ -596,10 +645,12 @@ class BaseDownloader(ABC):
     @staticmethod
     def _iter_gallery_items(aweme_data: Dict[str, Any]) -> List[Any]:
         image_post = aweme_data.get("image_post_info")
-        image_post_images = (
-            image_post.get("images") if isinstance(image_post, dict) else None
-        )
-        images = image_post_images or aweme_data.get("images") or []
+        if isinstance(image_post, dict):
+            for key in ("images", "image_list"):
+                candidate = image_post.get(key)
+                if isinstance(candidate, list) and candidate:
+                    return candidate
+        images = aweme_data.get("images") or aweme_data.get("image_list") or []
         if isinstance(images, list):
             return images
         return []
@@ -638,6 +689,23 @@ class BaseDownloader(ABC):
         elif isinstance(source, str) and source:
             return source
         return None
+
+    @staticmethod
+    def _infer_image_extension(image_url: str) -> str:
+        allowed_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+        if not image_url:
+            return ".jpg"
+
+        image_path = (urlparse(image_url).path or "").lower()
+        raw_suffix = Path(image_path).suffix.lower()
+        if raw_suffix in allowed_exts:
+            return raw_suffix
+
+        matches = re.findall(r"\.(?:jpe?g|png|webp|gif)(?=[^a-z0-9]|$)", image_path)
+        if matches:
+            return matches[-1].lower()
+
+        return ".jpg"
 
     @staticmethod
     def _resolve_publish_time(create_time: Any) -> Tuple[Optional[int], str]:

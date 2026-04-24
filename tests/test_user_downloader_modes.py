@@ -34,7 +34,13 @@ class _NoopRateLimiter:
 
 
 class _FakeAPIClient:
+    def __init__(self):
+        self.user_info_calls = []
+        self.collect_calls = 0
+        self.collect_mix_calls = 0
+
     async def get_user_info(self, _sec_uid: str):
+        self.user_info_calls.append(_sec_uid)
         return {"uid": "uid-1", "nickname": "tester", "aweme_count": 99}
 
     async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, count: int = 20):
@@ -68,6 +74,28 @@ class _FakeAPIClient:
     async def get_user_music(self, _sec_uid: str, max_cursor: int = 0, count: int = 20):
         return {
             "items": [_make_aweme("555")],
+            "has_more": False,
+            "max_cursor": 0,
+            "status_code": 0,
+        }
+
+    async def get_user_collects(
+        self, _sec_uid: str, max_cursor: int = 0, count: int = 20
+    ):
+        self.collect_calls += 1
+        return {
+            "items": [{"collects_id_str": "collect-1", "collects_name": "默认收藏夹"}],
+            "has_more": False,
+            "max_cursor": 0,
+            "status_code": 0,
+        }
+
+    async def get_collect_aweme(
+        self, collects_id: str, max_cursor: int = 0, count: int = 20
+    ):
+        assert collects_id == "collect-1"
+        return {
+            "items": [_make_aweme("666")],
             "has_more": False,
             "max_cursor": 0,
             "status_code": 0,
@@ -136,3 +164,64 @@ def test_user_downloader_supports_mix_and_music_modes(tmp_path, monkeypatch):
 
     assert result.total == 2
     assert result.success == 2
+
+
+def test_user_downloader_supports_self_collect_mode(tmp_path, monkeypatch):
+    downloader = _build_downloader(tmp_path, mode=["collect"])
+
+    async def _always_true(*_args, **_kwargs):
+        return True
+
+    async def _download_ok(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _download_ok)
+
+    result = asyncio.run(downloader.download({"sec_uid": "self"}))
+
+    assert result.total == 1
+    assert result.success == 1
+    assert downloader.api_client.user_info_calls == []
+
+
+def test_user_downloader_rejects_non_self_collect_mode(tmp_path, monkeypatch):
+    downloader = _build_downloader(tmp_path, mode=["collect"])
+
+    async def _always_true(*_args, **_kwargs):
+        return True
+
+    async def _download_ok(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _download_ok)
+
+    result = asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
+
+    assert result.total == 0
+    assert result.success == 0
+    assert downloader.api_client.user_info_calls == []
+    assert downloader.api_client.collect_calls == 0
+
+
+def test_user_downloader_rejects_mixed_self_collect_and_regular_modes(
+    tmp_path, monkeypatch
+):
+    downloader = _build_downloader(tmp_path, mode=["collect", "post"])
+
+    async def _always_true(*_args, **_kwargs):
+        return True
+
+    async def _download_ok(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _download_ok)
+
+    result = asyncio.run(downloader.download({"sec_uid": "self"}))
+
+    assert result.total == 0
+    assert result.success == 0
+    assert downloader.api_client.user_info_calls == []
+    assert downloader.api_client.collect_calls == 0

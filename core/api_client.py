@@ -60,8 +60,9 @@ class DouyinAPIClient:
         "login_time",
     }
 
-    def __init__(self, cookies: Dict[str, str]):
+    def __init__(self, cookies: Dict[str, str], proxy: Optional[str] = None):
         self.cookies = sanitize_cookies(cookies or {})
+        self.proxy = str(proxy or "").strip()
         self._session: Optional[aiohttp.ClientSession] = None
         self._browser_post_aweme_items: Dict[str, Dict[str, Any]] = {}
         self._browser_post_stats: Dict[str, int] = {}
@@ -128,27 +129,28 @@ class DouyinAPIClient:
             "device_platform": "webapp",
             "aid": "6383",
             "channel": "channel_pc_web",
+            "update_version_code": "170400",
             "pc_client_type": "1",
-            "version_code": "170400",
-            "version_name": "17.4.0",
+            "version_code": "290100",
+            "version_name": "29.1.0",
             "cookie_enabled": "true",
             "screen_width": "1920",
             "screen_height": "1080",
             "browser_language": "zh-CN",
             "browser_platform": "Win32",
             "browser_name": "Chrome",
-            "browser_version": "123.0.0.0",
+            "browser_version": "130.0.0.0",
             "browser_online": "true",
             "engine_name": "Blink",
-            "engine_version": "123.0.0.0",
+            "engine_version": "130.0.0.0",
             "os_name": "Windows",
             "os_version": "10",
-            "cpu_core_num": "8",
+            "cpu_core_num": "12",
             "device_memory": "8",
             "platform": "PC",
             "downlink": "10",
             "effective_type": "4g",
-            "round_trip_time": "50",
+            "round_trip_time": "100",
             "msToken": ms_token,
         }
 
@@ -195,6 +197,7 @@ class DouyinAPIClient:
                 async with self._session.get(
                     signed_url,
                     headers={**self.headers, "User-Agent": ua},
+                    proxy=self.proxy or None,
                 ) as response:
                     if response.status == 200:
                         data = await response.json(content_type=None)
@@ -301,24 +304,49 @@ class DouyinAPIClient:
         )
         return params
 
+    # aid=1128 works for videos but filters out image/note content;
+    # aid=6383 works for notes/gallery but may miss some video content.
+    _DETAIL_AID_CANDIDATES = ("6383", "1128")
+
     async def get_video_detail(
         self, aweme_id: str, *, suppress_error: bool = False
     ) -> Optional[Dict[str, Any]]:
-        params = await self._default_query()
-        params.update(
-            {
-                "aweme_id": aweme_id,
-                "aid": "1128",
-            }
-        )
+        for aid in self._DETAIL_AID_CANDIDATES:
+            params = await self._default_query()
+            params.update(
+                {
+                    "aweme_id": aweme_id,
+                    "aid": aid,
+                }
+            )
 
-        data = await self._request_json(
-            "/aweme/v1/web/aweme/detail/",
-            params,
-            suppress_error=suppress_error,
-        )
-        if data:
-            return data.get("aweme_detail")
+            data = await self._request_json(
+                "/aweme/v1/web/aweme/detail/",
+                params,
+                suppress_error=(suppress_error or aid != self._DETAIL_AID_CANDIDATES[-1]),
+            )
+            if not data:
+                continue
+
+            detail = data.get("aweme_detail")
+            if detail:
+                return detail
+
+            # API returned data but aweme_detail is null — check if content was
+            # filtered (e.g. filter_reason="images_base" for note/gallery).
+            filter_info = data.get("filter_detail")
+            if isinstance(filter_info, dict) and filter_info.get("filter_reason"):
+                logger.info(
+                    "Aweme %s filtered with aid=%s (reason=%s), retrying",
+                    aweme_id,
+                    aid,
+                    filter_info["filter_reason"],
+                )
+                continue
+
+            # aweme_detail is null without a filter reason — no retry needed
+            break
+
         return None
 
     async def get_user_post(
@@ -358,6 +386,54 @@ class DouyinAPIClient:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
         raw = await self._request_json("/aweme/v1/web/music/list/", params)
         return self._normalize_paged_response(raw, item_keys=["music_list"])
+
+    async def _build_collect_page_params(
+        self, max_cursor: int, count: int
+    ) -> Dict[str, Any]:
+        params = await self._default_query()
+        params.update(
+            {
+                "cursor": max_cursor,
+                "count": count,
+                "version_code": "170400",
+                "version_name": "17.4.0",
+            }
+        )
+        return params
+
+    async def get_user_collects(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 10
+    ) -> Dict[str, Any]:
+        if sec_uid and sec_uid != "self":
+            logger.warning("Collect folders currently require self sec_uid, got=%s", sec_uid)
+            return self._normalize_paged_response(
+                {}, item_keys=["collects_list"], source="api"
+            )
+
+        params = await self._build_collect_page_params(max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/collects/list/", params)
+        return self._normalize_paged_response(raw, item_keys=["collects_list"])
+
+    async def get_collect_aweme(
+        self, collects_id: str, max_cursor: int = 0, count: int = 10
+    ) -> Dict[str, Any]:
+        params = await self._build_collect_page_params(max_cursor, count)
+        params.update({"collects_id": collects_id})
+        raw = await self._request_json("/aweme/v1/web/collects/video/list/", params)
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
+
+    async def get_user_collect_mix(
+        self, sec_uid: str, max_cursor: int = 0, count: int = 12
+    ) -> Dict[str, Any]:
+        if sec_uid and sec_uid != "self":
+            logger.warning("Collect mix currently require self sec_uid, got=%s", sec_uid)
+            return self._normalize_paged_response(
+                {}, item_keys=["mix_infos"], source="api"
+            )
+
+        params = await self._build_collect_page_params(max_cursor, count)
+        raw = await self._request_json("/aweme/v1/web/mix/listcollection/", params)
+        return self._normalize_paged_response(raw, item_keys=["mix_infos"])
 
     async def get_user_info(self, sec_uid: str) -> Optional[Dict[str, Any]]:
         params = await self._default_query()
@@ -641,6 +717,7 @@ class DouyinAPIClient:
                 short_url,
                 allow_redirects=True,
                 timeout=aiohttp.ClientTimeout(total=timeout_seconds),
+                proxy=self.proxy or None,
             ) as response:
                 final_url = str(response.url)
                 if response.status >= 400:

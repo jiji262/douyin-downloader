@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__filesystem__read_text_file",
+  "tool_input_preview": "{\"path\":\"/Users/crimson/codes/douyin/douyin-downloader/control\"}",
+  "error": "EISDIR: illegal operation on a directory, read",
+  "timestamp": "2026-03-27T14:41:25.715Z",
+  "retry_count": 2
+}
