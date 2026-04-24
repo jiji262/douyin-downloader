@@ -309,6 +309,59 @@ async def test_mix_and_music_endpoints_are_normalized(monkeypatch):
     assert music_page["items"] == [{"aweme_id": "a-2"}]
 
 
+class _FakeRedirectResp:
+    def __init__(self, status: int, final_url: str):
+        self.status = status
+        self.url = final_url
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, status: int, final_url: str):
+        self._status = status
+        self._final_url = final_url
+        self.closed = False
+
+    def get(self, url, allow_redirects=True, timeout=None, proxy=None):
+        return _FakeRedirectResp(self._status, self._final_url)
+
+    async def close(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_resolve_short_url_returns_final_url_on_200():
+    client = DouyinAPIClient({"msToken": "t"})
+    client._session = _FakeSession(200, "https://www.douyin.com/video/123")
+    resolved = await client.resolve_short_url("https://v.douyin.com/abc")
+    assert resolved == "https://www.douyin.com/video/123"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_resolve_short_url_returns_none_on_404():
+    """HTTP 4xx 不应把错误 URL 继续传给 parser。"""
+    client = DouyinAPIClient({"msToken": "t"})
+    client._session = _FakeSession(404, "https://www.douyin.com/error")
+    resolved = await client.resolve_short_url("https://v.douyin.com/deadbeef")
+    assert resolved is None
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_resolve_short_url_returns_none_on_500():
+    client = DouyinAPIClient({"msToken": "t"})
+    client._session = _FakeSession(502, "https://www.douyin.com/error")
+    resolved = await client.resolve_short_url("https://v.douyin.com/xyz")
+    assert resolved is None
+    await client.close()
+
+
 @pytest.mark.asyncio
 async def test_get_video_detail_retries_with_different_aid_on_filter():
     """When the first aid candidate returns filter_reason, get_video_detail

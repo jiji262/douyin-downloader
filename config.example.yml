@@ -59,6 +59,43 @@ browser_fallback:
   idle_rounds: 8
   wait_timeout_seconds: 600
 
+# 评论采集（可选）：启用后每个作品会额外生成 *_comments.json
+comments:
+  enabled: false
+  include_replies: false
+  max_comments: 0   # 0 = 不限
+  page_size: 20
+
+# 直播录制（可选）：当 link 指向 live.douyin.com/{room_id} 或 /follow/live/{room_id} 时生效
+live:
+  max_duration_seconds: 0   # 0 = 录到主播下播
+  chunk_size: 65536
+  idle_timeout_seconds: 30
+
+# 下载完成通知（可选）。providers 支持 bark / telegram / webhook
+notifications:
+  enabled: false
+  on_success: true
+  on_failure: true
+  providers: []
+  # 示例：
+  # providers:
+  #   - type: bark
+  #     url: https://api.day.app/YOUR_DEVICE_KEY
+  #     sound: bell
+  #   - type: telegram
+  #     bot_token: "123456:ABC..."
+  #     chat_id: "987654321"
+  #   - type: webhook
+  #     url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+  #     extra_body:
+  #       msgtype: text
+
+# REST API 服务模式（可选，需额外安装 fastapi + uvicorn）
+server:
+  max_jobs: 500
+  job_ttl_seconds: 86400   # 完成态 job 保留 24 小时
+
 cookies:
   msToken: YOUR_MS_TOKEN
   ttwid: YOUR_TTWID

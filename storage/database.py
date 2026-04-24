@@ -9,13 +9,18 @@ class Database:
         self.db_path = db_path
         self._initialized = False
         self._conn: Optional[aiosqlite.Connection] = None
-        self._conn_lock = asyncio.Lock()
+        # 延迟到首次 _get_conn 调用时在当前 event loop 上创建 Lock，
+        # 避免在 __init__ 阶段抢到错误的 loop。
+        self._conn_lock: Optional[asyncio.Lock] = None
 
     async def _get_conn(self) -> aiosqlite.Connection:
-        if self._conn is None:
-            async with self._conn_lock:
-                if self._conn is None:
-                    self._conn = await aiosqlite.connect(self.db_path)
+        if self._conn is not None:
+            return self._conn
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+        async with self._conn_lock:
+            if self._conn is None:
+                self._conn = await aiosqlite.connect(self.db_path)
         return self._conn
 
     async def initialize(self):
