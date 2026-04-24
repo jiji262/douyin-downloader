@@ -4,6 +4,7 @@ from core.video_downloader import VideoDownloader
 from core.user_downloader import UserDownloader
 from core.mix_downloader import MixDownloader
 from core.music_downloader import MusicDownloader
+from core.live_downloader import LiveDownloader
 from config import ConfigLoader
 from storage import Database, FileManager
 from auth import CookieManager
@@ -51,6 +52,14 @@ class DownloaderFactory:
             return MixDownloader(**common_args)
         elif url_type == 'music':
             return MusicDownloader(**common_args)
+        elif url_type == 'live':
+            return LiveDownloader(**common_args)
+        elif url_type == 'short':
+            logger.error(
+                "Short URL was not resolved before dispatching. "
+                "Please call api_client.resolve_short_url() first."
+            )
+            return None
         else:
             logger.error("Unsupported URL type: %s", url_type)
             return None

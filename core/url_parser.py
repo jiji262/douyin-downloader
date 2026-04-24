@@ -45,6 +45,11 @@ class URLParser:
             if music_id:
                 result['music_id'] = music_id
 
+        elif url_type == 'live':
+            room_id = URLParser._extract_room_id(url)
+            if room_id:
+                result['room_id'] = room_id
+
         return result
 
     @staticmethod
@@ -85,6 +90,19 @@ class URLParser:
     @staticmethod
     def _extract_music_id(url: str) -> Optional[str]:
         match = re.search(r'/music/(\d+)', url)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_room_id(url: str) -> Optional[str]:
+        # 直播链接形态：
+        #   https://live.douyin.com/123456789
+        #   https://www.douyin.com/follow/live/123456789
+        match = re.search(r'/live/(\d+)', url)
+        if match:
+            return match.group(1)
+        match = re.search(r'live\.douyin\.com/(\d+)', url)
         if match:
             return match.group(1)
         return None
