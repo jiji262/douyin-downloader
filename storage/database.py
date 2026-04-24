@@ -1,3 +1,4 @@
+import asyncio
 import aiosqlite
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -8,12 +9,18 @@ class Database:
         self.db_path = db_path
         self._initialized = False
         self._conn: Optional[aiosqlite.Connection] = None
+        # 注意：不能在 __init__ 里直接建 asyncio.Lock()，否则可能抢到错误的事件循环；
+        # 延迟到首次 _get_conn 调用时再在当前 loop 上创建。
+        self._conn_lock: Optional[asyncio.Lock] = None
 
     async def _get_conn(self) -> aiosqlite.Connection:
-        if self._conn is None:
-            async with asyncio.Lock():
-                if self._conn is None:
-                    self._conn = await aiosqlite.connect(self.db_path)
+        if self._conn is not None:
+            return self._conn
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+        async with self._conn_lock:
+            if self._conn is None:
+                self._conn = await aiosqlite.connect(self.db_path)
         return self._conn
 
     async def initialize(self):
