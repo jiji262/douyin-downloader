@@ -69,4 +69,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "chunk_size": 65536,
         "idle_timeout_seconds": 30,
     },
+    # REST API 服务模式（可选，需 fastapi + uvicorn）。
+    "server": {
+        "max_jobs": 500,        # 内存中保留的 job 条数上限（不含 in-flight）
+        "job_ttl_seconds": 86400,  # 完成态 job 保留时间（秒）
+    },
 }

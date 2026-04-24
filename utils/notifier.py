@@ -204,13 +204,21 @@ class Notifier:
 
 def build_notifier(config_source: Any) -> Notifier:
     """从 ConfigLoader 或 dict 构造 Notifier。"""
-    cfg: Dict[str, Any]
+    cfg: Any
     if hasattr(config_source, "get"):
         cfg = config_source.get("notifications", {}) or {}
     elif isinstance(config_source, dict):
         cfg = config_source.get("notifications", {}) or {}
     else:
         cfg = {}
+
+    # 用户可能误写成 `notifications: on` 等 scalar：防御性降级为 disabled。
+    if not isinstance(cfg, dict):
+        logger.warning(
+            "notifications config must be a dict, got %s; treating as disabled.",
+            type(cfg).__name__,
+        )
+        return Notifier(providers=[])
 
     if not cfg.get("enabled", False):
         return Notifier(providers=[])

@@ -220,9 +220,10 @@ class LiveDownloader(BaseDownloader):
         bytes_written = 0
         last_chunk_ts = start
 
-        # 直播 CDN 常强制校验 Referer 为 live.douyin.com（不是 www.douyin.com）
+        # 直播 CDN 常同时校验 Referer 与 Origin 为 live.douyin.com（不是 www.douyin.com）。
         headers = self._download_headers()
         headers["Referer"] = "https://live.douyin.com/"
+        headers["Origin"] = "https://live.douyin.com"
 
         def _promote_if_nonempty(reason: str) -> bool:
             if bytes_written <= 0:
@@ -234,7 +235,8 @@ class LiveDownloader(BaseDownloader):
                 return False
             try:
                 os.replace(str(tmp_path), str(target_path))
-            except OSError as exc:
+            except Exception as exc:
+                # 捕获所有异常：理论上只会是 OSError，但 rename 失败时宁可多兜底也别泄漏。
                 logger.error("Live tmp → final rename failed: %s", exc)
                 return False
             logger.info(
