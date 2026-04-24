@@ -632,6 +632,8 @@ class DouyinAPIClient:
         """跟随短链 302，返回最终 URL。失败时返回 None。
 
         单独设置较短超时（默认 10s），避免被目标站挂死后拖慢整轮下载。
+        HTTP 状态码 ≥ 400 时视为解析失败，返回 None 以避免把错误页 URL
+        继续喂给下游 parser，从而在下游触发更隐晦的 "Unsupported URL" 噪声。
         """
         try:
             await self._ensure_session()
@@ -643,11 +645,12 @@ class DouyinAPIClient:
                 final_url = str(response.url)
                 if response.status >= 400:
                     logger.warning(
-                        "Short URL resolved with HTTP %s: %s -> %s",
+                        "Short URL resolved with HTTP %s (treated as failure): %s -> %s",
                         response.status,
                         short_url,
                         final_url,
                     )
+                    return None
                 return final_url
         except asyncio.TimeoutError:
             logger.error(

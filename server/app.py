@@ -10,7 +10,6 @@ fastapi/uvicorn 是**可选**依赖。若未安装，导入本模块会 ImportEr
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
@@ -20,8 +19,8 @@ from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core import DouyinAPIClient, URLParser, DownloaderFactory
-from server.jobs import DownloadJob, JobManager
-from storage import Database, FileManager
+from server.jobs import JobManager
+from storage import FileManager
 from utils.logger import setup_logger
 from utils.validators import is_short_url, normalize_short_url
 
@@ -38,21 +37,39 @@ class JobResponse(BaseModel):
     url: str
 
 
-async def _execute_download(url: str, config: ConfigLoader) -> Dict[str, int]:
+class _ServerDeps:
+    """跨请求复用的重量级依赖。
+
+    REST 服务在进程生命周期内只需要一份 FileManager / RateLimiter / RetryHandler /
+    QueueManager / CookieManager；每个请求重新构造既浪费又会触发文件系统 mkdir。
+    DouyinAPIClient 由于持有 aiohttp.ClientSession，依旧按请求创建，避免跨请求泄漏
+    连接状态或触发 "Session is closed" 错误。
+    """
+
+    def __init__(self, config: ConfigLoader):
+        self.config = config
+        self.cookie_manager = CookieManager()
+        self.cookie_manager.set_cookies(config.get_cookies())
+        self.file_manager = FileManager(config.get("path"))
+        self.rate_limiter = RateLimiter(
+            max_per_second=float(config.get("rate_limit", 2) or 2)
+        )
+        self.retry_handler = RetryHandler(
+            max_retries=int(config.get("retry_times", 3) or 3)
+        )
+        self.queue_manager = QueueManager(
+            max_workers=int(config.get("thread", 5) or 5)
+        )
+
+
+async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:
     """简化版 download_url：只负责执行并返回成功/失败计数。
 
     有意不复用 cli.main.download_url —— 后者绑定了 progress_display 的 rich 状态。
+    API client 仍按请求创建（aiohttp session 不跨请求复用）；其余重量级依赖从
+    _ServerDeps 共享。
     """
-    cookies = config.get_cookies()
-    cookie_manager = CookieManager()
-    cookie_manager.set_cookies(cookies)
-
-    file_manager = FileManager(config.get("path"))
-    rate_limiter = RateLimiter(max_per_second=float(config.get("rate_limit", 2) or 2))
-    retry_handler = RetryHandler(max_retries=config.get("retry_times", 3))
-    queue_manager = QueueManager(max_workers=int(config.get("thread", 5) or 5))
-
-    async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
+    async with DouyinAPIClient(deps.cookie_manager.get_cookies()) as api_client:
         if is_short_url(url):
             resolved = await api_client.resolve_short_url(normalize_short_url(url))
             if not resolved:
@@ -65,14 +82,14 @@ async def _execute_download(url: str, config: ConfigLoader) -> Dict[str, int]:
 
         downloader = DownloaderFactory.create(
             parsed["type"],
-            config,
+            deps.config,
             api_client,
-            file_manager,
-            cookie_manager,
+            deps.file_manager,
+            deps.cookie_manager,
             None,  # database 不在 server 场景里启用，避免单例冲突
-            rate_limiter,
-            retry_handler,
-            queue_manager,
+            deps.rate_limiter,
+            deps.retry_handler,
+            deps.queue_manager,
             progress_reporter=None,
         )
         if downloader is None:
@@ -88,8 +105,10 @@ async def _execute_download(url: str, config: ConfigLoader) -> Dict[str, int]:
 
 
 def build_app(config: ConfigLoader) -> FastAPI:
+    deps = _ServerDeps(config)
+
     async def executor(url: str) -> Dict[str, int]:
-        return await _execute_download(url, config)
+        return await _execute_download(url, deps)
 
     server_cfg = config.get("server") or {}
     if not isinstance(server_cfg, dict):
@@ -115,6 +134,7 @@ def build_app(config: ConfigLoader) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.job_manager = manager
+    app.state.deps = deps
 
     @app.get("/api/v1/health")
     async def health() -> Dict[str, str]:

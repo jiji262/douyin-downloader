@@ -252,3 +252,76 @@ def test_download_headers_referer_for_live(tmp_path):
 
     source = Path("core/live_downloader.py").read_text(encoding="utf-8")
     assert 'headers["Referer"] = "https://live.douyin.com/"' in source
+
+
+def test_download_headers_origin_for_live(tmp_path):
+    """_record_stream 应同时改写 Origin 头（CDN 可能同时校验 Referer 与 Origin）。"""
+    from pathlib import Path
+
+    source = Path("core/live_downloader.py").read_text(encoding="utf-8")
+    assert 'headers["Origin"] = "https://live.douyin.com"' in source
+
+
+class _HeaderCapturingSession:
+    """捕获 get() 调用时传入的 headers，供断言。"""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.captured_headers = None
+
+    def get(self, url, headers=None, timeout=None):
+        self.captured_headers = dict(headers or {})
+        chunks = self._chunks
+
+        class _Resp:
+            status = 200
+
+            async def __aenter__(self_inner):
+                return self_inner
+
+            async def __aexit__(self_inner, *_args):
+                return False
+
+            @property
+            def content(self_inner):
+                return self_inner
+
+            def iter_chunked(self_inner, size):
+                async def gen():
+                    for c in chunks:
+                        yield c
+
+                return gen()
+
+        return _Resp()
+
+
+@pytest.mark.asyncio
+async def test_live_recording_sends_live_origin_and_referer(tmp_path):
+    """端到端验证：_record_stream 实际发出的请求头含正确的 live.douyin.com。"""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    async def fake_info(room_id, *, sec_user_id=""):
+        return {
+            "room": {
+                "status": 2,
+                "title": "t",
+                "stream_url": {"flv_pull_url": {"ORIGIN": "https://cdn/live.flv"}},
+            },
+            "user": {"nickname": "主播"},
+        }
+
+    api_client.get_live_room_info = fake_info
+    capturing = _HeaderCapturingSession([b"data"])
+
+    async def fake_get_session():
+        return capturing
+
+    api_client.get_session = fake_get_session
+
+    await downloader.download({"room_id": "42"})
+    assert capturing.captured_headers is not None
+    assert capturing.captured_headers.get("Referer") == "https://live.douyin.com/"
+    assert capturing.captured_headers.get("Origin") == "https://live.douyin.com"
+
+    await api_client.close()

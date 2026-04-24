@@ -109,6 +109,16 @@ def test_build_notifier_disabled_returns_empty():
     assert notifier.enabled is False
 
 
+def test_build_notifier_rejects_scalar_config():
+    """用户误写 `notifications: on` 等 scalar 不应抛 AttributeError。"""
+    notifier = build_notifier({"notifications": "on"})
+    assert notifier.enabled is False
+    notifier = build_notifier({"notifications": True})
+    assert notifier.enabled is False
+    notifier = build_notifier({"notifications": 42})
+    assert notifier.enabled is False
+
+
 def test_build_notifier_ignores_unknown_provider():
     notifier = build_notifier(
         {

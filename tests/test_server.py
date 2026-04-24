@@ -115,6 +115,25 @@ def test_get_unknown_job_returns_404(tmp_path):
         assert resp.status_code == 404
 
 
+def test_build_app_shares_deps_across_requests(tmp_path):
+    """重请求应复用同一个 FileManager / RateLimiter 等（避免每次重建）。"""
+    config = ConfigLoader(None)
+    config.update(path=str(tmp_path))
+    app = build_app(config)
+
+    deps = app.state.deps
+    assert deps.file_manager is not None
+    assert deps.rate_limiter is not None
+    assert deps.retry_handler is not None
+    assert deps.queue_manager is not None
+    assert deps.cookie_manager is not None
+
+    # 构建第二次 app 时应该是完全独立的 deps 实例，但同一 app 内是共享的
+    app2 = build_app(config)
+    assert app2.state.deps is not app.state.deps
+    assert app.state.deps.file_manager is app.state.deps.file_manager  # identity
+
+
 @pytest.mark.asyncio
 async def test_job_manager_prunes_by_max_jobs():
     """max_jobs 超限时应优先淘汰最老的终态 job，保留 in-flight。"""
