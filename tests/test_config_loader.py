@@ -1,6 +1,5 @@
-import os
-
 import pytest
+
 from config import ConfigLoader
 
 
@@ -186,7 +185,7 @@ auto_cookie: false
     assert loader.get_cookies() == {}
 
 
-def test_config_loader_warns_for_non_object_auto_cookie_file(tmp_path, caplog):
+def test_config_loader_warns_for_non_object_auto_cookie_file(tmp_path, caplog, monkeypatch):
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         """
@@ -199,6 +198,7 @@ cookies: auto
     cookie_dir = tmp_path / "config"
     cookie_dir.mkdir()
     (cookie_dir / "cookies.json").write_text("[]", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
 
     loader = ConfigLoader(str(config_file))
     cookies = loader.get_cookies()

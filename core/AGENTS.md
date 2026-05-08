@@ -36,7 +36,7 @@ Core business logic — Douyin API client, URL parsing, download orchestration, 
 - `UserDownloader` uses `UserModeRegistry` to discover strategies and runs enabled modes
 - `VideoDownloader` handles both `video` and `gallery` URL types
 - API client uses anti-bot signatures from `utils/xbogus.py` and `utils/abogus.py`
-- Gallery downloads prefer `download_url_list` over `url_list` for higher quality
+- Gallery downloads prefer no-watermark fields (`origin_image`/`display_image`/`url_list`) before watermark fallback fields (`download_url_list`/`owner_watermark_image`)
 
 ### Testing Requirements
 - Tests: `tests/test_api_client.py`, `tests/test_url_parser.py`, `tests/test_downloader_factory.py`, `tests/test_video_downloader.py`, `tests/test_user_downloader.py`, `tests/test_mix_downloader.py`, `tests/test_music_downloader.py`, `tests/test_user_mode_registry.py`, `tests/test_user_downloader_modes.py`

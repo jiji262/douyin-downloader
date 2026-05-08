@@ -4,6 +4,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
@@ -657,8 +658,8 @@ def test_collect_image_urls_old_format_url_list(tmp_path):
     asyncio.run(api_client.close())
 
 
-def test_collect_image_urls_old_format_download_url_list(tmp_path):
-    """Old format: items have download_url_list (list) directly."""
+def test_collect_image_urls_old_format_prefers_url_list(tmp_path):
+    """Old format: url_list is the no-watermark image source."""
     downloader, api_client = _build_downloader(tmp_path)
 
     aweme_data = {
@@ -672,14 +673,13 @@ def test_collect_image_urls_old_format_download_url_list(tmp_path):
     }
 
     urls = downloader._collect_image_urls(aweme_data)
-    # download_url_list should be preferred over url_list
-    assert urls == ["https://example.com/download1.webp"]
+    assert urls == ["https://example.com/preview1.webp"]
 
     asyncio.run(api_client.close())
 
 
-def test_collect_image_urls_new_format_download_url_preferred(tmp_path):
-    """New format: download_url dict is preferred over display_image."""
+def test_collect_image_urls_new_format_prefers_display_image(tmp_path):
+    """New format: display_image is the no-watermark image source."""
     downloader, api_client = _build_downloader(tmp_path)
 
     aweme_data = {
@@ -699,7 +699,49 @@ def test_collect_image_urls_new_format_download_url_preferred(tmp_path):
     }
 
     urls = downloader._collect_image_urls(aweme_data)
-    assert urls == ["https://cdn.example.com/download.webp"]
+    assert urls == ["https://cdn.example.com/display.webp"]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_prefers_non_watermark_gallery_fields(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100004",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {
+                        "url_list": ["https://cdn.example.com/clean-display.webp"]
+                    },
+                    "download_url": {
+                        "url_list": [
+                            "https://cdn.example.com/tplv-dy-water-v2/water-download.webp"
+                        ]
+                    },
+                    "owner_watermark_image": {
+                        "url_list": [
+                            "https://cdn.example.com/owner_watermark_image.webp"
+                        ]
+                    },
+                },
+                {
+                    "url_list": ["https://cdn.example.com/clean-top.webp"],
+                    "download_url_list": [
+                        "https://cdn.example.com/tplv-dy-water-v2/water-list.webp"
+                    ],
+                },
+            ]
+        },
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+
+    assert urls == [
+        "https://cdn.example.com/clean-display.webp",
+        "https://cdn.example.com/clean-top.webp",
+    ]
 
     asyncio.run(api_client.close())
 

@@ -315,15 +315,15 @@ class BaseDownloader(ABC):
                         downloaded_files.append(music_path)
 
         elif media_type == "gallery":
-            image_urls = self._collect_image_urls(aweme_data)
+            image_url_candidates = self._collect_image_url_candidates(aweme_data)
             image_live_urls = self._collect_image_live_urls(aweme_data)
             logger.info(
                 "Gallery aweme %s: %d image(s), %d live photo(s)",
                 aweme_id,
-                len(image_urls),
+                len(image_url_candidates),
                 len(image_live_urls),
             )
-            if not image_urls and not image_live_urls:
+            if not image_url_candidates and not image_live_urls:
                 logger.error(
                     "No gallery assets found for aweme %s (aweme_type=%s, "
                     "has image_post_info=%s, has images=%s)",
@@ -334,25 +334,31 @@ class BaseDownloader(ABC):
                 )
                 return False
 
-            for index, image_url in enumerate(image_urls, start=1):
-                suffix = self._infer_image_extension(image_url)
-                image_path = save_dir / f"{file_stem}_{index}{suffix}"
-                download_result = await self._download_with_retry(
-                    image_url,
-                    image_path,
-                    session,
-                    headers=self._download_headers(),
-                    prefer_response_content_type=True,
-                    return_saved_path=True,
-                )
+            for index, candidates in enumerate(image_url_candidates, start=1):
+                download_result: bool | Path = False
+                for image_url in candidates:
+                    suffix = self._infer_image_extension(image_url)
+                    image_path = save_dir / f"{file_stem}_{index}{suffix}"
+                    download_result = await self._download_with_retry(
+                        image_url,
+                        image_path,
+                        session,
+                        headers=self._download_headers(),
+                        prefer_response_content_type=True,
+                        return_saved_path=True,
+                    )
+                    if download_result:
+                        downloaded_files.append(
+                            download_result
+                            if isinstance(download_result, Path)
+                            else image_path
+                        )
+                        break
                 if not download_result:
                     logger.error(
                         f"Failed downloading image {index} for aweme {aweme_id}"
                     )
                     return False
-                downloaded_files.append(
-                    download_result if isinstance(download_result, Path) else image_path
-                )
 
             for index, live_url in enumerate(image_live_urls, start=1):
                 suffix = Path(urlparse(live_url).path).suffix or ".mp4"
@@ -600,28 +606,37 @@ class BaseDownloader(ABC):
         return best
 
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
+        return [
+            candidates[0]
+            for candidates in self._collect_image_url_candidates(aweme_data)
+            if candidates
+        ]
+
+    def _collect_image_url_candidates(self, aweme_data: Dict[str, Any]) -> List[List[str]]:
         image_urls = []
         gallery_items = self._iter_gallery_items(aweme_data)
         for item in gallery_items:
             if not isinstance(item, dict):
                 continue
-            image_url = self._pick_first_media_url(
+            candidates = self._collect_media_urls(
+                item.get("watermark_free_download_url_list"),
+                item.get("origin_image"),
+                item.get("display_image"),
+                item,
                 item.get("download_url"),
                 item.get("download_addr"),
                 item.get("download_url_list"),
-                item,
-                item.get("display_image"),
                 item.get("owner_watermark_image"),
             )
-            if image_url:
-                image_urls.append(image_url)
+            if candidates:
+                image_urls.append(candidates)
         if not image_urls:
             logger.warning(
                 "No image URLs extracted for aweme %s; gallery items count=%d",
                 aweme_data.get("aweme_id"),
                 len(gallery_items),
             )
-        return self._deduplicate_urls(image_urls)
+        return image_urls
 
     def _collect_image_live_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
         live_urls: List[str] = []
@@ -675,20 +690,51 @@ class BaseDownloader(ABC):
         return None
 
     @staticmethod
+    def _collect_media_urls(*sources: Any) -> List[str]:
+        urls: List[str] = []
+        seen = set()
+        for source in sources:
+            for candidate in sorted(
+                BaseDownloader._extract_urls(source),
+                key=BaseDownloader._media_url_priority,
+            ):
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                urls.append(candidate)
+        return urls
+
+    @staticmethod
+    def _media_url_priority(url: str) -> int:
+        normalized = url.lower()
+        path = (urlparse(url).path or "").lower()
+        watermark_hints = (
+            "tplv-dy-water",
+            "dy-water",
+            "owner_watermark",
+            "watermark_image",
+            "watermark=1",
+            "playwm",
+        )
+        score = 100 if any(hint in normalized for hint in watermark_hints) else 0
+        return score + (1 if ".webp" in path else 0)
+
+    @staticmethod
     def _extract_first_url(source: Any) -> Optional[str]:
+        urls = BaseDownloader._extract_urls(source)
+        return urls[0] if urls else None
+
+    @staticmethod
+    def _extract_urls(source: Any) -> List[str]:
         if isinstance(source, dict):
             url_list = source.get("url_list")
             if isinstance(url_list, list) and url_list:
-                first_item = url_list[0]
-                if isinstance(first_item, str) and first_item:
-                    return first_item
+                return [item for item in url_list if isinstance(item, str) and item]
         elif isinstance(source, list) and source:
-            first_item = source[0]
-            if isinstance(first_item, str) and first_item:
-                return first_item
+            return [item for item in source if isinstance(item, str) and item]
         elif isinstance(source, str) and source:
-            return source
-        return None
+            return [source]
+        return []
 
     @staticmethod
     def _infer_image_extension(image_url: str) -> str:
