@@ -534,19 +534,33 @@ class BaseDownloader(ABC):
         url_candidates.sort(key=lambda u: 0 if "watermark=0" in u else 1)
 
         fallback_candidate: Optional[Tuple[str, Dict[str, str]]] = None
+        watermarked_candidate: Optional[Tuple[str, Dict[str, str]]] = None
 
         for candidate in url_candidates:
             parsed = urlparse(candidate)
             headers = self._download_headers()
+            is_watermarked = self._is_watermarked_media_url(candidate)
 
             if parsed.netloc.endswith("douyin.com"):
                 if "X-Bogus=" not in candidate:
                     signed_url, ua = self.api_client.sign_url(candidate)
                     headers = self._download_headers(user_agent=ua)
+                    if is_watermarked:
+                        watermarked_candidate = watermarked_candidate or (
+                            signed_url,
+                            headers,
+                        )
+                        continue
                     return signed_url, headers
+                if is_watermarked:
+                    watermarked_candidate = watermarked_candidate or (candidate, headers)
+                    continue
                 return candidate, headers
 
-            fallback_candidate = (candidate, headers)
+            if is_watermarked:
+                watermarked_candidate = watermarked_candidate or (candidate, headers)
+            else:
+                fallback_candidate = fallback_candidate or (candidate, headers)
 
         # Prefer direct CDN URLs (e.g. douyinvod.com) over the /aweme/v1/play/
         # signed endpoint: the latter redirects to a URL that returns 403 Forbidden.
@@ -571,6 +585,9 @@ class BaseDownloader(ABC):
                 "/aweme/v1/play/", params
             )
             return signed_url, self._download_headers(user_agent=ua)
+
+        if watermarked_candidate:
+            return watermarked_candidate
 
         return None
 
@@ -620,9 +637,9 @@ class BaseDownloader(ABC):
                 continue
             candidates = self._collect_media_urls(
                 item.get("watermark_free_download_url_list"),
+                item,
                 item.get("origin_image"),
                 item.get("display_image"),
-                item,
                 item.get("download_url"),
                 item.get("download_addr"),
                 item.get("download_url_list"),
@@ -692,7 +709,7 @@ class BaseDownloader(ABC):
     @staticmethod
     def _collect_media_urls(*sources: Any) -> List[str]:
         urls: List[str] = []
-        seen = set()
+        seen: set[str] = set()
         for source in sources:
             for candidate in sorted(
                 BaseDownloader._extract_urls(source),
@@ -708,6 +725,12 @@ class BaseDownloader(ABC):
     def _media_url_priority(url: str) -> int:
         normalized = url.lower()
         path = (urlparse(url).path or "").lower()
+        score = 100 if BaseDownloader._is_watermarked_media_url(normalized) else 0
+        return score + (1 if ".webp" in path else 0)
+
+    @staticmethod
+    def _is_watermarked_media_url(url: str) -> bool:
+        normalized = url.lower()
         watermark_hints = (
             "tplv-dy-water",
             "dy-water",
@@ -716,8 +739,7 @@ class BaseDownloader(ABC):
             "watermark=1",
             "playwm",
         )
-        score = 100 if any(hint in normalized for hint in watermark_hints) else 0
-        return score + (1 if ".webp" in path else 0)
+        return any(hint in normalized for hint in watermark_hints)
 
     @staticmethod
     def _extract_first_url(source: Any) -> Optional[str]:
@@ -727,7 +749,7 @@ class BaseDownloader(ABC):
     @staticmethod
     def _extract_urls(source: Any) -> List[str]:
         if isinstance(source, dict):
-            url_list = source.get("url_list")
+            url_list = source.get("url_list") or source.get("urlList")
             if isinstance(url_list, list) and url_list:
                 return [item for item in url_list if isinstance(item, str) and item]
         elif isinstance(source, list) and source:
