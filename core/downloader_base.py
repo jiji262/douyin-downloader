@@ -10,10 +10,16 @@ from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
+from core.metadata import extract_author_sec_uid
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
 from utils.logger import setup_logger
-from utils.validators import sanitize_filename
+from utils.naming import (
+    DEFAULT_FILE_TEMPLATE,
+    DEFAULT_FOLDER_TEMPLATE,
+    build_aweme_context,
+    render_template,
+)
 
 logger = setup_logger("BaseDownloader")
 
@@ -237,6 +243,8 @@ class BaseDownloader(ABC):
         aweme_data: Dict[str, Any],
         author_name: str,
         mode: Optional[str] = None,
+        *,
+        db_batch: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         aweme_id = aweme_data.get("aweme_id")
         if not aweme_id:
@@ -254,7 +262,33 @@ class BaseDownloader(ABC):
                 aweme_id,
                 publish_date,
             )
-        file_stem = sanitize_filename(f"{publish_date}_{desc}_{aweme_id}")
+        media_type = self._detect_media_type(aweme_data)
+        template_context = build_aweme_context(
+            aweme_id=str(aweme_id),
+            title=desc,
+            author_name=author_name,
+            author_sec_uid=extract_author_sec_uid(aweme_data),
+            publish_date=publish_date,
+            publish_ts=publish_ts,
+            media_type=media_type,
+            mode=mode,
+        )
+        filename_template = (
+            self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
+        )
+        folder_template = (
+            self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
+        )
+        file_stem = render_template(
+            filename_template,
+            template_context,
+            fallback=f"{publish_date}_{aweme_id}",
+        )
+        folder_name = render_template(
+            folder_template,
+            template_context,
+            fallback=f"{publish_date}_{aweme_id}",
+        )
 
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
@@ -263,13 +297,13 @@ class BaseDownloader(ABC):
             aweme_id=aweme_id,
             folderstyle=self.config.get("folderstyle", True),
             download_date=publish_date,
+            folder_name=folder_name,
         )
         downloaded_files: List[Path] = []
 
         session = await self.api_client.get_session()
         video_path: Optional[Path] = None
 
-        media_type = self._detect_media_type(aweme_data)
         if media_type == "video":
             video_info = self._build_no_watermark_url(aweme_data)
             if not video_info:
@@ -417,18 +451,27 @@ class BaseDownloader(ABC):
         author = aweme_data.get("author", {})
         if self.database:
             metadata_json = json.dumps(aweme_data, ensure_ascii=False)
-            await self.database.add_aweme(
-                {
-                    "aweme_id": aweme_id,
-                    "aweme_type": media_type,
-                    "title": desc,
-                    "author_id": author.get("uid"),
-                    "author_name": author.get("nickname", author_name),
-                    "create_time": aweme_data.get("create_time"),
-                    "file_path": str(save_dir),
-                    "metadata": metadata_json,
-                }
-            )
+            record = {
+                "aweme_id": aweme_id,
+                "aweme_type": media_type,
+                "title": desc,
+                "author_id": author.get("uid"),
+                "author_name": author.get("nickname", author_name),
+                "create_time": aweme_data.get("create_time"),
+                "file_path": str(save_dir),
+                "metadata": metadata_json,
+                # Attach sec_uid onto the payload so both the batched path
+                # (add_aweme_batch iterates `record["author_sec_uid"]`) and
+                # the single-write path (add_aweme reads the payload as
+                # fallback when the kwarg is None) pick it up identically.
+                "author_sec_uid": extract_author_sec_uid(aweme_data),
+            }
+            # Caller may opt into batched DB writes by passing a list; we just
+            # accumulate the record and let the caller commit them all at once.
+            if db_batch is not None:
+                db_batch.append(record)
+            else:
+                await self.database.add_aweme(record)
 
         manifest_record = {
             "date": publish_date,

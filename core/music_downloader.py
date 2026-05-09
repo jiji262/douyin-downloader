@@ -3,13 +3,18 @@ from __future__ import annotations
 import json
 import posixpath
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.metadata import extract_author_sec_uid
 from utils.logger import setup_logger
-from utils.validators import sanitize_filename
+from utils.naming import (
+    DEFAULT_FILE_TEMPLATE,
+    DEFAULT_FOLDER_TEMPLATE,
+    build_music_context,
+    render_template,
+)
 
 logger = setup_logger("MusicDownloader")
 
@@ -81,7 +86,28 @@ class MusicDownloader(BaseDownloader):
         )
         publish_date = datetime.now().strftime("%Y-%m-%d")
         record_id = f"music_{music_id}"
-        file_stem = sanitize_filename(f"{publish_date}_{title}_{record_id}")
+        template_context = build_music_context(
+            music_id=str(music_id),
+            title=title,
+            author_name=author_name,
+            publish_date=publish_date,
+        )
+        filename_template = (
+            self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
+        )
+        folder_template = (
+            self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
+        )
+        file_stem = render_template(
+            filename_template,
+            template_context,
+            fallback=f"{publish_date}_{record_id}",
+        )
+        folder_name = render_template(
+            folder_template,
+            template_context,
+            fallback=f"{publish_date}_{record_id}",
+        )
 
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
@@ -90,6 +116,7 @@ class MusicDownloader(BaseDownloader):
             aweme_id=record_id,
             folderstyle=self.config.get("folderstyle", True),
             download_date=publish_date,
+            folder_name=folder_name,
         )
 
         music_ext = self._infer_audio_extension(music_url)
@@ -138,7 +165,8 @@ class MusicDownloader(BaseDownloader):
                     "create_time": None,
                     "file_path": str(save_dir),
                     "metadata": json.dumps(detail or {}, ensure_ascii=False),
-                }
+                },
+                author_sec_uid=extract_author_sec_uid(detail),
             )
 
         await self.metadata_handler.append_download_manifest(

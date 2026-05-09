@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -30,6 +32,13 @@ class CookieManager:
         try:
             with open(self.cookie_file, "w", encoding="utf-8") as f:
                 json.dump(self.cookies, f, ensure_ascii=False, indent=2)
+            # Restrict perms to owner-only on POSIX. Windows uses ACL-based
+            # isolation so chmod is a no-op there.
+            if sys.platform != "win32":
+                try:
+                    os.chmod(self.cookie_file, 0o600)
+                except OSError as exc:
+                    logger.warning("Could not chmod cookie file: %s", exc)
         except Exception as e:
             logger.error("Failed to save cookies: %s", e)
 

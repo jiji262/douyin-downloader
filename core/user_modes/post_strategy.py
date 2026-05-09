@@ -47,13 +47,16 @@ class PostUserModeStrategy(BaseUserModeStrategy):
             page_items = self.select_items(page)
 
             if not page_items:
-                if request_cursor and page.get("status_code") == 0:
+                if page.get("status_code") == 0:
                     pagination_restricted = True
                     logger.warning(
-                        "User post pagination likely blocked at cursor=%s, switching to browser fallback",
+                        "User post page empty at cursor=%s (status_code=0); "
+                        "will attempt browser fallback",
                         request_cursor,
                     )
                 break
+
+            page_items = self._filter_pinned_items(page_items)
 
             if increase_enabled and latest_time:
                 new_items = [

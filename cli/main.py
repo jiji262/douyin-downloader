@@ -96,7 +96,17 @@ async def download_url(
 
         if progress_reporter:
             progress_reporter.advance_step("执行下载", "开始拉取与下载资源")
-        result = await downloader.download(parsed)
+        try:
+            result = await downloader.download(parsed)
+        except Exception as exc:
+            # Surface fatal downloader errors (e.g. user_info fetch failed
+            # because cookies are invalid) as a per-URL failure instead of
+            # crashing the whole batch. Keeps multi-URL CLI runs robust while
+            # still telling the user why the URL was skipped.
+            if progress_reporter:
+                progress_reporter.update_step("执行下载", f"失败：{exc}")
+            display.print_error(f"Download failed for {url}: {exc}")
+            return None
 
         if progress_reporter:
             progress_reporter.advance_step(
@@ -129,7 +139,8 @@ async def download_url(
 
 
 async def main_async(args):
-    display.show_banner()
+    if not args.serve:
+        display.show_banner()
 
     if args.config:
         config_path = args.config
@@ -142,7 +153,15 @@ async def main_async(args):
         if not (args.hot_board is not None or args.search or args.serve):
             display.print_error(f"Config file not found: {config_path}")
             return
-        config = ConfigLoader(None)
+        # For ``--serve`` we still pass the (yet-missing) path so later
+        # ``config.save()`` calls from the REST settings endpoint create
+        # the file in the right place (e.g. Electron's userData dir).
+        # Other subcommands keep the historical behaviour of in-memory
+        # defaults.
+        if args.serve and args.config:
+            config = ConfigLoader(config_path)
+        else:
+            config = ConfigLoader(None)
     else:
         config = ConfigLoader(config_path)
 

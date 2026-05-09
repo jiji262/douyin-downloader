@@ -22,8 +22,10 @@ class UserDownloader(BaseDownloader):
 
         sec_uid = parsed_url.get("sec_uid")
         if not sec_uid:
-            logger.error("No sec_uid found in parsed URL")
-            return result
+            # URL parser already validates this; treat as fatal instead of
+            # a silent empty result so the UI surfaces a real error rather
+            # than "已完成 0 项".
+            raise RuntimeError("无法从链接中解析出用户 ID，请确认链接是否完整")
 
         modes_config = self.config.get("mode", ["post"])
         if isinstance(modes_config, str):
@@ -39,7 +41,14 @@ class UserDownloader(BaseDownloader):
         user_info = await self._resolve_user_info(sec_uid, modes)
         if not user_info:
             logger.error("Failed to get user info: %s", sec_uid)
-            return result
+            # Raising here instead of returning an empty result means the
+            # job ends in `failed` state with a clear message. Returning
+            # {total:0,success:0,failed:0} made JobManager mark it as
+            # `success`, which rendered as "已完成 0 项" — a silent failure
+            # that's indistinguishable from "nothing happened" in the UI.
+            raise RuntimeError(
+                "获取用户信息失败，请检查 Cookie 是否有效或重新登录抖音"
+            )
 
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
@@ -77,6 +86,27 @@ class UserDownloader(BaseDownloader):
             )
             return False
         return True
+
+    def _filter_pinned_items(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self._download_pinned_enabled():
+            return items
+        return [item for item in items if not self._is_pinned_aweme(item)]
+
+    def _download_pinned_enabled(self) -> bool:
+        return self._as_bool(self.config.get("download_pinned", False))
+
+    @staticmethod
+    def _is_pinned_aweme(item: Dict[str, Any]) -> bool:
+        value = item.get("is_top")
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
+    def _as_bool(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
 
     async def _resolve_user_info(
         self, sec_uid: str, modes: List[str]
@@ -133,13 +163,19 @@ class UserDownloader(BaseDownloader):
         self._progress_set_item_total(result.total, "作品待下载")
         self._progress_update_step("下载作品", f"待处理 {result.total} 条")
 
+        # Accumulate per-aweme DB records and flush in a single transaction
+        # at the end — avoids one fsync per item across the whole batch.
+        db_batch: Optional[List[Dict[str, Any]]] = [] if self.database else None
+
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
             if not await self._should_download(str(aweme_id or "")):
                 self._progress_advance_item("skipped", str(aweme_id or "unknown"))
                 return {"status": "skipped", "aweme_id": aweme_id}
 
-            success = await self._download_aweme_assets(item, author_name, mode=mode)
+            success = await self._download_aweme_assets(
+                item, author_name, mode=mode, db_batch=db_batch
+            )
             status = "success" if success else "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
             return {
@@ -150,6 +186,9 @@ class UserDownloader(BaseDownloader):
         download_results = await self.queue_manager.download_batch(
             _process_aweme, deduped_items
         )
+
+        if db_batch:
+            await self.database.add_aweme_batch(db_batch)
 
         for entry in download_results:
             status = entry.get("status") if isinstance(entry, dict) else None

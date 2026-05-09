@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from core.downloader_base import DownloadResult
 from utils.logger import setup_logger
@@ -43,8 +43,15 @@ class BaseUserModeStrategy(ABC):
         return await self._collect_paged_aweme(sec_uid, user_info)
 
     def apply_filters(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        filtered = self.downloader._filter_by_time(items)
+        filtered = self._filter_pinned_items(items)
+        filtered = self.downloader._filter_by_time(filtered)
         return self.downloader._limit_count(filtered, self.mode_name)
+
+    def _filter_pinned_items(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        filterer = getattr(self.downloader, "_filter_pinned_items", None)
+        if callable(filterer):
+            return filterer(items)
+        return items
 
     async def _collect_paged_aweme(
         self, sec_uid: str, user_info: Dict[str, Any]
@@ -68,8 +75,15 @@ class BaseUserModeStrategy(ABC):
         increase_enabled = bool(
             self.downloader.config.get("increase", {}).get(self.mode_name, False)
         )
+        stop_at_downloaded_aweme = (
+            increase_enabled and self.mode_name == "like" and self.downloader.database
+        )
         latest_time = None
-        if increase_enabled and self.downloader.database:
+        if (
+            increase_enabled
+            and self.downloader.database
+            and not stop_at_downloaded_aweme
+        ):
             latest_time = await self.downloader.database.get_latest_aweme_time(
                 user_info.get("uid")
             )
@@ -83,7 +97,16 @@ class BaseUserModeStrategy(ABC):
             if not page_items:
                 break
 
-            if increase_enabled and latest_time:
+            if stop_at_downloaded_aweme:
+                new_items = []
+                for item in page_items:
+                    if await self._is_downloaded_aweme(item):
+                        break
+                    new_items.append(item)
+                aweme_list.extend(new_items)
+                if len(new_items) < len(page_items):
+                    break
+            elif increase_enabled and latest_time:
                 new_items = [
                     a for a in page_items if a.get("create_time", 0) > latest_time
                 ]
@@ -108,6 +131,12 @@ class BaseUserModeStrategy(ABC):
                 break
 
         return aweme_list
+
+    async def _is_downloaded_aweme(self, item: Dict[str, Any]) -> bool:
+        aweme_id = str(item.get("aweme_id") or "").strip()
+        if not aweme_id or not self.downloader.database:
+            return False
+        return await self.downloader.database.is_downloaded(aweme_id)
 
     def select_items(self, page_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         items = page_data.get("items")

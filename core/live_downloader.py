@@ -22,14 +22,19 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import aiofiles
 import aiohttp
 
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
-from utils.validators import sanitize_filename
+from utils.naming import (
+    DEFAULT_FILE_TEMPLATE,
+    DEFAULT_FOLDER_TEMPLATE,
+    build_live_context,
+    render_template,
+)
 
 logger = setup_logger("LiveDownloader")
 
@@ -149,9 +154,30 @@ class LiveDownloader(BaseDownloader):
     def _plan_output_paths(
         self, author_name: str, title: str, room_id: str
     ) -> Tuple[Path, str]:
-        safe_title = sanitize_filename(title)
-        date = datetime.now().strftime("%Y-%m-%d_%H%M")
-        file_stem = sanitize_filename(f"{date}_{safe_title}_{room_id}")
+        started_at = datetime.now()
+        date = started_at.strftime("%Y-%m-%d_%H%M")
+        template_context = build_live_context(
+            room_id=str(room_id),
+            title=title,
+            author_name=author_name,
+            started_at=started_at,
+        )
+        filename_template = (
+            self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
+        )
+        folder_template = (
+            self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
+        )
+        file_stem = render_template(
+            filename_template,
+            template_context,
+            fallback=f"{date}_{room_id}",
+        )
+        folder_name = render_template(
+            folder_template,
+            template_context,
+            fallback=f"{date}_{room_id}",
+        )
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode="live",
@@ -159,6 +185,7 @@ class LiveDownloader(BaseDownloader):
             aweme_id=room_id,
             folderstyle=self.config.get("folderstyle", True),
             download_date=date,
+            folder_name=folder_name,
         )
         return save_dir, file_stem
 

@@ -42,6 +42,58 @@ def test_like_strategy_collects_items_from_api():
     assert [item["aweme_id"] for item in items] == ["111"]
 
 
+def test_like_strategy_increment_stops_at_first_downloaded_aweme():
+    class _API:
+        def __init__(self):
+            self.calls = []
+
+        async def get_user_like(self, _sec_uid, max_cursor=0, count=20):
+            self.calls.append(max_cursor)
+            if max_cursor == 0:
+                return {
+                    "items": [_make_aweme("new-1"), _make_aweme("old-1")],
+                    "has_more": True,
+                    "max_cursor": 1,
+                }
+            return {
+                "items": [_make_aweme("older-1")],
+                "has_more": False,
+                "max_cursor": max_cursor,
+            }
+
+    class _Database:
+        async def get_latest_aweme_time(self, _author_id):
+            return None
+
+        async def is_downloaded(self, aweme_id):
+            return aweme_id == "old-1"
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"like": 0},
+                        "increase": {"like": True},
+                    }.get(key, default)
+                },
+            )()
+            self.database = _Database()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    downloader = _Downloader()
+    strategy = LikeUserModeStrategy(downloader)
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+    assert [item["aweme_id"] for item in items] == ["new-1"]
+    assert downloader.api_client.calls == [0]
+
+
 def test_post_strategy_calls_browser_recover_when_pagination_restricted():
     class _API:
         async def get_user_post(self, _sec_uid, max_cursor=0, count=20):

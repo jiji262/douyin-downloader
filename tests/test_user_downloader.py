@@ -6,14 +6,16 @@ from core.user_downloader import UserDownloader
 from storage.file_manager import FileManager
 
 
-def _make_aweme(aweme_id: str) -> Dict[str, Any]:
-    return {
+def _make_aweme(aweme_id: str, **overrides: Any) -> Dict[str, Any]:
+    aweme = {
         "aweme_id": aweme_id,
         "desc": f"desc-{aweme_id}",
         "create_time": 1700000000,
         "author": {"nickname": "tester", "uid": "uid-1"},
         "video": {"play_addr": {"url_list": ["https://example.com/video.mp4"]}},
     }
+    aweme.update(overrides)
+    return aweme
 
 
 class _FakeConfig:
@@ -230,6 +232,62 @@ def test_user_post_browser_fallback_expected_count_uses_number_limit(
     assert result.total == 2
     assert api_client.browser_calls == 1
     assert api_client.browser_call_kwargs[0].get("expected_count") == 2
+
+
+def test_user_post_skips_pinned_before_number_limit(tmp_path, monkeypatch):
+    class _PinnedAPIClient(_FakeAPIClient):
+        async def get_user_post(
+            self, _sec_uid: str, max_cursor: int = 0, _count: int = 20
+        ):
+            self.user_post_calls.append(max_cursor)
+            if max_cursor == 0:
+                return {
+                    "status_code": 0,
+                    "aweme_list": [
+                        _make_aweme("111", is_top=1),
+                        _make_aweme("222", is_top=1),
+                        _make_aweme("333", is_top=0),
+                    ],
+                    "has_more": 1,
+                    "max_cursor": 456,
+                }
+            return {
+                "status_code": 0,
+                "aweme_list": [_make_aweme("444", is_top=0)],
+                "has_more": 0,
+                "max_cursor": max_cursor,
+            }
+
+    api_client = _PinnedAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        number_post=2,
+    )
+
+    downloaded_ids: List[str] = []
+
+    async def _always_true(*_args, **_kwargs):
+        return True
+
+    async def _download_aweme_assets(item, *_args, **_kwargs):
+        downloaded_ids.append(str(item.get("aweme_id")))
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _download_aweme_assets)
+
+    result = asyncio.run(
+        downloader._download_user_post(
+            "sec_uid_x",
+            {"uid": "uid-1", "nickname": "tester", "aweme_count": 4},
+        )
+    )
+
+    assert result.total == 2
+    assert result.success == 2
+    assert downloaded_ids == ["333", "444"]
 
 
 def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):

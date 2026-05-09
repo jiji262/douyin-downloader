@@ -21,8 +21,8 @@ class RateLimiter:
                 wait_time = self.min_interval - time_since_last
                 await asyncio.sleep(wait_time)
 
+            # Jitter must run inside the lock so that the next caller waits
+            # min_interval since the actual fire time, not since the prior
+            # caller acquired the lock.
+            await asyncio.sleep(random.uniform(0, 0.5))
             self.last_request = time.time()
-
-        # Random jitter (0~0.5s) outside the lock to mimic real user
-        # behavior without blocking other callers.
-        await asyncio.sleep(random.uniform(0, 0.5))

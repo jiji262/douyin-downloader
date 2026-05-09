@@ -9,6 +9,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "start_time": "",
     "end_time": "",
     "folderstyle": True,
+    # 命名模板：渲染时可用变量见 utils/naming.py:ALLOWED_VARIABLES。默认保持
+    # 与历史行为一致（`{date}_{title}_{id}`），用户可在设置中改写。
+    "filename_template": "{date}_{title}_{id}",
+    "folder_template": "{date}_{title}_{id}",
+    "download_pinned": False,
     "mode": ["post"],
     "number": {
         "post": 0,

@@ -13,6 +13,16 @@ end_time: ""
 
 folderstyle: true
 
+# 文件/目录命名模板。可用变量：
+#   {id} {title} {author} {author_id} {date} {year} {month} {day}
+#   {time} {timestamp} {type} {mode}
+# 要求模板中至少包含 {id} 以避免重名覆盖。
+filename_template: "{date}_{title}_{id}"
+folder_template: "{date}_{title}_{id}"
+
+# 默认不下载作者主页置顶作品；如需包含置顶，改为 true
+download_pinned: false
+
 mode:
   - post
 

@@ -160,6 +160,92 @@ class ConfigLoader:
             else:
                 self.config[key] = value
 
+    # Keys that the desktop Settings UI lets the user edit. ``save()`` writes
+    # these back to the YAML config so changes survive a sidecar restart.
+    # Kept explicit rather than dumping everything so we don't accidentally
+    # persist runtime/secret values (cookies, links, etc.) that should stay
+    # out of the on-disk config, and so fields the user added manually to
+    # their config.yml are left untouched.
+    _UI_PERSISTED_KEYS = (
+        "path",
+        "thread",
+        "rate_limit",
+        "cover",
+        "music",
+        "avatar",
+        "json",
+        "download_pinned",
+        "proxy",
+        "retry_times",
+        "folderstyle",
+        "filename_template",
+        "folder_template",
+        "comments",
+        "live",
+        "transcript",
+        "notifications",
+    )
+
+    def save(self) -> bool:
+        """Persist UI-editable keys back to ``self.config_path``.
+
+        Returns True when a file was written, False when no config path is
+        set (e.g. ``ConfigLoader(None)`` in unit tests). Any existing keys
+        the user put in the YAML file manually are preserved by merging
+        the UI keys on top of the previously loaded file contents.
+
+        I/O errors are logged and surfaced via the return value rather than
+        raised, so a read-only disk doesn't take down the HTTP handler that
+        called us.
+        """
+        if not self.config_path:
+            return False
+        target = Path(self.config_path)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "Cannot create config directory %s: %s", target.parent, exc
+            )
+            return False
+
+        existing: Dict[str, Any] = {}
+        if target.exists():
+            try:
+                with open(target, "r", encoding="utf-8") as handle:
+                    loaded = yaml.safe_load(handle)
+                if isinstance(loaded, dict):
+                    existing = loaded
+            except (yaml.YAMLError, OSError) as exc:
+                logger.warning(
+                    "Failed to read existing config %s for merge: %s; "
+                    "falling back to UI-only snapshot",
+                    target,
+                    exc,
+                )
+                existing = {}
+
+        for key in self._UI_PERSISTED_KEYS:
+            if key in self.config:
+                value = self.config[key]
+                # Defensive copy so a later ``config.update`` on the same
+                # process doesn't mutate what we just serialised.
+                if isinstance(value, dict):
+                    value = deepcopy(value)
+                elif isinstance(value, list):
+                    value = list(value)
+                existing[key] = value
+
+        try:
+            with open(target, "w", encoding="utf-8") as handle:
+                yaml.safe_dump(
+                    existing, handle, allow_unicode=True, sort_keys=False
+                )
+        except OSError as exc:
+            logger.warning("Failed to write config %s: %s", target, exc)
+            return False
+        return True
+
     def get(self, key: str, default: Any = None) -> Any:
         return self.config.get(key, default)
 
@@ -188,9 +274,11 @@ class ConfigLoader:
     def _load_auto_cookies(self) -> Dict[str, str]:
         for path in self._candidate_auto_cookie_paths():
             cookies = self._load_cookie_file(path)
+            if cookies is None:
+                continue
             if cookies:
                 logger.info("Loaded auto cookies from %s", path)
-                return cookies
+            return cookies
         return {}
 
     def _candidate_auto_cookie_paths(self) -> List[Path]:
@@ -224,9 +312,9 @@ class ConfigLoader:
         return unique
 
     @staticmethod
-    def _load_cookie_file(path: Path) -> Dict[str, str]:
+    def _load_cookie_file(path: Path) -> Optional[Dict[str, str]]:
         if not path.exists():
-            return {}
+            return None
         try:
             raw_data = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
