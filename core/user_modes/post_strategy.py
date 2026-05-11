@@ -28,14 +28,6 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         number_limit = int(
             self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0
         )
-        increase_enabled = bool(
-            self.downloader.config.get("increase", {}).get(self.mode_name, False)
-        )
-        latest_time = None
-        if increase_enabled and self.downloader.database:
-            latest_time = await self.downloader.database.get_latest_aweme_time(
-                user_info.get("uid")
-            )
 
         self.downloader._progress_update_step("拉取作品列表", "分页抓取中")
 
@@ -57,16 +49,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                 break
 
             page_items = self._filter_pinned_items(page_items)
-
-            if increase_enabled and latest_time:
-                new_items = [
-                    a for a in page_items if a.get("create_time", 0) > latest_time
-                ]
-                aweme_list.extend(new_items)
-                if len(new_items) < len(page_items):
-                    break
-            else:
-                aweme_list.extend(page_items)
+            aweme_list.extend(page_items)
 
             self.downloader._progress_update_step(
                 "拉取作品列表", f"已抓取 {len(aweme_list)} 条"
@@ -91,5 +74,10 @@ class PostUserModeStrategy(BaseUserModeStrategy):
             await self.downloader._recover_user_post_with_browser(
                 sec_uid, user_info, aweme_list
             )
+            if not aweme_list:
+                raise RuntimeError(
+                    "抖音接口未返回作品列表（可能触发了反爬限制），"
+                    "请稍后重试或尝试重新登录抖音刷新 Cookie"
+                )
 
         return aweme_list
