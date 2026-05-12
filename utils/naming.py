@@ -15,6 +15,7 @@
   - ``date``: 发布日期 ``YYYY-MM-DD``（缺失时为当前日期）
   - ``year`` / ``month`` / ``day``: ``date`` 的年月日分量
   - ``time``: 发布时间 ``HHMM``（仅当上下文提供时有值）
+  - ``hour`` / ``minute`` / ``second``: 发布时间的时/分/秒分量（两位数字）
   - ``timestamp``: Unix 时间戳（秒，整型字符串；缺失为空）
   - ``type``: ``video`` / ``gallery`` / ``music`` / ``live``
   - ``mode``: 下载模式 ``post`` / ``like`` / ``mix`` / ``music`` / ``live`` …
@@ -39,6 +40,9 @@ ALLOWED_VARIABLES = (
     "month",
     "day",
     "time",
+    "hour",
+    "minute",
+    "second",
     "timestamp",
     "type",
     "mode",
@@ -146,6 +150,21 @@ def _split_date(date_str: str) -> Dict[str, str]:
     return {"year": parts[0], "month": parts[1], "day": parts[2]}
 
 
+def _split_time(ts: Optional[int]) -> Dict[str, str]:
+    """把 Unix 时间戳拆成 ``{hour, minute, second}`` 三个两位字符串。"""
+    if not ts:
+        return {"hour": "", "minute": "", "second": ""}
+    try:
+        dt = datetime.fromtimestamp(ts)
+        return {
+            "hour": dt.strftime("%H"),
+            "minute": dt.strftime("%M"),
+            "second": dt.strftime("%S"),
+        }
+    except (OSError, OverflowError, ValueError):
+        return {"hour": "", "minute": "", "second": ""}
+
+
 def build_aweme_context(
     *,
     aweme_id: str,
@@ -165,6 +184,9 @@ def build_aweme_context(
         "author_id": author_sec_uid or "",
         "date": publish_date or "",
         "time": "",
+        "hour": "",
+        "minute": "",
+        "second": "",
         "timestamp": str(publish_ts) if publish_ts else "",
         "type": media_type or "",
         "mode": mode or "",
@@ -177,6 +199,7 @@ def build_aweme_context(
             ctx["time"] = datetime.fromtimestamp(publish_ts).strftime("%H%M")
         except (OSError, OverflowError, ValueError):
             ctx["time"] = ""
+        ctx.update(_split_time(publish_ts))
     return ctx
 
 
@@ -196,6 +219,9 @@ def build_music_context(
         "author_id": "",
         "date": publish_date or "",
         "time": "",
+        "hour": "",
+        "minute": "",
+        "second": "",
         "timestamp": "",
         "type": "music",
         "mode": mode,
@@ -217,7 +243,7 @@ def build_live_context(
     ``date`` 特意保留为 ``YYYY-MM-DD_HHMM``（保留历史行为：同一天可能录多次
     直播，需要在文件名层面区分）。``year``/``month``/``day`` 仍按自然日拆分，
     方便按月/按日分文件夹。``time`` 单独提供 ``HHMM`` 方便用户在模板里改放到
-    其他位置。
+    其他位置。``hour``/``minute``/``second`` 提供独立的时/分/秒分量。
     """
     iso_date = started_at.strftime("%Y-%m-%d")
     date_with_time = started_at.strftime("%Y-%m-%d_%H%M")
@@ -228,6 +254,9 @@ def build_live_context(
         "author_id": "",
         "date": date_with_time,
         "time": started_at.strftime("%H%M"),
+        "hour": started_at.strftime("%H"),
+        "minute": started_at.strftime("%M"),
+        "second": started_at.strftime("%S"),
         "timestamp": str(int(started_at.timestamp())),
         "type": "live",
         "mode": mode,

@@ -30,6 +30,12 @@ class CookieManager:
 
     def _save_cookies(self):
         try:
+            # The cookie file lives alongside the config.yml in the
+            # per-user app-data dir. The directory is normally created by
+            # Electron (for config.yml) well before login, but create it
+            # defensively so a first-run login can't lose cookies to a
+            # missing parent dir.
+            self.cookie_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.cookie_file, "w", encoding="utf-8") as f:
                 json.dump(self.cookies, f, ensure_ascii=False, indent=2)
             # Restrict perms to owner-only on POSIX. Windows uses ACL-based
@@ -40,7 +46,7 @@ class CookieManager:
                 except OSError as exc:
                     logger.warning("Could not chmod cookie file: %s", exc)
         except Exception as e:
-            logger.error("Failed to save cookies: %s", e)
+            logger.error("Failed to save cookies to %s: %s", self.cookie_file, e)
 
     def _load_cookies(self):
         if not self.cookie_file.exists():

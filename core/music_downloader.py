@@ -117,6 +117,8 @@ class MusicDownloader(BaseDownloader):
             folderstyle=self.config.get("folderstyle", True),
             download_date=publish_date,
             folder_name=folder_name,
+            author_sec_uid=None,
+            author_dir_style=self.config.get("author_dir") or "nickname",
         )
 
         music_ext = self._infer_audio_extension(music_url)

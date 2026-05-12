@@ -20,6 +20,10 @@ class FileManager:
         "image/webp": ".webp",
     }
 
+    # 作者目录层可选风格（与 DEFAULT_CONFIG["author_dir"]、REST SettingsPatch
+    # 的 Literal、前端下拉三处保持一致）。
+    _AUTHOR_DIR_STYLES = ("nickname", "sec_uid", "nickname_uid")
+
     def __init__(self, base_path: str = "./Downloaded"):
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
@@ -33,6 +37,9 @@ class FileManager:
         folderstyle: bool = True,
         download_date: str = "",
         folder_name: Optional[str] = None,
+        *,
+        author_sec_uid: Optional[str] = None,
+        author_dir_style: str = "nickname",
     ) -> Path:
         """Compute (and create) the destination directory for a download.
 
@@ -41,8 +48,15 @@ class FileManager:
         overrides the legacy ``{date}_{title}_{id}`` layout. When omitted we
         fall back to the historical composition so external callers and the
         sibling CLI project keep working unchanged.
+
+        ``author_dir_style`` controls how the author-level directory is
+        composed (see :data:`_AUTHOR_DIR_STYLES`). Unknown values or missing
+        ``author_sec_uid`` fall back to ``nickname`` with a ``WARNING`` so
+        downloads never fail on a misconfiguration.
         """
-        safe_author = sanitize_filename(author_name)
+        safe_author = self._compose_author_dir(
+            author_name, author_sec_uid, author_dir_style
+        )
 
         if mode:
             save_dir = self.base_path / safe_author / mode
@@ -60,6 +74,62 @@ class FileManager:
 
         save_dir.mkdir(parents=True, exist_ok=True)
         return save_dir
+
+    @classmethod
+    def _compose_author_dir(
+        cls,
+        author_name: str,
+        author_sec_uid: Optional[str],
+        style: str,
+    ) -> str:
+        """Build the sanitized author-level directory name per ``style``.
+
+        Behaviour matrix (kept in lock-step with the ``author_dir`` option
+        surfaced in settings UI and ``DEFAULT_CONFIG``):
+
+        - ``nickname``    → ``sanitize_filename(author_name)`` (legacy)
+        - ``sec_uid``     → ``sanitize_filename(author_sec_uid)``;
+          empty/None → fall back to nickname + ``logger.warning``.
+        - ``nickname_uid`` → ``sanitize_filename(f"{author_name}_{author_sec_uid}")``;
+          sec_uid missing → fall back to nickname + ``logger.warning``.
+        - Unknown style   → fall back to nickname + ``logger.warning``.
+
+        Never raises — a misconfiguration must degrade into a still-working
+        download, not a hard failure.
+        """
+        nickname_dir = sanitize_filename(author_name)
+        sec_uid = (author_sec_uid or "").strip()
+
+        if style not in cls._AUTHOR_DIR_STYLES:
+            logger.warning(
+                "Unknown author_dir style %r, falling back to nickname (%s)",
+                style,
+                nickname_dir,
+            )
+            return nickname_dir
+
+        if style == "nickname":
+            return nickname_dir
+
+        if style == "sec_uid":
+            if not sec_uid:
+                logger.warning(
+                    "author_dir=sec_uid but sec_uid is missing for %r, "
+                    "falling back to nickname",
+                    author_name,
+                )
+                return nickname_dir
+            return sanitize_filename(sec_uid)
+
+        # style == "nickname_uid"
+        if not sec_uid:
+            logger.warning(
+                "author_dir=nickname_uid but sec_uid is missing for %r, "
+                "falling back to nickname",
+                author_name,
+            )
+            return nickname_dir
+        return sanitize_filename(f"{author_name}_{sec_uid}")
 
     async def download_file(
         self,

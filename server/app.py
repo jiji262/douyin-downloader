@@ -48,8 +48,28 @@ class _ServerDeps:
 
     def __init__(self, config: ConfigLoader):
         self.config = config
-        self.cookie_manager = CookieManager()
-        self.cookie_manager.set_cookies(config.get_cookies())
+        # Resolve the cookie file path relative to the config file's directory
+        # so the sidecar can find it regardless of its working directory (which
+        # on macOS is often '/' when launched by Electron).
+        if config.config_path:
+            from pathlib import Path
+            cookie_file = str(
+                Path(config.config_path).resolve().parent / '.cookies.json'
+            )
+        else:
+            cookie_file = '.cookies.json'
+        self.cookie_manager = CookieManager(cookie_file=cookie_file)
+        # Load cookies from the config (env var / YAML cookie key) first, then
+        # fall back to whatever is already on disk in the cookie file. This
+        # ensures that cookies saved by a previous session are picked up on
+        # restart even when the config doesn't embed them inline.
+        initial_cookies = config.get_cookies()
+        if initial_cookies:
+            self.cookie_manager.set_cookies(initial_cookies)
+        else:
+            # Trigger a load from disk so get_cookies() returns the persisted
+            # session without requiring a fresh login on every app restart.
+            self.cookie_manager.get_cookies()
         self.file_manager = FileManager(config.get("path"))
         self.rate_limiter = RateLimiter(
             max_per_second=float(config.get("rate_limit", 2) or 2)

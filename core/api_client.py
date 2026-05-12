@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
+
 from auth import MsTokenManager
 from utils.cookie_utils import sanitize_cookies
 from utils.logger import setup_logger
@@ -22,23 +23,11 @@ logger = setup_logger("APIClient")
 _USER_AGENT_POOL = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
     ),
     (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) "
-        "Gecko/20100101 Firefox/133.0"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
     ),
 ]
 
@@ -69,11 +58,10 @@ class DouyinAPIClient:
         selected_ua = random.choice(_USER_AGENT_POOL)
         self.headers = {
             "User-Agent": selected_ua,
-            "Referer": "https://www.douyin.com/",
-            "Accept": "application/json",
+            "Referer": "https://www.douyin.com/?recommend=1",
+            "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate",
             "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Connection": "keep-alive",
         }
         self._signer = XBogus(self.headers["User-Agent"])
         self._ms_token_manager = MsTokenManager(user_agent=self.headers["User-Agent"])
@@ -131,26 +119,30 @@ class DouyinAPIClient:
             "channel": "channel_pc_web",
             "update_version_code": "170400",
             "pc_client_type": "1",
+            "pc_libra_divert": "Windows",
             "version_code": "290100",
             "version_name": "29.1.0",
             "cookie_enabled": "true",
-            "screen_width": "1920",
-            "screen_height": "1080",
+            "screen_width": "1536",
+            "screen_height": "864",
             "browser_language": "zh-CN",
             "browser_platform": "Win32",
             "browser_name": "Chrome",
-            "browser_version": "130.0.0.0",
+            "browser_version": "139.0.0.0",
             "browser_online": "true",
             "engine_name": "Blink",
-            "engine_version": "130.0.0.0",
+            "engine_version": "139.0.0.0",
             "os_name": "Windows",
             "os_version": "10",
-            "cpu_core_num": "12",
+            "cpu_core_num": "16",
             "device_memory": "8",
             "platform": "PC",
             "downlink": "10",
             "effective_type": "4g",
-            "round_trip_time": "100",
+            "round_trip_time": "200",
+            "support_h265": "1",
+            "support_dash": "1",
+            "uifid": "",
             "msToken": ms_token,
         }
 
@@ -171,7 +163,7 @@ class DouyinAPIClient:
             return None
 
         try:
-            browser_fp = BrowserFingerprintGenerator.generate_fingerprint("Edge")
+            browser_fp = BrowserFingerprintGenerator.generate_fingerprint("Chrome")
             signer = ABogus(fp=browser_fp, user_agent=self.headers["User-Agent"])
             params_with_ab, _ab, ua, _body = signer.generate_abogus(query, "")
             return f"{base_url}?{params_with_ab}", ua
@@ -200,7 +192,34 @@ class DouyinAPIClient:
                     proxy=self.proxy or None,
                 ) as response:
                     if response.status == 200:
-                        data = await response.json(content_type=None)
+                        body = await response.read()
+                        if not body:
+                            # Empty 200 response is a common anti-bot signal
+                            # from Douyin. Retry with a fresh signature.
+                            logger.warning(
+                                "Empty 200 response for %s (attempt %d/%d), "
+                                "likely anti-bot; will retry",
+                                path, attempt + 1, max_retries,
+                            )
+                            last_exc = RuntimeError(
+                                f"Empty 200 response for {path} (anti-bot)"
+                            )
+                            if attempt < max_retries - 1:
+                                delay = delays[min(attempt, len(delays) - 1)]
+                                await asyncio.sleep(delay)
+                            continue
+                        try:
+                            data = await response.json(content_type=None)
+                        except Exception:
+                            import json as _json
+                            try:
+                                data = _json.loads(body)
+                            except Exception:
+                                logger.warning(
+                                    "Non-JSON 200 response for %s, length=%d",
+                                    path, len(body),
+                                )
+                                return {}
                         return data if isinstance(data, dict) else {}
                     if response.status < 500 and response.status != 429:
                         log_fn = logger.debug if suppress_error else logger.error
@@ -350,7 +369,7 @@ class DouyinAPIClient:
         return None
 
     async def get_user_post(
-        self, sec_uid: str, max_cursor: int = 0, count: int = 20
+        self, sec_uid: str, max_cursor: int = 0, count: int = 18
     ) -> Dict[str, Any]:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
         params.update(

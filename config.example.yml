@@ -20,6 +20,13 @@ folderstyle: true
 filename_template: "{date}_{title}_{id}"
 folder_template: "{date}_{title}_{id}"
 
+# 作者目录层命名方式。可选值：
+#   nickname     - 仅作者昵称（默认，最直观，但重名会合并、改名会分裂）
+#   sec_uid      - 作者 sec_uid（稳定唯一，但不直观）
+#   nickname_uid - 昵称_sec_uid（直观 + 唯一，推荐重度用户）
+# 切换只影响后续下载，不会迁移已存在的目录。
+author_dir: "nickname"
+
 # 默认不下载作者主页置顶作品；如需包含置顶，改为 true
 download_pinned: false
 

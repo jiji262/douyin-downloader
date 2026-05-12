@@ -31,14 +31,86 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import aiohttp
 
 from utils.logger import setup_logger
 
 logger = setup_logger("Notifier")
+
+
+def _mask_credential(value: str) -> str:
+    """Mask a credential: keep first 4 + last 4 chars, replace middle with ``***``.
+
+    If ``len(value) < 8`` (too short to usefully partial-mask), return ``***``.
+    The input is coerced to ``str`` to tolerate non-string inputs coming from
+    user config.
+    """
+    if value is None:
+        return "***"
+    text = value if isinstance(value, str) else str(value)
+    if len(text) >= 8:
+        return text[:4] + "***" + text[-4:]
+    return "***"
+
+
+def _mask_url_query(url: str) -> str:
+    """Return ``url`` with every query-string value masked via ``_mask_credential``.
+
+    Scheme, host, path, and fragment are preserved. Parameter names are kept as-is;
+    only the values are masked. An empty / non-string / unparseable URL is returned
+    unchanged.
+    """
+    if not isinstance(url, str) or not url:
+        return url
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if not parts.query:
+        return url
+    masked_pairs = [
+        (key, _mask_credential(val))
+        for key, val in parse_qsl(parts.query, keep_blank_values=True)
+    ]
+    new_query = urlencode(masked_pairs)
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, new_query, parts.fragment)
+    )
+
+
+def _masked_config_for_log(
+    provider_type: str, config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Return a deep-copied ``config`` with sensitive fields masked per provider type.
+
+    - ``bark``: mask ``device_key``
+    - ``telegram``: mask ``bot_token``
+    - ``webhook``: mask every query-string value in ``url`` (host/path preserved)
+
+    Unknown types and non-dict configs are returned as a deep copy without
+    modification so callers can always log the result safely.
+    """
+    if not isinstance(config, dict):
+        # Return a deep copy of whatever was passed so callers never mutate the
+        # original object via the returned reference.
+        return copy.deepcopy(config)
+
+    masked = copy.deepcopy(config)
+    ptype = (provider_type or "").strip().lower()
+    if ptype == "bark":
+        if "device_key" in masked:
+            masked["device_key"] = _mask_credential(masked.get("device_key") or "")
+    elif ptype == "telegram":
+        if "bot_token" in masked:
+            masked["bot_token"] = _mask_credential(masked.get("bot_token") or "")
+    elif ptype == "webhook":
+        if "url" in masked and isinstance(masked.get("url"), str):
+            masked["url"] = _mask_url_query(masked["url"])
+    return masked
 
 
 class _BaseProvider:

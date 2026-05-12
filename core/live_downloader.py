@@ -186,6 +186,8 @@ class LiveDownloader(BaseDownloader):
             folderstyle=self.config.get("folderstyle", True),
             download_date=date,
             folder_name=folder_name,
+            author_sec_uid=None,
+            author_dir_style=self.config.get("author_dir") or "nickname",
         )
         return save_dir, file_stem
 

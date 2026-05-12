@@ -16,8 +16,10 @@ def sanitize_filename(filename: str, max_length: int = 80) -> str:
     filename = filename.replace('\n', ' ').replace('\r', ' ')
     # Windows 非法字符 + #，逗号 → 下划线
     filename = re.sub(r'[<>:"/\\|?*#\x00-\x1f]', '_', filename)
-    # 连续空格/下划线 → 单个下划线
-    filename = re.sub(r'[\s_]+', '_', filename)
+    # 连续下划线 → 单个下划线（保留空格，不再把空格折叠成下划线）
+    filename = re.sub(r'_+', '_', filename)
+    # 连续空格 → 单个空格
+    filename = re.sub(r' +', ' ', filename)
     # 去首尾
     filename = filename.strip('._- ')
 

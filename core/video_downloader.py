@@ -45,6 +45,12 @@ class VideoDownloader(BaseDownloader):
         return result
 
     async def _download_aweme(self, aweme_data: Dict[str, Any]) -> bool:
-        author = aweme_data.get('author', {})
+        author = aweme_data.get('author', {}) or {}
         author_name = author.get('nickname', 'unknown')
+        # Cache author on the hosting job so JobRow can display the nickname
+        # and `retry_failed_awemes` doesn't need to re-fetch user info.
+        self._progress_report_author(
+            nickname=author_name if author_name != 'unknown' else None,
+            sec_uid=author.get('sec_uid'),
+        )
         return await self._download_aweme_assets(aweme_data, author_name)

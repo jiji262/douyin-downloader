@@ -268,6 +268,56 @@ class Database:
         result = await cursor.fetchone()
         return result[0] if result else 0
 
+    async def get_top_authors(
+        self, *, days: int, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Return the most-downloaded authors in the last ``days`` days.
+
+        Aggregates rows in `aweme` with ``create_time >= now - days*86400`` and
+        non-empty / non-null ``author_sec_uid``. Groups by ``author_sec_uid``
+        and orders by ``COUNT(*) DESC, author_sec_uid ASC`` (stable tie-break
+        so property tests are deterministic). Truncates to ``limit`` rows.
+
+        ``author_name`` for each result row is the latest non-empty
+        ``author_name`` for that ``sec_uid`` (ordered by ``download_time``
+        descending). If all rows for that sec_uid have empty/null names,
+        falls back to the Chinese placeholder ``"未知作者"``.
+
+        Each returned dict contains ``sec_uid`` / ``author_name`` /
+        ``download_count``.
+        """
+        cutoff = int(datetime.now().timestamp()) - int(days) * 86400
+        db = await self._get_conn()
+        cursor = await db.execute(
+            '''
+            SELECT a.author_sec_uid,
+                   (SELECT a2.author_name FROM aweme a2
+                     WHERE a2.author_sec_uid = a.author_sec_uid
+                       AND a2.author_name IS NOT NULL
+                       AND a2.author_name != ''
+                     ORDER BY a2.download_time DESC
+                     LIMIT 1) AS author_name,
+                   COUNT(*) AS download_count
+              FROM aweme a
+             WHERE a.create_time >= ?
+               AND a.author_sec_uid IS NOT NULL
+               AND a.author_sec_uid != ''
+             GROUP BY a.author_sec_uid
+             ORDER BY download_count DESC, a.author_sec_uid ASC
+             LIMIT ?
+            ''',
+            (cutoff, int(limit)),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "sec_uid": row[0],
+                "author_name": row[1] if row[1] else "未知作者",
+                "download_count": int(row[2]),
+            }
+            for row in rows
+        ]
+
     async def upsert_transcript_job(self, job_data: Dict[str, Any]):
         now_ts = int(datetime.now().timestamp())
         db = await self._get_conn()

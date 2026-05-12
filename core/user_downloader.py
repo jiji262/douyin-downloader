@@ -50,6 +50,13 @@ class UserDownloader(BaseDownloader):
                 "获取用户信息失败，请检查 Cookie 是否有效或重新登录抖音"
             )
 
+        # Cache author metadata on the hosting job so retry doesn't have
+        # to re-fetch user_info, and so JobRow can display the nickname.
+        self._progress_report_author(
+            nickname=user_info.get("nickname"),
+            sec_uid=user_info.get("sec_uid") or sec_uid,
+        )
+
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
         seen_aweme_ids: Set[str] = set()

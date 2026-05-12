@@ -13,6 +13,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # 与历史行为一致（`{date}_{title}_{id}`），用户可在设置中改写。
     "filename_template": "{date}_{title}_{id}",
     "folder_template": "{date}_{title}_{id}",
+    # 作者目录层命名方式：
+    #   "nickname"    - 作者昵称（默认，最直观，但重名会合并、改名会分裂）
+    #   "sec_uid"     - 作者 sec_uid（稳定唯一，但不直观）
+    #   "nickname_uid" - 昵称_sec_uid（直观 + 唯一）
+    # 切换只影响后续下载，不会迁移已存在的目录。
+    "author_dir": "nickname",
     "download_pinned": False,
     "mode": ["post"],
     "number": {

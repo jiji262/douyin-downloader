@@ -113,6 +113,27 @@ class BaseDownloader(ABC):
         except Exception as exc:
             logger.debug("Progress advance_item failed: %s", exc)
 
+    def _progress_report_author(
+        self,
+        nickname: Optional[str] = None,
+        sec_uid: Optional[str] = None,
+    ) -> None:
+        """Surface author metadata to the reporter so the hosting job can
+        cache it for retry and display.
+
+        Downloaders call this as soon as author info is known (user_info
+        lookup for batch jobs, aweme_data.author for single-video jobs).
+        Safe to call with `None` values — the reporter drops empty payloads.
+        """
+        if not self.progress_reporter:
+            return
+        try:
+            fn = getattr(self.progress_reporter, "on_author", None)
+            if callable(fn):
+                fn(nickname=nickname, sec_uid=sec_uid)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.debug("Progress on_author failed: %s", exc)
+
     def _log_download_error(self, log_fn, message: str) -> None:
         if self._download_error_log_count < self._download_error_log_limit:
             log_fn(message)
@@ -298,6 +319,8 @@ class BaseDownloader(ABC):
             folderstyle=self.config.get("folderstyle", True),
             download_date=publish_date,
             folder_name=folder_name,
+            author_sec_uid=extract_author_sec_uid(aweme_data),
+            author_dir_style=self.config.get("author_dir") or "nickname",
         )
         downloaded_files: List[Path] = []
 
