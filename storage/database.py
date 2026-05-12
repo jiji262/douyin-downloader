@@ -103,6 +103,7 @@ class Database:
                 retry_count         INTEGER NOT NULL DEFAULT 0,
                 last_retry_at       TEXT,
                 last_retry_summary  TEXT,
+                retry_history       TEXT,
                 overrides           TEXT
             )
         ''')
@@ -121,6 +122,16 @@ class Database:
         existing_columns = {row[1] for row in await cursor.fetchall()}
         if "author_sec_uid" not in existing_columns:
             await db.execute("ALTER TABLE aweme ADD COLUMN author_sec_uid TEXT")
+
+        # Incremental migration: add retry_history column to legacy job
+        # tables so pre-existing DB files (created before retry-history
+        # persistence landed) continue to work. NULL for old rows; the
+        # restore path maps NULL -> [] so the renderer gracefully shows
+        # no history for those jobs.
+        cursor = await db.execute("PRAGMA table_info(job)")
+        existing_job_columns = {row[1] for row in await cursor.fetchall()}
+        if "retry_history" not in existing_job_columns:
+            await db.execute("ALTER TABLE job ADD COLUMN retry_history TEXT")
 
         await db.commit()
         self._initialized = True
@@ -489,6 +500,7 @@ class Database:
             self._conn_lock = asyncio.Lock()
 
         last_retry_summary = job_dict.get("last_retry_summary")
+        retry_history = job_dict.get("retry_history")
         overrides = job_dict.get("overrides")
         params = (
             job_dict.get("job_id"),
@@ -507,6 +519,7 @@ class Database:
             int(job_dict.get("retry_count") or 0),
             job_dict.get("last_retry_at"),
             json.dumps(last_retry_summary) if last_retry_summary else None,
+            json.dumps(retry_history) if retry_history else None,
             json.dumps(overrides) if overrides else None,
         )
         async with self._conn_lock:
@@ -516,8 +529,9 @@ class Database:
                     job_id, url, status, created_at, started_at, finished_at,
                     total, success, failed, skipped, error,
                     author_nickname, author_sec_uid,
-                    retry_count, last_retry_at, last_retry_summary, overrides
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    retry_count, last_retry_at, last_retry_summary,
+                    retry_history, overrides
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 params,
             )
@@ -571,7 +585,7 @@ class Database:
             "SELECT job_id, url, status, created_at, started_at, finished_at, "
             "total, success, failed, skipped, error, author_nickname, "
             "author_sec_uid, retry_count, last_retry_at, last_retry_summary, "
-            "overrides FROM job "
+            "retry_history, overrides FROM job "
             "WHERE status IN ('success', 'failed', 'cancelled') "
             "ORDER BY created_at DESC"
         )
@@ -585,11 +599,18 @@ class Database:
         result: List[Dict[str, Any]] = []
         for row in rows:
             summary_raw = row[15]
-            overrides_raw = row[16]
+            history_raw = row[16]
+            overrides_raw = row[17]
             try:
                 summary = json.loads(summary_raw) if summary_raw else None
             except (TypeError, ValueError):
                 summary = None
+            try:
+                history = json.loads(history_raw) if history_raw else []
+                if not isinstance(history, list):
+                    history = []
+            except (TypeError, ValueError):
+                history = []
             try:
                 overrides = json.loads(overrides_raw) if overrides_raw else None
             except (TypeError, ValueError):
@@ -611,6 +632,7 @@ class Database:
                 "retry_count": row[13] or 0,
                 "last_retry_at": row[14],
                 "last_retry_summary": summary,
+                "retry_history": history,
                 "overrides": overrides,
             })
         return result
