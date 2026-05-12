@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -80,11 +81,39 @@ class Database:
             )
         ''')
 
+        # `job` persists the task-center JobManager records so they survive
+        # a sidecar restart. Only terminal jobs (success / failed / cancelled)
+        # are ever written here — see server/jobs.py. `last_retry_summary`
+        # and `overrides` are stored as JSON text.
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS job (
+                job_id              TEXT PRIMARY KEY,
+                url                 TEXT NOT NULL,
+                status              TEXT NOT NULL,
+                created_at          TEXT NOT NULL,
+                started_at          TEXT,
+                finished_at         TEXT,
+                total               INTEGER NOT NULL DEFAULT 0,
+                success             INTEGER NOT NULL DEFAULT 0,
+                failed              INTEGER NOT NULL DEFAULT 0,
+                skipped             INTEGER NOT NULL DEFAULT 0,
+                error               TEXT,
+                author_nickname     TEXT,
+                author_sec_uid      TEXT,
+                retry_count         INTEGER NOT NULL DEFAULT 0,
+                last_retry_at       TEXT,
+                last_retry_summary  TEXT,
+                overrides           TEXT
+            )
+        ''')
+
         await db.execute('CREATE INDEX IF NOT EXISTS idx_aweme_id ON aweme(aweme_id)')
         await db.execute('CREATE INDEX IF NOT EXISTS idx_author_id ON aweme(author_id)')
         await db.execute('CREATE INDEX IF NOT EXISTS idx_download_time ON aweme(download_time)')
         await db.execute('CREATE INDEX IF NOT EXISTS idx_transcript_aweme_id ON transcript_job(aweme_id)')
         await db.execute('CREATE INDEX IF NOT EXISTS idx_transcript_status ON transcript_job(status)')
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_job_created_at ON job(created_at)')
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_job_status ON job(status)')
 
         # Incremental migration: add author_sec_uid column to legacy aweme tables.
         # Running initialize() twice must be a no-op.
@@ -440,6 +469,151 @@ class Database:
             await db.execute("DELETE FROM aweme")
             await db.execute("DELETE FROM download_history")
             await db.commit()
+
+    # ------------------------------------------------------------------
+    # Task-center job persistence (see server/jobs.py)
+    # ------------------------------------------------------------------
+
+    async def upsert_job(self, job_dict: Dict[str, Any]) -> None:
+        """Insert or replace a task-center job record.
+
+        Accepts the dict produced by :py:meth:`server.jobs.DownloadJob.to_dict`
+        plus an optional ``overrides`` key (the JobManager stores overrides
+        separately on the in-memory job but we persist them too so future
+        retries/re-runs can inherit them). Unknown keys are ignored — any
+        renderer-only computed fields (``url_type``, ``duration_ms`` etc.)
+        are recomputed from raw columns on read.
+        """
+        db = await self._get_conn()
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+
+        last_retry_summary = job_dict.get("last_retry_summary")
+        overrides = job_dict.get("overrides")
+        params = (
+            job_dict.get("job_id"),
+            job_dict.get("url") or "",
+            job_dict.get("status") or "",
+            job_dict.get("created_at") or "",
+            job_dict.get("started_at"),
+            job_dict.get("finished_at"),
+            int(job_dict.get("total") or 0),
+            int(job_dict.get("success") or 0),
+            int(job_dict.get("failed") or 0),
+            int(job_dict.get("skipped") or 0),
+            job_dict.get("error"),
+            job_dict.get("author_nickname"),
+            job_dict.get("author_sec_uid"),
+            int(job_dict.get("retry_count") or 0),
+            job_dict.get("last_retry_at"),
+            json.dumps(last_retry_summary) if last_retry_summary else None,
+            json.dumps(overrides) if overrides else None,
+        )
+        async with self._conn_lock:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO job (
+                    job_id, url, status, created_at, started_at, finished_at,
+                    total, success, failed, skipped, error,
+                    author_nickname, author_sec_uid,
+                    retry_count, last_retry_at, last_retry_summary, overrides
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                params,
+            )
+            await db.commit()
+
+    async def delete_jobs(self, job_ids: List[str]) -> int:
+        """Delete job rows by id. Returns the number of rows deleted."""
+        if not job_ids:
+            return 0
+        seen: Dict[str, None] = {}
+        for jid in job_ids:
+            if jid and jid not in seen:
+                seen[jid] = None
+        unique_ids = list(seen.keys())
+        if not unique_ids:
+            return 0
+
+        db = await self._get_conn()
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+        deleted = 0
+        chunk_size = 500
+        async with self._conn_lock:
+            for start in range(0, len(unique_ids), chunk_size):
+                chunk = unique_ids[start : start + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor = await db.execute(
+                    f"DELETE FROM job WHERE job_id IN ({placeholders})",
+                    chunk,
+                )
+                if cursor.rowcount is not None and cursor.rowcount > 0:
+                    deleted += cursor.rowcount
+            await db.commit()
+        return deleted
+
+    async def load_terminal_jobs(
+        self, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Load persisted terminal jobs ordered by created_at DESC.
+
+        Only rows whose ``status`` is a terminal value (success / failed /
+        cancelled) are returned. Running/pending rows shouldn't exist on
+        disk — see server/jobs.py — but we filter defensively in case an
+        older build left stale rows.
+        """
+        db = await self._get_conn()
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+
+        sql = (
+            "SELECT job_id, url, status, created_at, started_at, finished_at, "
+            "total, success, failed, skipped, error, author_nickname, "
+            "author_sec_uid, retry_count, last_retry_at, last_retry_summary, "
+            "overrides FROM job "
+            "WHERE status IN ('success', 'failed', 'cancelled') "
+            "ORDER BY created_at DESC"
+        )
+        if limit is not None and limit > 0:
+            sql += f" LIMIT {int(limit)}"
+
+        async with self._conn_lock:
+            cursor = await db.execute(sql)
+            rows = await cursor.fetchall()
+
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            summary_raw = row[15]
+            overrides_raw = row[16]
+            try:
+                summary = json.loads(summary_raw) if summary_raw else None
+            except (TypeError, ValueError):
+                summary = None
+            try:
+                overrides = json.loads(overrides_raw) if overrides_raw else None
+            except (TypeError, ValueError):
+                overrides = None
+            result.append({
+                "job_id": row[0],
+                "url": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "started_at": row[4],
+                "finished_at": row[5],
+                "total": row[6] or 0,
+                "success": row[7] or 0,
+                "failed": row[8] or 0,
+                "skipped": row[9] or 0,
+                "error": row[10],
+                "author_nickname": row[11],
+                "author_sec_uid": row[12],
+                "retry_count": row[13] or 0,
+                "last_retry_at": row[14],
+                "last_retry_summary": summary,
+                "overrides": overrides,
+            })
+        return result
 
     async def close(self):
         if self._conn is not None:
