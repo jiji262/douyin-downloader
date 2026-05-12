@@ -1,11 +1,12 @@
 import json
-import os
 import logging
+import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+
 from utils.cookie_utils import parse_cookie_header, sanitize_cookies
 
 from .default_config import DEFAULT_CONFIG

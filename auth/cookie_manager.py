@@ -2,7 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from utils.cookie_utils import sanitize_cookies
 from utils.logger import setup_logger

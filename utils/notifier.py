@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import aiohttp

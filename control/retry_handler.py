@@ -1,5 +1,6 @@
 import asyncio
-from typing import Callable, Any, TypeVar
+from typing import Callable, TypeVar
+
 from utils.logger import setup_logger
 
 logger = setup_logger('RetryHandler')
