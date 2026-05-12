@@ -131,13 +131,9 @@ async def retry_failed_awemes(
         cookies = cookie_manager.get_cookies()
         async with DouyinAPIClient(cookies) as api_client:
             if is_short_url(url):
-                resolved = await api_client.resolve_short_url(
-                    normalize_short_url(url)
-                )
+                resolved = await api_client.resolve_short_url(normalize_short_url(url))
                 if not resolved:
-                    raise RuntimeError(
-                        f"Failed to resolve short URL during retry: {url}"
-                    )
+                    raise RuntimeError(f"Failed to resolve short URL during retry: {url}")
                 url = resolved
 
             parsed = URLParser.parse(url)
@@ -160,9 +156,7 @@ async def retry_failed_awemes(
                 progress_reporter=reporter,
             )
             if downloader is None:
-                raise RuntimeError(
-                    f"No downloader available for retry (url_type={factory_type})"
-                )
+                raise RuntimeError(f"No downloader available for retry (url_type={factory_type})")
 
             if reporter is not None:
                 try:
@@ -225,17 +219,11 @@ async def retry_failed_awemes(
                     continue
 
                 author = aweme_data.get("author") or {}
-                author_name = (
-                    author.get("nickname")
-                    or hint_nickname
-                    or "unknown"
-                )
+                author_name = author.get("nickname") or hint_nickname or "unknown"
 
                 ok = False
                 try:
-                    ok = await downloader._download_aweme_assets(
-                        aweme_data, author_name, mode=mode
-                    )
+                    ok = await downloader._download_aweme_assets(aweme_data, author_name, mode=mode)
                 except Exception as exc:  # pragma: no cover — defensive
                     logger.warning(
                         "Retry of aweme %s raised %s: %s",

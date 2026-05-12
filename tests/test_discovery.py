@@ -26,12 +26,8 @@ class _FakeAPIClient:
             "max_cursor": 0,
         }
 
-    async def search_aweme(
-        self, keyword, *, offset, count, sort_type=0, publish_time=0
-    ):
-        self.search_calls.append(
-            {"keyword": keyword, "offset": offset, "count": count}
-        )
+    async def search_aweme(self, keyword, *, offset, count, sort_type=0, publish_time=0):
+        self.search_calls.append({"keyword": keyword, "offset": offset, "count": count})
         if not self._search_pages:
             return {"items": [], "has_more": False, "max_cursor": offset}
         return self._search_pages.pop(0)
@@ -53,9 +49,7 @@ async def test_dump_hot_board_writes_jsonl(tmp_path):
 
 @pytest.mark.asyncio
 async def test_dump_hot_board_respects_limit(tmp_path):
-    api = _FakeAPIClient(
-        hot_items=[{"word": f"w{i}"} for i in range(20)]
-    )
+    api = _FakeAPIClient(hot_items=[{"word": f"w{i}"} for i in range(20)])
     result = await dump_hot_board(api, tmp_path, limit=5)
     assert result["count"] == 5
 
@@ -86,7 +80,11 @@ async def test_search_respects_max_items(tmp_path):
     api = _FakeAPIClient(
         search_pages=[
             {"items": [{"aweme_id": str(i)} for i in range(5)], "has_more": True, "max_cursor": 5},
-            {"items": [{"aweme_id": str(i)} for i in range(5, 10)], "has_more": False, "max_cursor": 10},
+            {
+                "items": [{"aweme_id": str(i)} for i in range(5, 10)],
+                "has_more": False,
+                "max_cursor": 10,
+            },
         ]
     )
     result = await search_and_dump(api, "cat", tmp_path, max_items=3, page_size=5)

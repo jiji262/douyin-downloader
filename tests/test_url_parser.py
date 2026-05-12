@@ -6,8 +6,8 @@ def test_parse_video_url():
     parsed = URLParser.parse(url)
 
     assert parsed is not None
-    assert parsed['type'] == 'video'
-    assert parsed['aweme_id'] == '7320876060210373923'
+    assert parsed["type"] == "video"
+    assert parsed["aweme_id"] == "7320876060210373923"
 
 
 def test_parse_gallery_url_sets_aweme_id():
@@ -15,9 +15,9 @@ def test_parse_gallery_url_sets_aweme_id():
     parsed = URLParser.parse(url)
 
     assert parsed is not None
-    assert parsed['type'] == 'gallery'
-    assert parsed['aweme_id'] == '7320876060210373923'
-    assert parsed['note_id'] == '7320876060210373923'
+    assert parsed["type"] == "gallery"
+    assert parsed["aweme_id"] == "7320876060210373923"
+    assert parsed["note_id"] == "7320876060210373923"
 
 
 def test_parse_gallery_path_url_sets_aweme_id():

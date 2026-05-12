@@ -63,7 +63,9 @@ _token_strategy = st.text(min_size=8, max_size=200)
 # measures what it's supposed to — an actual leak of the middle token bytes
 # — instead of an accidental substring match against the URL structure.
 _webhook_token_strategy = st.text(
-    alphabet="0123456789abcdef", min_size=16, max_size=200,
+    alphabet="0123456789abcdef",
+    min_size=16,
+    max_size=200,
 )
 
 # Safe alphabet for query param names + URL paths/hosts so that a generated
@@ -102,19 +104,13 @@ def test_mask_credential_never_leaks_middle(value: str) -> None:
     # middle='0' trivially appears in preserved='00000000'; case (b) covers
     # middles consisting only of '*' characters (e.g. value='0000*0000')
     # which are indistinguishable from the sentinel the masker emits.
-    middle_in_preserved = (
-        len(middle) > 0 and (
-            middle in value[:4] or middle in value[-4:]
-        )
-    )
+    middle_in_preserved = len(middle) > 0 and (middle in value[:4] or middle in value[-4:])
     middle_in_sentinel = len(middle) > 0 and middle in _MASK_SENTINEL
     if len(middle) > 0 and not middle_in_preserved and not middle_in_sentinel:
         # The whole middle portion must be gone. Note: a *prefix* or *suffix*
         # of the middle can legally still appear if it happens to match the
         # first/last 4 preserved characters, but the full span cannot.
-        assert middle not in out, (
-            f"Middle portion {middle!r} leaked into masked output {out!r}"
-        )
+        assert middle not in out, f"Middle portion {middle!r} leaked into masked output {out!r}"
 
     # No pathological expansion: ``first4 + '***' + last4`` is 11 chars; we
     # allow some slack but refuse the redactor growing unboundedly.
@@ -156,10 +152,8 @@ def test_masked_config_bark_device_key_never_leaks(device_key: str) -> None:
     # Skip when the middle is unavoidably present in either the preserved
     # 4+4 edges or the mask sentinel itself (see `_MASK_SENTINEL` comment
     # at top of file for rationale).
-    middle_in_preserved = (
-        len(middle) > 0 and (
-            middle in device_key[:4] or middle in device_key[-4:]
-        )
+    middle_in_preserved = len(middle) > 0 and (
+        middle in device_key[:4] or middle in device_key[-4:]
     )
     middle_in_sentinel = len(middle) > 0 and middle in _MASK_SENTINEL
     if len(middle) > 0 and not middle_in_preserved and not middle_in_sentinel:
@@ -168,8 +162,7 @@ def test_masked_config_bark_device_key_never_leaks(device_key: str) -> None:
         # coincidentally contain the middle character and defeat the
         # assertion without representing a credential leak.
         assert middle not in masked["device_key"], (
-            f"device_key middle {middle!r} leaked into "
-            f"masked field {masked['device_key']!r}"
+            f"device_key middle {middle!r} leaked into masked field {masked['device_key']!r}"
         )
     # Sanity: the serialized JSON exists and contains the mask marker.
     assert "***" in serialized
@@ -208,17 +201,12 @@ def test_masked_config_telegram_bot_token_never_leaks(bot_token: str) -> None:
     # Skip when the middle is unavoidably present in either the preserved
     # 4+4 edges or the mask sentinel itself (see `_MASK_SENTINEL` comment
     # at top of file for rationale).
-    middle_in_preserved = (
-        len(middle) > 0 and (
-            middle in bot_token[:4] or middle in bot_token[-4:]
-        )
-    )
+    middle_in_preserved = len(middle) > 0 and (middle in bot_token[:4] or middle in bot_token[-4:])
     middle_in_sentinel = len(middle) > 0 and middle in _MASK_SENTINEL
     if len(middle) > 0 and not middle_in_preserved and not middle_in_sentinel:
         # Check masked field value only — see bark test for rationale.
         assert middle not in masked["bot_token"], (
-            f"bot_token middle {middle!r} leaked into "
-            f"masked field {masked['bot_token']!r}"
+            f"bot_token middle {middle!r} leaked into masked field {masked['bot_token']!r}"
         )
 
     assert "***" in masked["bot_token"]
@@ -260,11 +248,7 @@ def test_masked_config_webhook_url_query_never_leaks(
 
     middle = token[4:-4]
     # Same repetitive-middle caveat as the bark / telegram tests above.
-    middle_in_preserved = (
-        len(middle) > 0 and (
-            middle in token[:4] or middle in token[-4:]
-        )
-    )
+    middle_in_preserved = len(middle) > 0 and (middle in token[:4] or middle in token[-4:])
     if len(middle) > 0 and not middle_in_preserved:
         assert middle not in masked["url"], (
             f"token middle {middle!r} leaked into masked URL {masked['url']!r}"

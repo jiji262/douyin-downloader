@@ -1,7 +1,5 @@
 import asyncio
 
-import pytest
-
 from config import ConfigLoader
 from core.transcript_manager import TranscriptManager
 from storage import FileManager
@@ -20,10 +18,7 @@ def test_transcript_default_disabled():
     transcript_cfg = loader.get("transcript", {})
 
     assert transcript_cfg.get("enabled") is False
-    assert (
-        transcript_cfg.get("api_url")
-        == "https://api.openai.com/v1/audio/transcriptions"
-    )
+    assert transcript_cfg.get("api_url") == "https://api.openai.com/v1/audio/transcriptions"
 
 
 def test_transcript_skip_when_missing_api_key(tmp_path):

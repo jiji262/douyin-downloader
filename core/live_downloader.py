@@ -79,9 +79,7 @@ class LiveDownloader(BaseDownloader):
         status = room.get("status")
         if status is not None and int(status or 0) != 2:
             # 2 = 正在直播；其他状态不录
-            logger.warning(
-                "Room %s not live (status=%s); skipping", room_id, status
-            )
+            logger.warning("Room %s not live (status=%s); skipping", room_id, status)
             result.skipped += 1
             self._progress_advance_item("skipped", str(room_id))
             return result
@@ -151,9 +149,7 @@ class LiveDownloader(BaseDownloader):
         cfg = self.config.get("live") or {}
         return cfg if isinstance(cfg, dict) else {}
 
-    def _plan_output_paths(
-        self, author_name: str, title: str, room_id: str
-    ) -> Tuple[Path, str]:
+    def _plan_output_paths(self, author_name: str, title: str, room_id: str) -> Tuple[Path, str]:
         started_at = datetime.now()
         date = started_at.strftime("%Y-%m-%d_%H%M")
         template_context = build_live_context(
@@ -162,12 +158,8 @@ class LiveDownloader(BaseDownloader):
             author_name=author_name,
             started_at=started_at,
         )
-        filename_template = (
-            self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
-        )
-        folder_template = (
-            self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
-        )
+        filename_template = self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
+        folder_template = self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
         file_stem = render_template(
             filename_template,
             template_context,
@@ -285,9 +277,7 @@ class LiveDownloader(BaseDownloader):
                 timeout=aiohttp.ClientTimeout(total=None, sock_read=idle_timeout),
             ) as resp:
                 if resp.status != 200:
-                    logger.error(
-                        "Live stream HTTP %s for %s", resp.status, target_path.name
-                    )
+                    logger.error("Live stream HTTP %s for %s", resp.status, target_path.name)
                     return False
                 async with aiofiles.open(tmp_path, "wb") as f:
                     async for chunk in resp.content.iter_chunked(chunk_size):
@@ -314,9 +304,7 @@ class LiveDownloader(BaseDownloader):
             return _promote_if_nonempty("payload ended")
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as exc:
             # sock_read 空闲超时——多数情况是主播停止推流，保留已录数据
-            logger.info(
-                "Live stream idle timeout after %ss: %s", idle_timeout, exc
-            )
+            logger.info("Live stream idle timeout after %ss: %s", idle_timeout, exc)
             return _promote_if_nonempty("idle timeout")
         except Exception as exc:
             logger.error("Live stream recording failed: %s", exc)

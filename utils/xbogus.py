@@ -56,10 +56,7 @@ class XBogus:
         array: List[int] = []
         idx = 0
         while idx < len(md5_str):
-            array.append(
-                (self._array[ord(md5_str[idx])] << 4)
-                | self._array[ord(md5_str[idx + 1])]
-            )
+            array.append((self._array[ord(md5_str[idx])] << 4) | self._array[ord(md5_str[idx + 1])])
             idx += 2
         return array
 
@@ -77,7 +74,26 @@ class XBogus:
         return self._md5_str_to_array(hashed)
 
     def _encoding_conversion(
-        self, a, b, c, e, d, t, f, r, n, o, i, _, x, u, s, l, v, h, p
+        self,
+        a,
+        b,
+        c,
+        e,
+        d,
+        t,
+        f,
+        r,
+        n,
+        o,
+        i,
+        _,
+        x,
+        u,
+        s,
+        l,  # noqa: E741 — single-letter params mirror the upstream JS xbogus impl
+        v,
+        h,
+        p,
     ) -> str:
         payload = [a]
         payload.append(int(i))
@@ -119,9 +135,7 @@ class XBogus:
         ua_md5_array = self._md5_str_to_array(
             self._md5(
                 base64.b64encode(
-                    self._rc4_encrypt(
-                        self._ua_key, self._user_agent.encode("ISO-8859-1")
-                    )
+                    self._rc4_encrypt(self._ua_key, self._user_agent.encode("ISO-8859-1"))
                 ).decode("ISO-8859-1")
             )
         )

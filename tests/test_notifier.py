@@ -34,9 +34,7 @@ class _FakeSession:
         return _FakeResponse(self.status)
 
     def post(self, url, json=None, headers=None):
-        self.calls.append(
-            {"method": "POST", "url": url, "json": json, "headers": headers}
-        )
+        self.calls.append({"method": "POST", "url": url, "json": json, "headers": headers})
         return _FakeResponse(self.status)
 
 

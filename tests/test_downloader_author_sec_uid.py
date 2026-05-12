@@ -117,9 +117,7 @@ async def _fetch_db_row(db: Database, aweme_id: str) -> Optional[Dict[str, Any]]
     return {"aweme_id": row[0], "author_id": row[1], "author_sec_uid": row[2]}
 
 
-async def test_video_downloader_persists_author_sec_uid_when_present(
-    tmp_path, monkeypatch
-):
+async def test_video_downloader_persists_author_sec_uid_when_present(tmp_path, monkeypatch):
     db = Database(db_path=str(tmp_path / "test.db"))
     await db.initialize()
     try:
@@ -166,9 +164,7 @@ async def test_video_downloader_persists_author_sec_uid_when_present(
         await db.close()
 
 
-async def test_video_downloader_persists_null_when_sec_uid_missing(
-    tmp_path, monkeypatch
-):
+async def test_video_downloader_persists_null_when_sec_uid_missing(tmp_path, monkeypatch):
     db = Database(db_path=str(tmp_path / "test.db"))
     await db.initialize()
     try:
@@ -210,9 +206,7 @@ async def test_video_downloader_persists_null_when_sec_uid_missing(
         await db.close()
 
 
-async def test_video_downloader_persists_null_when_author_absent(
-    tmp_path, monkeypatch
-):
+async def test_video_downloader_persists_null_when_author_absent(tmp_path, monkeypatch):
     """Entirely missing `author` object ⇒ NULL (not an exception)."""
     db = Database(db_path=str(tmp_path / "test.db"))
     await db.initialize()
@@ -288,9 +282,7 @@ def _build_music_downloader(
     )
 
 
-async def test_music_downloader_persists_author_sec_uid_when_present(
-    tmp_path, monkeypatch
-):
+async def test_music_downloader_persists_author_sec_uid_when_present(tmp_path, monkeypatch):
     db = Database(db_path=str(tmp_path / "test.db"))
     await db.initialize()
     try:
@@ -322,9 +314,7 @@ async def test_music_downloader_persists_author_sec_uid_when_present(
         await db.close()
 
 
-async def test_music_downloader_persists_null_when_sec_uid_missing(
-    tmp_path, monkeypatch
-):
+async def test_music_downloader_persists_null_when_sec_uid_missing(tmp_path, monkeypatch):
     db = Database(db_path=str(tmp_path / "test.db"))
     await db.initialize()
     try:

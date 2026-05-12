@@ -52,9 +52,7 @@ class TranscriptManager:
 
     def _api_url(self) -> str:
         api_url = str(
-            self._cfg().get(
-                "api_url", "https://api.openai.com/v1/audio/transcriptions"
-            )
+            self._cfg().get("api_url", "https://api.openai.com/v1/audio/transcriptions")
         ).strip()
         return api_url or "https://api.openai.com/v1/audio/transcriptions"
 
@@ -67,9 +65,7 @@ class TranscriptManager:
 
         output_root = Path(output_dir)
         try:
-            relative_dir = video_dir.resolve().relative_to(
-                self.file_manager.base_path.resolve()
-            )
+            relative_dir = video_dir.resolve().relative_to(self.file_manager.base_path.resolve())
             return output_root / relative_dir
         except Exception:
             logger.warning(
@@ -110,9 +106,7 @@ class TranscriptManager:
                 skip_reason="missing_api_key",
                 error_message=None,
             )
-            logger.warning(
-                "Transcript skipped for aweme %s: missing_api_key", aweme_id
-            )
+            logger.warning("Transcript skipped for aweme %s: missing_api_key", aweme_id)
             return {"status": "skipped", "reason": "missing_api_key"}
 
         try:
@@ -121,7 +115,8 @@ class TranscriptManager:
                 video_path=video_path,
                 model=model,
             )
-            text = str(payload.get("text", "")).strip()
+            # `_write_outputs` re-derives the text from `payload` — no
+            # need to pre-extract it here.
             await self._write_outputs(payload, text_path, json_path)
             await self._record_job(
                 aweme_id=aweme_id,

@@ -46,9 +46,7 @@ class UserDownloader(BaseDownloader):
             # {total:0,success:0,failed:0} made JobManager mark it as
             # `success`, which rendered as "已完成 0 项" — a silent failure
             # that's indistinguishable from "nothing happened" in the UI.
-            raise RuntimeError(
-                "获取用户信息失败，请检查 Cookie 是否有效或重新登录抖音"
-            )
+            raise RuntimeError("获取用户信息失败，请检查 Cookie 是否有效或重新登录抖音")
 
         # Cache author metadata on the hosting job so retry doesn't have
         # to re-fetch user_info, and so JobRow can display the nickname.
@@ -88,9 +86,7 @@ class UserDownloader(BaseDownloader):
             )
             return False
         if has_collect_mode and has_regular_mode:
-            logger.error(
-                "Modes collect/collectmix cannot be combined with post/like/mix/music"
-            )
+            logger.error("Modes collect/collectmix cannot be combined with post/like/mix/music")
             return False
         return True
 
@@ -115,9 +111,7 @@ class UserDownloader(BaseDownloader):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
 
-    async def _resolve_user_info(
-        self, sec_uid: str, modes: List[str]
-    ) -> Optional[Dict[str, Any]]:
+    async def _resolve_user_info(self, sec_uid: str, modes: List[str]) -> Optional[Dict[str, Any]]:
         normalized_modes = {str(mode or "").strip() for mode in modes}
         if sec_uid == "self" and normalized_modes.issubset(self.SELF_COLLECT_MODES):
             self._progress_update_step("获取作者信息", "使用当前登录账号收藏夹上下文")
@@ -190,9 +184,7 @@ class UserDownloader(BaseDownloader):
                 "aweme_id": aweme_id,
             }
 
-        download_results = await self.queue_manager.download_batch(
-            _process_aweme, deduped_items
-        )
+        download_results = await self.queue_manager.download_batch(_process_aweme, deduped_items)
 
         if db_batch:
             await self.database.add_aweme_batch(db_batch)
@@ -212,9 +204,7 @@ class UserDownloader(BaseDownloader):
         return result
 
     # 向后兼容：旧测试仍直接调用 post 下载入口。
-    async def _download_user_post(
-        self, sec_uid: str, user_info: Dict[str, Any]
-    ) -> DownloadResult:
+    async def _download_user_post(self, sec_uid: str, user_info: Dict[str, Any]) -> DownloadResult:
         strategy = self._get_mode_strategy("post")
         if strategy is None:
             return DownloadResult()
@@ -244,9 +234,7 @@ class UserDownloader(BaseDownloader):
                 headless=bool(browser_cfg.get("headless", False)),
                 max_scrolls=int(browser_cfg.get("max_scrolls", 240) or 240),
                 idle_rounds=int(browser_cfg.get("idle_rounds", 8) or 8),
-                wait_timeout_seconds=int(
-                    browser_cfg.get("wait_timeout_seconds", 600) or 600
-                ),
+                wait_timeout_seconds=int(browser_cfg.get("wait_timeout_seconds", 600) or 600),
             )
         except Exception as exc:
             logger.error("Browser fallback failed: %s", exc)
@@ -256,9 +244,7 @@ class UserDownloader(BaseDownloader):
         browser_post_stats: Dict[str, int] = {}
         if hasattr(self.api_client, "pop_browser_post_aweme_items"):
             try:
-                browser_aweme_items = (
-                    self.api_client.pop_browser_post_aweme_items() or {}
-                )
+                browser_aweme_items = self.api_client.pop_browser_post_aweme_items() or {}
             except Exception as exc:
                 logger.debug("Fetch browser post items skipped: %s", exc)
         if hasattr(self.api_client, "pop_browser_post_stats"):
@@ -271,12 +257,8 @@ class UserDownloader(BaseDownloader):
             logger.warning("Browser fallback returned no aweme_id")
             return
 
-        existing_ids = {
-            str(item.get("aweme_id")) for item in aweme_list if item.get("aweme_id")
-        }
-        missing_ids = [
-            aweme_id for aweme_id in browser_aweme_ids if aweme_id not in existing_ids
-        ]
+        existing_ids = {str(item.get("aweme_id")) for item in aweme_list if item.get("aweme_id")}
+        missing_ids = [aweme_id for aweme_id in browser_aweme_ids if aweme_id not in existing_ids]
         if not missing_ids:
             return
 
@@ -293,16 +275,12 @@ class UserDownloader(BaseDownloader):
                 break
 
             if index == 1 or index == total_missing or index % 5 == 0:
-                self._progress_update_step(
-                    "浏览器回补", f"补全详情 {index}/{total_missing}"
-                )
+                self._progress_update_step("浏览器回补", f"补全详情 {index}/{total_missing}")
 
             detail = browser_aweme_items.get(str(aweme_id))
             if not detail:
                 await self.rate_limiter.acquire()
-                detail = await self.api_client.get_video_detail(
-                    aweme_id, suppress_error=True
-                )
+                detail = await self.api_client.get_video_detail(aweme_id, suppress_error=True)
                 if detail:
                     detail_success += 1
             else:

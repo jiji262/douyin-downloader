@@ -7,7 +7,7 @@ import aiosqlite
 
 
 class Database:
-    def __init__(self, db_path: str = 'dy_downloader.db'):
+    def __init__(self, db_path: str = "dy_downloader.db"):
         self.db_path = db_path
         self._initialized = False
         self._conn: Optional[aiosqlite.Connection] = None
@@ -36,7 +36,7 @@ class Database:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA synchronous=NORMAL")
 
-        await db.execute('''
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS aweme (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 aweme_id TEXT UNIQUE NOT NULL,
@@ -49,9 +49,9 @@ class Database:
                 file_path TEXT,
                 metadata TEXT
             )
-        ''')
+        """)
 
-        await db.execute('''
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS download_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL,
@@ -61,9 +61,9 @@ class Database:
                 success_count INTEGER,
                 config TEXT
             )
-        ''')
+        """)
 
-        await db.execute('''
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS transcript_job (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 aweme_id TEXT NOT NULL,
@@ -79,13 +79,13 @@ class Database:
                 updated_at INTEGER,
                 UNIQUE(aweme_id, video_path, model)
             )
-        ''')
+        """)
 
         # `job` persists the task-center JobManager records so they survive
         # a sidecar restart. Only terminal jobs (success / failed / cancelled)
         # are ever written here — see server/jobs.py. `last_retry_summary`
         # and `overrides` are stored as JSON text.
-        await db.execute('''
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS job (
                 job_id              TEXT PRIMARY KEY,
                 url                 TEXT NOT NULL,
@@ -106,15 +106,19 @@ class Database:
                 retry_history       TEXT,
                 overrides           TEXT
             )
-        ''')
+        """)
 
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_aweme_id ON aweme(aweme_id)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_author_id ON aweme(author_id)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_download_time ON aweme(download_time)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_transcript_aweme_id ON transcript_job(aweme_id)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_transcript_status ON transcript_job(status)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_job_created_at ON job(created_at)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_job_status ON job(status)')
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_aweme_id ON aweme(aweme_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_author_id ON aweme(author_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_download_time ON aweme(download_time)")
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcript_aweme_id ON transcript_job(aweme_id)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transcript_status ON transcript_job(status)"
+        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_created_at ON job(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_status ON job(status)")
 
         # Incremental migration: add author_sec_uid column to legacy aweme tables.
         # Running initialize() twice must be a no-op.
@@ -138,10 +142,7 @@ class Database:
 
     async def is_downloaded(self, aweme_id: str) -> bool:
         db = await self._get_conn()
-        cursor = await db.execute(
-            'SELECT id FROM aweme WHERE aweme_id = ?',
-            (aweme_id,)
-        )
+        cursor = await db.execute("SELECT id FROM aweme WHERE aweme_id = ?", (aweme_id,))
         result = await cursor.fetchone()
         return result is not None
 
@@ -154,28 +155,27 @@ class Database:
         db = await self._get_conn()
         # Prefer the explicit kwarg; fall back to a key on the payload so existing
         # callers (tests, legacy downloaders) keep working.
-        sec_uid = (
-            author_sec_uid
-            if author_sec_uid is not None
-            else aweme_data.get("author_sec_uid")
-        )
-        await db.execute('''
+        sec_uid = author_sec_uid if author_sec_uid is not None else aweme_data.get("author_sec_uid")
+        await db.execute(
+            """
             INSERT OR REPLACE INTO aweme
             (aweme_id, aweme_type, title, author_id, author_name, author_sec_uid,
              create_time, download_time, file_path, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            aweme_data.get('aweme_id'),
-            aweme_data.get('aweme_type'),
-            aweme_data.get('title'),
-            aweme_data.get('author_id'),
-            aweme_data.get('author_name'),
-            sec_uid,
-            aweme_data.get('create_time'),
-            int(datetime.now().timestamp()),
-            aweme_data.get('file_path'),
-            aweme_data.get('metadata'),
-        ))
+        """,
+            (
+                aweme_data.get("aweme_id"),
+                aweme_data.get("aweme_type"),
+                aweme_data.get("title"),
+                aweme_data.get("author_id"),
+                aweme_data.get("author_name"),
+                sec_uid,
+                aweme_data.get("create_time"),
+                int(datetime.now().timestamp()),
+                aweme_data.get("file_path"),
+                aweme_data.get("metadata"),
+            ),
+        )
         await db.commit()
 
     async def add_aweme_batch(self, items: List[Dict[str, Any]]) -> None:
@@ -186,50 +186,55 @@ class Database:
         now_ts = int(datetime.now().timestamp())
         rows = [
             (
-                item.get('aweme_id'),
-                item.get('aweme_type'),
-                item.get('title'),
-                item.get('author_id'),
-                item.get('author_name'),
-                item.get('author_sec_uid'),
-                item.get('create_time'),
+                item.get("aweme_id"),
+                item.get("aweme_type"),
+                item.get("title"),
+                item.get("author_id"),
+                item.get("author_name"),
+                item.get("author_sec_uid"),
+                item.get("create_time"),
                 now_ts,
-                item.get('file_path'),
-                item.get('metadata'),
+                item.get("file_path"),
+                item.get("metadata"),
             )
             for item in items
         ]
-        await db.executemany('''
+        await db.executemany(
+            """
             INSERT OR REPLACE INTO aweme
             (aweme_id, aweme_type, title, author_id, author_name, author_sec_uid,
              create_time, download_time, file_path, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', rows)
+        """,
+            rows,
+        )
         await db.commit()
 
     async def get_latest_aweme_time(self, author_id: str) -> Optional[int]:
         db = await self._get_conn()
         cursor = await db.execute(
-            'SELECT MAX(create_time) FROM aweme WHERE author_id = ?',
-            (author_id,)
+            "SELECT MAX(create_time) FROM aweme WHERE author_id = ?", (author_id,)
         )
         result = await cursor.fetchone()
         return result[0] if result and result[0] else None
 
     async def add_history(self, history_data: Dict[str, Any]):
         db = await self._get_conn()
-        await db.execute('''
+        await db.execute(
+            """
             INSERT INTO download_history
             (url, url_type, download_time, total_count, success_count, config)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            history_data.get('url'),
-            history_data.get('url_type'),
-            int(datetime.now().timestamp()),
-            history_data.get('total_count'),
-            history_data.get('success_count'),
-            history_data.get('config'),
-        ))
+        """,
+            (
+                history_data.get("url"),
+                history_data.get("url_type"),
+                int(datetime.now().timestamp()),
+                history_data.get("total_count"),
+                history_data.get("success_count"),
+                history_data.get("config"),
+            ),
+        )
         await db.commit()
 
     async def get_aweme_history(
@@ -269,9 +274,7 @@ class Database:
             params.append(f"%{title.lower()}%")
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
-        cursor = await db.execute(
-            f"SELECT COUNT(*) FROM aweme {where_sql}", params
-        )
+        cursor = await db.execute(f"SELECT COUNT(*) FROM aweme {where_sql}", params)
         row = await cursor.fetchone()
         total = int(row[0]) if row else 0
 
@@ -301,16 +304,11 @@ class Database:
 
     async def get_aweme_count_by_author(self, author_id: str) -> int:
         db = await self._get_conn()
-        cursor = await db.execute(
-            'SELECT COUNT(*) FROM aweme WHERE author_id = ?',
-            (author_id,)
-        )
+        cursor = await db.execute("SELECT COUNT(*) FROM aweme WHERE author_id = ?", (author_id,))
         result = await cursor.fetchone()
         return result[0] if result else 0
 
-    async def get_top_authors(
-        self, *, days: int, limit: int
-    ) -> List[Dict[str, Any]]:
+    async def get_top_authors(self, *, days: int, limit: int) -> List[Dict[str, Any]]:
         """Return the most-downloaded authors in the last ``days`` days.
 
         Aggregates rows in `aweme` with ``create_time >= now - days*86400`` and
@@ -329,7 +327,7 @@ class Database:
         cutoff = int(datetime.now().timestamp()) - int(days) * 86400
         db = await self._get_conn()
         cursor = await db.execute(
-            '''
+            """
             SELECT a.author_sec_uid,
                    (SELECT a2.author_name FROM aweme a2
                      WHERE a2.author_sec_uid = a.author_sec_uid
@@ -345,7 +343,7 @@ class Database:
              GROUP BY a.author_sec_uid
              ORDER BY download_count DESC, a.author_sec_uid ASC
              LIMIT ?
-            ''',
+            """,
             (cutoff, int(limit)),
         )
         rows = await cursor.fetchall()
@@ -361,7 +359,8 @@ class Database:
     async def upsert_transcript_job(self, job_data: Dict[str, Any]):
         now_ts = int(datetime.now().timestamp())
         db = await self._get_conn()
-        await db.execute('''
+        await db.execute(
+            """
             INSERT INTO transcript_job (
                 aweme_id,
                 video_path,
@@ -384,49 +383,51 @@ class Database:
                 skip_reason = excluded.skip_reason,
                 error_message = excluded.error_message,
                 updated_at = excluded.updated_at
-        ''', (
-            job_data.get('aweme_id'),
-            job_data.get('video_path'),
-            job_data.get('transcript_dir'),
-            job_data.get('text_path'),
-            job_data.get('json_path'),
-            job_data.get('model') or 'gpt-4o-mini-transcribe',
-            job_data.get('status'),
-            job_data.get('skip_reason'),
-            job_data.get('error_message'),
-            now_ts,
-            now_ts,
-        ))
+        """,
+            (
+                job_data.get("aweme_id"),
+                job_data.get("video_path"),
+                job_data.get("transcript_dir"),
+                job_data.get("text_path"),
+                job_data.get("json_path"),
+                job_data.get("model") or "gpt-4o-mini-transcribe",
+                job_data.get("status"),
+                job_data.get("skip_reason"),
+                job_data.get("error_message"),
+                now_ts,
+                now_ts,
+            ),
+        )
         await db.commit()
 
     async def get_transcript_job(self, aweme_id: str) -> Optional[Dict[str, Any]]:
         db = await self._get_conn()
         cursor = await db.execute(
-            '''
+            """
             SELECT aweme_id, video_path, transcript_dir, text_path, json_path,
                    model, status, skip_reason, error_message, created_at, updated_at
             FROM transcript_job
             WHERE aweme_id = ?
             ORDER BY updated_at DESC, id DESC
             LIMIT 1
-            ''',
+            """,
             (aweme_id,),
         )
         row = await cursor.fetchone()
         if not row:
             return None
         return {
-            'aweme_id': row[0],
-            'video_path': row[1],
-            'transcript_dir': row[2],
-            'text_path': row[3],
-            'json_path': row[4],
-            'model': row[5],
-            'status': row[6],
-            'skip_reason': row[7],
-            'error_message': row[8],
-            'created_at': row[9],
-            'updated_at': row[10],
+            "aweme_id": row[0],
+            "video_path": row[1],
+            "transcript_dir": row[2],
+            "text_path": row[3],
+            "json_path": row[4],
+            "model": row[5],
+            "status": row[6],
+            "skip_reason": row[7],
+            "error_message": row[8],
+            "created_at": row[9],
+            "updated_at": row[10],
         }
 
     async def delete_aweme_by_ids(self, aweme_ids: List[str]) -> int:
@@ -567,9 +568,7 @@ class Database:
             await db.commit()
         return deleted
 
-    async def load_terminal_jobs(
-        self, limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    async def load_terminal_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Load persisted terminal jobs ordered by created_at DESC.
 
         Only rows whose ``status`` is a terminal value (success / failed /
@@ -615,26 +614,28 @@ class Database:
                 overrides = json.loads(overrides_raw) if overrides_raw else None
             except (TypeError, ValueError):
                 overrides = None
-            result.append({
-                "job_id": row[0],
-                "url": row[1],
-                "status": row[2],
-                "created_at": row[3],
-                "started_at": row[4],
-                "finished_at": row[5],
-                "total": row[6] or 0,
-                "success": row[7] or 0,
-                "failed": row[8] or 0,
-                "skipped": row[9] or 0,
-                "error": row[10],
-                "author_nickname": row[11],
-                "author_sec_uid": row[12],
-                "retry_count": row[13] or 0,
-                "last_retry_at": row[14],
-                "last_retry_summary": summary,
-                "retry_history": history,
-                "overrides": overrides,
-            })
+            result.append(
+                {
+                    "job_id": row[0],
+                    "url": row[1],
+                    "status": row[2],
+                    "created_at": row[3],
+                    "started_at": row[4],
+                    "finished_at": row[5],
+                    "total": row[6] or 0,
+                    "success": row[7] or 0,
+                    "failed": row[8] or 0,
+                    "skipped": row[9] or 0,
+                    "error": row[10],
+                    "author_nickname": row[11],
+                    "author_sec_uid": row[12],
+                    "retry_count": row[13] or 0,
+                    "last_retry_at": row[14],
+                    "last_retry_summary": summary,
+                    "retry_history": history,
+                    "overrides": overrides,
+                }
+            )
         return result
 
     async def close(self):

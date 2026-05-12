@@ -14,6 +14,7 @@ whisper_transcribe.py — 对 douyin-downloader 下载的视频进行 Whisper �
   python whisper_transcribe.py -d ./Downloaded/ --srt     # 同时输出SRT
   python whisper_transcribe.py --skip-existing --sc       # 跳过已有 + 繁转简
 """
+
 import argparse
 import os
 import shutil
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     Progress,
@@ -33,22 +35,21 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
-from rich.panel import Panel
 from rich.text import Text
 
 console = Console()
 
 # ── 颜色主题 (区别于 douyin-downloader 的 cyan/magenta) ──
 THEME = {
-    "accent":  "bright_green",
-    "banner":  "bold bright_green",
-    "info":    "dodger_blue1",
+    "accent": "bright_green",
+    "banner": "bold bright_green",
+    "info": "dodger_blue1",
     "success": "green",
     "warning": "yellow",
-    "error":   "red",
-    "dim":     "dim white",
-    "file":    "bright_cyan",
-    "model":   "orchid",
+    "error": "red",
+    "dim": "dim white",
+    "file": "bright_cyan",
+    "model": "orchid",
 }
 
 
@@ -140,8 +141,11 @@ class TranscribeDisplay:
         if self._progress:
             if self._file_id is not None:
                 self._progress.update(
-                    self._file_id, completed=4,
-                    description=self._file_desc("完成" if status == "success" else "跳过" if status == "skipped" else "失败"),
+                    self._file_id,
+                    completed=4,
+                    description=self._file_desc(
+                        "完成" if status == "success" else "跳过" if status == "skipped" else "失败"
+                    ),
                     detail=detail,
                 )
                 self._progress.remove_task(self._file_id)
@@ -205,7 +209,7 @@ class TranscribeDisplay:
     @staticmethod
     def _shorten(text: str, max_len: int = 50) -> str:
         t = (text or "").strip()
-        return t if len(t) <= max_len else f"{t[:max_len - 3]}..."
+        return t if len(t) <= max_len else f"{t[: max_len - 3]}..."
 
 
 display = TranscribeDisplay()
@@ -223,6 +227,7 @@ def find_ffmpeg():
         return str(local)
     try:
         import imageio_ffmpeg
+
         return imageio_ffmpeg.get_ffmpeg_exe()
     except ImportError:
         pass
@@ -231,9 +236,20 @@ def find_ffmpeg():
 
 def extract_audio(video_path, audio_path, ffmpeg_path="ffmpeg"):
     cmd = [
-        ffmpeg_path, "-i", str(video_path),
-        "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-        str(audio_path), "-y", "-loglevel", "error",
+        ffmpeg_path,
+        "-i",
+        str(video_path),
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        str(audio_path),
+        "-y",
+        "-loglevel",
+        "error",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -252,21 +268,24 @@ def _format_srt_time(seconds):
 def _safe_stem(stem):
     """清洗文件名: 去掉换行、#、特殊符号，避免 Windows 路径报错"""
     import re
+
     # 换行符 → 空格
     stem = stem.replace("\n", " ").replace("\r", " ")
     # Windows 不允许的字符 + # → 下划线
-    stem = re.sub(r'[<>:"/\\|?*#]', '_', stem)
+    stem = re.sub(r'[<>:"/\\|?*#]', "_", stem)
     # 连续空格/下划线 → 单个下划线
-    stem = re.sub(r'[\s_]+', '_', stem)
+    stem = re.sub(r"[\s_]+", "_", stem)
     # 去首尾下划线
-    stem = stem.strip('_ ')
+    stem = stem.strip("_ ")
     # 限制长度 (Windows MAX_PATH)
     if len(stem) > 150:
         stem = stem[:150]
     return stem
 
 
-def transcribe_file(video_path, model, ffmpeg_path, output_formats, language, converter, output_dir=None):
+def transcribe_file(
+    video_path, model, ffmpeg_path, output_formats, language, converter, output_dir=None
+):
     video_path = Path(video_path)
     stem = _safe_stem(video_path.stem)
 
@@ -306,6 +325,7 @@ def transcribe_file(video_path, model, ffmpeg_path, output_formats, language, co
             # 长路径/特殊字符 fallback: 用 Windows 短路径
             try:
                 import ctypes
+
                 buf = ctypes.create_unicode_buffer(512)
                 ctypes.windll.kernel32.GetShortPathNameW(str(video_path), buf, 512)
                 short_path = buf.value
@@ -408,15 +428,23 @@ def main():
     )
     parser.add_argument("-d", "--dir", default="./Downloaded", help="视频目录 (默认 ./Downloaded/)")
     parser.add_argument("-f", "--file", help="单个视频文件")
-    parser.add_argument("-m", "--model", default="base",
-                        choices=["tiny", "base", "small", "medium", "large"],
-                        help="Whisper模型 (默认 base)")
+    parser.add_argument(
+        "-m",
+        "--model",
+        default="base",
+        choices=["tiny", "base", "small", "medium", "large"],
+        help="Whisper模型 (默认 base)",
+    )
     parser.add_argument("-l", "--language", default="zh", help="语言 (默认 zh)")
     parser.add_argument("--srt", action="store_true", help="同时输出SRT字幕")
     parser.add_argument("--skip-existing", action="store_true", help="跳过已有transcript的视频")
     parser.add_argument("--sc", action="store_true", help="繁体转简体 (需 pip install OpenCC)")
-    parser.add_argument("-o", "--output", default=None,
-                        help="转录文件输出目录 (默认与视频同目录, 路径异常时自动fallback到 ./transcripts)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="转录文件输出目录 (默认与视频同目录, 路径异常时自动fallback到 ./transcripts)",
+    )
 
     args = parser.parse_args()
 
@@ -443,7 +471,8 @@ def main():
     if args.sc:
         try:
             from opencc import OpenCC
-            converter = OpenCC('t2s')
+
+            converter = OpenCC("t2s")
             display.dep_ok("OpenCC", "繁体→简体")
         except ImportError:
             display.dep_fail("OpenCC", "pip install OpenCC")
@@ -483,9 +512,12 @@ def main():
         for i, video in enumerate(videos, 1):
             display.start_file(i, video.name)
             try:
-                ok = transcribe_file(video, model, ffmpeg_path, output_formats, args.language, converter, args.output)
-                display.complete_file("success" if ok else "failed",
-                                      video.name if ok else "识别失败")
+                ok = transcribe_file(
+                    video, model, ffmpeg_path, output_formats, args.language, converter, args.output
+                )
+                display.complete_file(
+                    "success" if ok else "failed", video.name if ok else "识别失败"
+                )
             except KeyboardInterrupt:
                 display.complete_file("failed", "用户中断")
                 raise
@@ -493,6 +525,7 @@ def main():
                 display.complete_file("failed", str(e)[:60])
                 console.print(f"  [{THEME['error']}]错误详情: {e}[/]")
                 import traceback
+
                 console.print(f"[{THEME['dim']}]{traceback.format_exc()}[/]")
     except KeyboardInterrupt:
         display.warning("用户中断")

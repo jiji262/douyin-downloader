@@ -4,7 +4,7 @@
 """
 
 import asyncio
-from typing import Any, Dict
+from typing import Dict
 
 import pytest
 
@@ -13,7 +13,6 @@ try:
 except ImportError:  # pragma: no cover
     pytest.skip("fastapi not installed", allow_module_level=True)
 
-import asyncio
 
 from config import ConfigLoader
 from server.app import build_app
@@ -75,9 +74,7 @@ def test_download_endpoint_creates_job(tmp_path, monkeypatch):
     app.state.job_manager.executor = fake_executor
 
     with TestClient(app) as client:
-        resp = client.post(
-            "/api/v1/download", json={"url": "https://www.douyin.com/video/123"}
-        )
+        resp = client.post("/api/v1/download", json={"url": "https://www.douyin.com/video/123"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] in ("pending", "running", "success")
@@ -137,12 +134,11 @@ def test_build_app_shares_deps_across_requests(tmp_path):
 @pytest.mark.asyncio
 async def test_job_manager_prunes_by_max_jobs():
     """max_jobs 超限时应优先淘汰最老的终态 job，保留 in-flight。"""
+
     async def fast_executor(url: str) -> Dict[str, int]:
         return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
-    manager = JobManager(
-        executor=fast_executor, max_jobs=3, job_ttl_seconds=0.0
-    )
+    manager = JobManager(executor=fast_executor, max_jobs=3, job_ttl_seconds=0.0)
     jobs = []
     for i in range(5):
         j = await manager.submit(f"u{i}")
@@ -160,12 +156,11 @@ async def test_job_manager_prunes_by_max_jobs():
 @pytest.mark.asyncio
 async def test_job_manager_prunes_by_ttl():
     """TTL 过期的终态 job 应在下次 submit 时被清理。"""
+
     async def fast_executor(url: str) -> Dict[str, int]:
         return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
-    manager = JobManager(
-        executor=fast_executor, max_jobs=100, job_ttl_seconds=0.01
-    )
+    manager = JobManager(executor=fast_executor, max_jobs=100, job_ttl_seconds=0.01)
     old_job = await manager.submit("old")
     await asyncio.wait_for(old_job._task, timeout=1.0)
 

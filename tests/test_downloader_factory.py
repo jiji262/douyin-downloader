@@ -5,8 +5,8 @@ from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
 from core.downloader_factory import DownloaderFactory
-from core.music_downloader import MusicDownloader
 from core.mix_downloader import MixDownloader
+from core.music_downloader import MusicDownloader
 from core.user_downloader import UserDownloader
 from core.video_downloader import VideoDownloader
 from storage import FileManager
@@ -35,9 +35,7 @@ async def test_downloader_factory_routes_supported_types(tmp_path):
         assert isinstance(DownloaderFactory.create("video", **common), VideoDownloader)
         assert isinstance(DownloaderFactory.create("gallery", **common), VideoDownloader)
         assert isinstance(DownloaderFactory.create("user", **common), UserDownloader)
-        assert isinstance(
-            DownloaderFactory.create("collection", **common), MixDownloader
-        )
+        assert isinstance(DownloaderFactory.create("collection", **common), MixDownloader)
         assert isinstance(DownloaderFactory.create("music", **common), MusicDownloader)
     finally:
         await api_client.close()

@@ -86,9 +86,7 @@ def validate_template(template: str, *, field_name: str = "template") -> None:
         raise TemplateValidationError(f"{field_name} must not be empty")
 
     if len(template) > MAX_TEMPLATE_LENGTH:
-        raise TemplateValidationError(
-            f"{field_name} must be <= {MAX_TEMPLATE_LENGTH} characters"
-        )
+        raise TemplateValidationError(f"{field_name} must be <= {MAX_TEMPLATE_LENGTH} characters")
 
     if "/" in template or "\\" in template:
         raise TemplateValidationError(
@@ -110,9 +108,7 @@ def validate_template(template: str, *, field_name: str = "template") -> None:
         )
 
     if "id" not in variables:
-        raise TemplateValidationError(
-            f"{field_name} must reference {{id}} to guarantee uniqueness"
-        )
+        raise TemplateValidationError(f"{field_name} must reference {{id}} to guarantee uniqueness")
 
 
 def render_template(

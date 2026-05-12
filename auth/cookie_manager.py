@@ -61,16 +61,12 @@ class CookieManager:
     def validate_cookies(self) -> bool:
         required_keys = {"ttwid", "odin_tt", "passport_csrf_token"}
         cookies = self.get_cookies()
-        missing = [
-            key for key in required_keys if key not in cookies or not cookies.get(key)
-        ]
+        missing = [key for key in required_keys if key not in cookies or not cookies.get(key)]
         if missing:
             logger.warning("Cookie validation failed, missing: %s", ", ".join(missing))
             return False
         if not cookies.get("msToken"):
-            logger.info(
-                "msToken not found, it will be generated automatically if needed"
-            )
+            logger.info("msToken not found, it will be generated automatically if needed")
         return True
 
     def clear_cookies(self):

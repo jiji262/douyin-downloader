@@ -118,9 +118,7 @@ async def test_music_downloader_falls_back_to_first_aweme_when_direct_audio_miss
                     {
                         "aweme_id": "fallback-aweme-1",
                         "author": {"nickname": "fallback-author"},
-                        "video": {
-                            "play_addr": {"url_list": ["https://example.com/video.mp4"]}
-                        },
+                        "video": {"play_addr": {"url_list": ["https://example.com/video.mp4"]}},
                     }
                 ]
             }

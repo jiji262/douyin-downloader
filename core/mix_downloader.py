@@ -46,9 +46,7 @@ class MixDownloader(BaseDownloader):
             self._progress_advance_item(status, str(aweme_id))
             return {"status": status, "aweme_id": aweme_id}
 
-        download_results = await self.queue_manager.download_batch(
-            _process_aweme, aweme_list
-        )
+        download_results = await self.queue_manager.download_batch(_process_aweme, aweme_list)
         for entry in download_results:
             status = entry.get("status") if isinstance(entry, dict) else None
             if status == "success":

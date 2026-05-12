@@ -121,9 +121,7 @@ cookies: auto
     assert cookies["msToken"] == "nested-ms-token"
 
 
-def test_config_loader_reads_auto_cookies_when_auto_cookie_enabled(
-    tmp_path, monkeypatch
-):
+def test_config_loader_reads_auto_cookies_when_auto_cookie_enabled(tmp_path, monkeypatch):
     workspace = tmp_path
     config_file = workspace / "config.yml"
     config_file.write_text(
@@ -154,9 +152,7 @@ auto_cookie: true
     assert cookies["msToken"] == "auto-ms-token"
 
 
-def test_config_loader_skips_auto_cookies_when_auto_cookie_disabled(
-    tmp_path, monkeypatch
-):
+def test_config_loader_skips_auto_cookies_when_auto_cookie_disabled(tmp_path, monkeypatch):
     workspace = tmp_path
     config_file = workspace / "config.yml"
     config_file.write_text(
@@ -204,9 +200,7 @@ cookies: auto
     cookies = loader.get_cookies()
 
     assert cookies == {}
-    assert any(
-        "is not a JSON object" in record.message for record in caplog.records
-    )
+    assert any("is not a JSON object" in record.message for record in caplog.records)
 
 
 def test_progress_quiet_logs_default_enabled(tmp_path):

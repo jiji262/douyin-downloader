@@ -1,6 +1,4 @@
-import asyncio
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -33,7 +31,9 @@ def test_get_file_size_returns_0_for_missing(tmp_path):
 
 def test_get_save_path_creates_directories(tmp_path):
     fm = FileManager(str(tmp_path))
-    path = fm.get_save_path("Author", mode="post", aweme_title="Title", aweme_id="123", download_date="2024-01-01")
+    path = fm.get_save_path(
+        "Author", mode="post", aweme_title="Title", aweme_id="123", download_date="2024-01-01"
+    )
     assert path.exists()
     assert "Author" in str(path)
     assert "post" in str(path)

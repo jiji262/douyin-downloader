@@ -51,9 +51,7 @@ except ImportError as _exc:
         allow_module_level=True,
     )
 
-_FIXTURE_PATH = os.path.join(
-    os.path.dirname(__file__), "fixtures", "proxy_samples.json"
-)
+_FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "proxy_samples.json")
 
 
 def _load_fixture_samples() -> List[Dict[str, Any]]:
@@ -116,15 +114,13 @@ def test_is_valid_proxy_matches_fixture(sample: Dict[str, Any]) -> None:
     expected = sample.get("expected") or {}
     expected_valid = bool(expected.get("isValid"))
 
-    assert isinstance(input_value, str), (
-        "fixture row must carry a string `input`; got {!r}".format(input_value)
+    assert isinstance(input_value, str), "fixture row must carry a string `input`; got {!r}".format(
+        input_value
     )
 
     actual_valid = _is_valid_proxy(input_value)
-    assert actual_valid == expected_valid, (
-        "parity break: input={!r} expected={} got={}".format(
-            input_value, expected_valid, actual_valid
-        )
+    assert actual_valid == expected_valid, "parity break: input={!r} expected={} got={}".format(
+        input_value, expected_valid, actual_valid
     )
 
 
@@ -149,7 +145,8 @@ def _scheme_with_host_strategy() -> st.SearchStrategy[str]:
     # after scheme" without unicode ambiguity. Exclude control chars.
     host = st.text(
         alphabet=st.characters(
-            min_codepoint=33, max_codepoint=126,  # printable ASCII, no space
+            min_codepoint=33,
+            max_codepoint=126,  # printable ASCII, no space
         ),
         min_size=1,
         max_size=60,
@@ -162,7 +159,8 @@ def _illegal_scheme_strategy() -> st.SearchStrategy[str]:
     scheme = st.sampled_from(_ILLEGAL_SCHEMES)
     host = st.text(
         alphabet=st.characters(min_codepoint=33, max_codepoint=126),
-        min_size=1, max_size=40,
+        min_size=1,
+        max_size=40,
     )
     return st.builds(lambda s, h: "{}://{}".format(s, h), scheme, host)
 
@@ -188,13 +186,21 @@ def _mixed_case_scheme_strategy() -> st.SearchStrategy[str]:
     # Hand-crafted mixed-case variants — Hypothesis sampled_from keeps the
     # search space tight and the shrinker well-behaved.
     variants = [
-        "HTTP", "HTTPS", "SOCKS5", "SOCKS5H",
-        "Http", "HtTp", "HTtPs", "Socks5", "Socks5H",
+        "HTTP",
+        "HTTPS",
+        "SOCKS5",
+        "SOCKS5H",
+        "Http",
+        "HtTp",
+        "HTtPs",
+        "Socks5",
+        "Socks5H",
     ]
     scheme = st.sampled_from(variants)
     host = st.text(
         alphabet=st.characters(min_codepoint=33, max_codepoint=126),
-        min_size=1, max_size=40,
+        min_size=1,
+        max_size=40,
     )
     return st.builds(lambda s, h: "{}://{}".format(s, h), scheme, host)
 
@@ -229,7 +235,7 @@ def _expected_is_valid(s: str) -> bool:
         # prefix wins.
         prefix = scheme + "://"
         if s.startswith(prefix):
-            host = s[len(prefix):]
+            host = s[len(prefix) :]
             return host.strip() != ""
     return False
 
@@ -251,10 +257,8 @@ def test_is_valid_proxy_matches_oracle(value: str) -> None:
     """
     actual = _is_valid_proxy(value)
     expected = _expected_is_valid(value)
-    assert actual == expected, (
-        "parity break: value={!r} oracle={} actual={}".format(
-            value, expected, actual
-        )
+    assert actual == expected, "parity break: value={!r} oracle={} actual={}".format(
+        value, expected, actual
     )
 
 
@@ -284,7 +288,6 @@ def test_non_empty_valid_proxy_has_whitelisted_scheme(value: str) -> None:
             scheme_prefix = scheme
             break
     assert scheme_prefix is not None, (
-        "value passed _is_valid_proxy but has no whitelisted scheme prefix: "
-        "{!r}".format(value)
+        "value passed _is_valid_proxy but has no whitelisted scheme prefix: {!r}".format(value)
     )
     assert scheme_prefix in _PROXY_ALLOWED_SCHEMES

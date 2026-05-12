@@ -54,9 +54,7 @@ class FileManager:
         ``author_sec_uid`` fall back to ``nickname`` with a ``WARNING`` so
         downloads never fail on a misconfiguration.
         """
-        safe_author = self._compose_author_dir(
-            author_name, author_sec_uid, author_dir_style
-        )
+        safe_author = self._compose_author_dir(author_name, author_sec_uid, author_dir_style)
 
         if mode:
             save_dir = self.base_path / safe_author / mode
@@ -114,8 +112,7 @@ class FileManager:
         if style == "sec_uid":
             if not sec_uid:
                 logger.warning(
-                    "author_dir=sec_uid but sec_uid is missing for %r, "
-                    "falling back to nickname",
+                    "author_dir=sec_uid but sec_uid is missing for %r, falling back to nickname",
                     author_name,
                 )
                 return nickname_dir
@@ -124,8 +121,7 @@ class FileManager:
         # style == "nickname_uid"
         if not sec_uid:
             logger.warning(
-                "author_dir=nickname_uid but sec_uid is missing for %r, "
-                "falling back to nickname",
+                "author_dir=nickname_uid but sec_uid is missing for %r, falling back to nickname",
                 author_name,
             )
             return nickname_dir
@@ -212,11 +208,7 @@ class FileManager:
         if not prefer_response_content_type:
             return save_path
 
-        content_type = (
-            response_headers.get("Content-Type", "")
-            if response_headers
-            else ""
-        )
+        content_type = response_headers.get("Content-Type", "") if response_headers else ""
         normalized_type = content_type.split(";", 1)[0].strip().lower()
         suffix = cls._IMAGE_CONTENT_TYPE_SUFFIXES.get(normalized_type)
         if not suffix:

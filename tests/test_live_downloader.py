@@ -5,7 +5,6 @@
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict
 
 import pytest
 
@@ -248,7 +247,6 @@ async def test_live_downloader_preserves_partial_on_idle_timeout(tmp_path):
 def test_download_headers_referer_for_live(tmp_path):
     """_record_stream 内部应把 Referer 改为 live.douyin.com（通过构造样本流间接验证）。"""
     # 直接读源码断言是更轻量的方式——避免走完整集成路径。
-    from pathlib import Path
 
     source = Path("core/live_downloader.py").read_text(encoding="utf-8")
     assert 'headers["Referer"] = "https://live.douyin.com/"' in source
@@ -256,7 +254,6 @@ def test_download_headers_referer_for_live(tmp_path):
 
 def test_download_headers_origin_for_live(tmp_path):
     """_record_stream 应同时改写 Origin 头（CDN 可能同时校验 Referer 与 Origin）。"""
-    from pathlib import Path
 
     source = Path("core/live_downloader.py").read_text(encoding="utf-8")
     assert 'headers["Origin"] = "https://live.douyin.com"' in source

@@ -36,16 +36,10 @@ class ConfigLoader:
 
         return self._normalize_mix_aliases(config, override_sources)
 
-    def _merge_config(
-        self, base: Dict[str, Any], override: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _merge_config(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
         result = base.copy()
         for key, value in override.items():
-            if (
-                key in result
-                and isinstance(result[key], dict)
-                and isinstance(value, dict)
-            ):
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
                 result[key] = self._merge_config(result[key], value)
             else:
                 result[key] = value
@@ -100,12 +94,8 @@ class ConfigLoader:
             mix_is_default = mix_value == default_mix_value
             allmix_is_default = allmix_value == default_allmix_value
 
-            mix_explicit = self._is_key_explicit_in_sources(
-                override_sources, section, "mix"
-            )
-            allmix_explicit = self._is_key_explicit_in_sources(
-                override_sources, section, "allmix"
-            )
+            mix_explicit = self._is_key_explicit_in_sources(override_sources, section, "mix")
+            allmix_explicit = self._is_key_explicit_in_sources(override_sources, section, "allmix")
 
             if mix_explicit:
                 canonical_value = mix_value
@@ -140,9 +130,7 @@ class ConfigLoader:
         return config
 
     @staticmethod
-    def _is_key_explicit_in_sources(
-        sources: List[Dict[str, Any]], section: str, key: str
-    ) -> bool:
+    def _is_key_explicit_in_sources(sources: List[Dict[str, Any]], section: str, key: str) -> bool:
         for source in sources:
             if not isinstance(source, dict):
                 continue
@@ -205,9 +193,7 @@ class ConfigLoader:
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            logger.warning(
-                "Cannot create config directory %s: %s", target.parent, exc
-            )
+            logger.warning("Cannot create config directory %s: %s", target.parent, exc)
             return False
 
         existing: Dict[str, Any] = {}
@@ -239,9 +225,7 @@ class ConfigLoader:
 
         try:
             with open(target, "w", encoding="utf-8") as handle:
-                yaml.safe_dump(
-                    existing, handle, allow_unicode=True, sort_keys=False
-                )
+                yaml.safe_dump(existing, handle, allow_unicode=True, sort_keys=False)
         except OSError as exc:
             logger.warning("Failed to write config %s: %s", target, exc)
             return False
@@ -284,9 +268,7 @@ class ConfigLoader:
 
     def _candidate_auto_cookie_paths(self) -> List[Path]:
         config_dir = (
-            Path(self.config_path).resolve().parent
-            if self.config_path
-            else Path.cwd().resolve()
+            Path(self.config_path).resolve().parent if self.config_path else Path.cwd().resolve()
         )
         search_roots = [
             config_dir,
@@ -367,10 +349,13 @@ class ConfigLoader:
             value = self.config.get(field)
             if value and isinstance(value, str):
                 from datetime import datetime
+
                 try:
                     datetime.strptime(value, "%Y-%m-%d")
                 except ValueError:
-                    logger.warning("Invalid %s format: %s (expected YYYY-MM-DD), clearing", field, value)
+                    logger.warning(
+                        "Invalid %s format: %s (expected YYYY-MM-DD), clearing", field, value
+                    )
                     self.config[field] = ""
 
         return True

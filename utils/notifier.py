@@ -73,18 +73,13 @@ def _mask_url_query(url: str) -> str:
     if not parts.query:
         return url
     masked_pairs = [
-        (key, _mask_credential(val))
-        for key, val in parse_qsl(parts.query, keep_blank_values=True)
+        (key, _mask_credential(val)) for key, val in parse_qsl(parts.query, keep_blank_values=True)
     ]
     new_query = urlencode(masked_pairs)
-    return urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, new_query, parts.fragment)
-    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
 
 
-def _masked_config_for_log(
-    provider_type: str, config: Dict[str, Any]
-) -> Dict[str, Any]:
+def _masked_config_for_log(provider_type: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """Return a deep-copied ``config`` with sensitive fields masked per provider type.
 
     - ``bark``: mask ``device_key``
@@ -117,9 +112,7 @@ class _BaseProvider:
     def __init__(self, settings: Dict[str, Any]):
         self.settings = settings or {}
 
-    async def send(
-        self, session: aiohttp.ClientSession, title: str, body: str, level: str
-    ) -> bool:
+    async def send(self, session: aiohttp.ClientSession, title: str, body: str, level: str) -> bool:
         raise NotImplementedError
 
 
@@ -129,9 +122,7 @@ class BarkProvider(_BaseProvider):
     参考：https://bark.day.app/
     """
 
-    async def send(
-        self, session: aiohttp.ClientSession, title: str, body: str, level: str
-    ) -> bool:
+    async def send(self, session: aiohttp.ClientSession, title: str, body: str, level: str) -> bool:
         base_url = str(self.settings.get("url") or "").rstrip("/")
         if not base_url:
             logger.warning("Bark notification skipped: missing url")
@@ -156,9 +147,7 @@ class BarkProvider(_BaseProvider):
 class TelegramProvider(_BaseProvider):
     """Telegram Bot 推送。需要配置 bot_token 与 chat_id。"""
 
-    async def send(
-        self, session: aiohttp.ClientSession, title: str, body: str, level: str
-    ) -> bool:
+    async def send(self, session: aiohttp.ClientSession, title: str, body: str, level: str) -> bool:
         bot_token = str(self.settings.get("bot_token") or "")
         chat_id = str(self.settings.get("chat_id") or "")
         if not bot_token or not chat_id:
@@ -185,16 +174,12 @@ class TelegramProvider(_BaseProvider):
 class WebhookProvider(_BaseProvider):
     """通用 Webhook：POST JSON {title, body, level}。可用于接企业微信/飞书/钉钉 bot。"""
 
-    async def send(
-        self, session: aiohttp.ClientSession, title: str, body: str, level: str
-    ) -> bool:
+    async def send(self, session: aiohttp.ClientSession, title: str, body: str, level: str) -> bool:
         url = str(self.settings.get("url") or "")
         if not url:
             logger.warning("Webhook notification skipped: missing url")
             return False
-        extra_headers = {
-            str(k): str(v) for k, v in (self.settings.get("headers") or {}).items()
-        }
+        extra_headers = {str(k): str(v) for k, v in (self.settings.get("headers") or {}).items()}
         payload: Dict[str, Any] = {"title": title, "body": body, "level": level}
         # 允许通过 extra_body 合并到 payload，便于适配某些平台（企业微信 msgtype 等）。
         extra_body = self.settings.get("extra_body")
@@ -254,13 +239,8 @@ class Notifier:
         if is_success and not self.on_success:
             return {}
 
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10)
-        ) as session:
-            tasks = [
-                p.send(session, title=title, body=body, level=level)
-                for p in self.providers
-            ]
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            tasks = [p.send(session, title=title, body=body, level=level) for p in self.providers]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
         summary: Dict[str, bool] = {}

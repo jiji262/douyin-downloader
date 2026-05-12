@@ -79,9 +79,7 @@ class _FakeAPIClient:
             "status_code": 0,
         }
 
-    async def get_user_collects(
-        self, _sec_uid: str, max_cursor: int = 0, count: int = 20
-    ):
+    async def get_user_collects(self, _sec_uid: str, max_cursor: int = 0, count: int = 20):
         self.collect_calls += 1
         return {
             "items": [{"collects_id_str": "collect-1", "collects_name": "默认收藏夹"}],
@@ -90,9 +88,7 @@ class _FakeAPIClient:
             "status_code": 0,
         }
 
-    async def get_collect_aweme(
-        self, collects_id: str, max_cursor: int = 0, count: int = 20
-    ):
+    async def get_collect_aweme(self, collects_id: str, max_cursor: int = 0, count: int = 20):
         assert collects_id == "collect-1"
         return {
             "items": [_make_aweme("666")],
@@ -125,9 +121,7 @@ def _build_downloader(tmp_path, mode: List[str]) -> UserDownloader:
     return downloader
 
 
-def test_user_downloader_processes_modes_and_deduplicates_across_modes(
-    tmp_path, monkeypatch
-):
+def test_user_downloader_processes_modes_and_deduplicates_across_modes(tmp_path, monkeypatch):
     downloader = _build_downloader(tmp_path, mode=["post", "like"])
 
     async def _always_true(*_args, **_kwargs):
@@ -271,16 +265,13 @@ def test_user_downloader_post_mode_uses_batch_db_insert(tmp_path, monkeypatch):
         return True
 
     monkeypatch.setattr(downloader, "_should_download", _always_true)
-    monkeypatch.setattr(
-        downloader, "_download_aweme_assets", _fake_download_aweme_assets
-    )
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _fake_download_aweme_assets)
 
     result = asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
 
     assert result.success == 2
     assert add_aweme_calls["n"] == 0, (
-        "post mode should not call add_aweme per item; got "
-        f"{add_aweme_calls['n']} single inserts"
+        f"post mode should not call add_aweme per item; got {add_aweme_calls['n']} single inserts"
     )
     assert len(add_aweme_batch_calls) == 1
     assert {r["aweme_id"] for r in add_aweme_batch_calls[0]} == {"111", "222"}
@@ -292,9 +283,7 @@ def test_user_downloader_post_mode_uses_batch_db_insert(tmp_path, monkeypatch):
     asyncio.run(database.close())
 
 
-def test_user_downloader_rejects_mixed_self_collect_and_regular_modes(
-    tmp_path, monkeypatch
-):
+def test_user_downloader_rejects_mixed_self_collect_and_regular_modes(tmp_path, monkeypatch):
     downloader = _build_downloader(tmp_path, mode=["collect", "post"])
 
     async def _always_true(*_args, **_kwargs):

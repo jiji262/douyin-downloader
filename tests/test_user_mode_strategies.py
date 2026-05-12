@@ -32,7 +32,16 @@ def test_like_strategy_collects_items_from_api():
         def __init__(self):
             self.api_client = _API()
             self.rate_limiter = _NoopRateLimiter()
-            self.config = type("Cfg", (), {"get": lambda _self, key, default=None: {"number": {"like": 0}, "increase": {"like": False}}.get(key, default)})()
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"like": 0},
+                        "increase": {"like": False},
+                    }.get(key, default)
+                },
+            )()
             self.database = None
             self._filter_by_time = lambda items: items
             self._limit_count = lambda items, _mode: items

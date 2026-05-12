@@ -49,9 +49,7 @@ from storage.database import Database
 # grouping interesting (we actually get rows that share a sec_uid) instead of
 # generating mostly-unique strings that degenerate into groups of size 1.
 # Empty / null values exercise the "must be filtered out" branch (R5.4).
-_SEC_UID_POOL = st.sampled_from(
-    ["", None, "uid_a", "uid_b", "uid_c", "uid_d", "uid_e"]
-)
+_SEC_UID_POOL = st.sampled_from(["", None, "uid_a", "uid_b", "uid_c", "uid_d", "uid_e"])
 
 # Tiny pool for ``author_name``. Allow empty string + None to exercise the
 # fallback path to ``"未知作者"`` (R5.5).
@@ -65,9 +63,7 @@ _AUTHOR_NAME_POOL = st.one_of(
 # cutoff window. Range covers roughly [-400 days, +30 days]: plenty of rows
 # land inside the in-window region and plenty land outside it for any
 # ``days ∈ [1, 365]``.
-_CREATE_OFFSET = st.integers(
-    min_value=-400 * 86400, max_value=30 * 86400
-)
+_CREATE_OFFSET = st.integers(min_value=-400 * 86400, max_value=30 * 86400)
 
 # ``download_time_offset_seconds`` is a non-negative offset into the past.
 # Distinct offsets ⇒ distinct ``download_time`` values for most rows, which
@@ -203,15 +199,11 @@ def _assert_invariants(ctx: Dict[str, Any], *, days: int, limit: int) -> None:
     now_before: int = ctx["now_before"]
 
     # Invariant 1: length bounded by limit.
-    assert len(result) <= limit, (
-        f"result length {len(result)} exceeds limit {limit}"
-    )
+    assert len(result) <= limit, f"result length {len(result)} exceeds limit {limit}"
 
     # Invariant 5: all sec_uid values in result are unique.
     sec_uids = [a["sec_uid"] for a in result]
-    assert len(set(sec_uids)) == len(sec_uids), (
-        f"duplicate sec_uid in result: {sec_uids}"
-    )
+    assert len(set(sec_uids)) == len(sec_uids), f"duplicate sec_uid in result: {sec_uids}"
 
     # Invariant 4: sorted by (-download_count, sec_uid).
     sort_keys = [(-a["download_count"], a["sec_uid"]) for a in result]
@@ -236,22 +228,19 @@ def _assert_invariants(ctx: Dict[str, Any], *, days: int, limit: int) -> None:
 
         # Invariant 3: download_count >= 1.
         assert a["download_count"] >= 1, (
-            f"download_count {a['download_count']} < 1 for sec_uid "
-            f"{a['sec_uid']}"
+            f"download_count {a['download_count']} < 1 for sec_uid {a['sec_uid']}"
         )
 
         sec_uid = a["sec_uid"]
-        matching_rows = [
-            r for r in rows if r["author_sec_uid"] == sec_uid
-        ]
+        matching_rows = [r for r in rows if r["author_sec_uid"] == sec_uid]
 
         # Invariant 6: at least one row for this sec_uid has
         # ``create_time >= cutoff_db``, which is necessarily
         # ``>= necessary_cutoff_lower_bound``.
         in_window_rows = [
-            r for r in matching_rows
-            if _absolute_create_time(r, now_ref)
-            >= necessary_cutoff_lower_bound
+            r
+            for r in matching_rows
+            if _absolute_create_time(r, now_ref) >= necessary_cutoff_lower_bound
         ]
         assert in_window_rows, (
             f"sec_uid {sec_uid!r} appeared in result but has no row with "

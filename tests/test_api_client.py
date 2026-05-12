@@ -257,12 +257,8 @@ async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatc
     monkeypatch.setattr(client, "_request_json", _fake_request_json)
 
     collects_data = await client.get_user_collects("self", max_cursor=0, count=10)
-    collect_aweme_data = await client.get_collect_aweme(
-        "collect-1", max_cursor=0, count=10
-    )
-    collect_mix_data = await client.get_user_collect_mix(
-        "self", max_cursor=0, count=12
-    )
+    collect_aweme_data = await client.get_collect_aweme("collect-1", max_cursor=0, count=10)
+    collect_mix_data = await client.get_user_collect_mix("self", max_cursor=0, count=12)
 
     assert [path for path, _params in called_requests] == [
         "/aweme/v1/web/collects/list/",

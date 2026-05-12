@@ -12,9 +12,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
     mode_name = "collect"
     api_method_name = "get_user_collects"
 
-    async def collect_items(
-        self, sec_uid: str, user_info: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def collect_items(self, sec_uid: str, user_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         fetch_collect_aweme = getattr(self.downloader.api_client, "get_collect_aweme", None)
         fetch_collects = getattr(self.downloader.api_client, self.api_method_name, None)
         if not callable(fetch_collects):
@@ -37,9 +35,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
             has_more = True
             while has_more:
                 await self.downloader.rate_limiter.acquire()
-                page_data = await fetch_collect_aweme(
-                    str(collects_id), max_cursor=cursor, count=20
-                )
+                page_data = await fetch_collect_aweme(str(collects_id), max_cursor=cursor, count=20)
                 page = self._normalize_page_data(page_data)
                 page_items = page.get("items", [])
                 if not page_items:
@@ -58,9 +54,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
                 has_more = bool(page.get("has_more", False))
                 next_cursor = int(page.get("max_cursor", 0) or 0)
                 if has_more and next_cursor == cursor:
-                    logger.warning(
-                        "Collect folder %s cursor did not advance", collects_id
-                    )
+                    logger.warning("Collect folder %s cursor did not advance", collects_id)
                     break
                 cursor = next_cursor
 

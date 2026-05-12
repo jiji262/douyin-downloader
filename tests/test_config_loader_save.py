@@ -59,9 +59,7 @@ def test_save_preserves_unrelated_user_keys(tmp_path):
     know about them."""
     config_path = tmp_path / "config.yml"
     config_path.write_text(
-        "link:\n  - https://www.douyin.com/video/123\n"
-        "cookies:\n  sessionid_ss: abc\n"
-        "thread: 2\n",
+        "link:\n  - https://www.douyin.com/video/123\ncookies:\n  sessionid_ss: abc\nthread: 2\n",
         encoding="utf-8",
     )
 
@@ -104,6 +102,4 @@ def test_save_nested_sub_models(tmp_path):
     assert written["comments"]["enabled"] is True
     assert written["comments"]["max_comments"] == 100
     assert written["notifications"]["enabled"] is True
-    assert written["notifications"]["providers"] == [
-        {"type": "bark", "url": "https://x"}
-    ]
+    assert written["notifications"]["providers"] == [{"type": "bark", "url": "https://x"}]

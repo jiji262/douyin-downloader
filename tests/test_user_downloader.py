@@ -205,9 +205,7 @@ def test_user_post_browser_fallback_prefers_browser_aweme_items(tmp_path, monkey
     assert api_client.detail_calls == []
 
 
-def test_user_post_browser_fallback_expected_count_uses_number_limit(
-    tmp_path, monkeypatch
-):
+def test_user_post_browser_fallback_expected_count_uses_number_limit(tmp_path, monkeypatch):
     api_client = _FakeAPIClient()
     downloader = _build_downloader(
         tmp_path,
@@ -236,9 +234,7 @@ def test_user_post_browser_fallback_expected_count_uses_number_limit(
 
 def test_user_post_skips_pinned_before_number_limit(tmp_path, monkeypatch):
     class _PinnedAPIClient(_FakeAPIClient):
-        async def get_user_post(
-            self, _sec_uid: str, max_cursor: int = 0, _count: int = 20
-        ):
+        async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, _count: int = 20):
             self.user_post_calls.append(max_cursor)
             if max_cursor == 0:
                 return {

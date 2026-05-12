@@ -3,14 +3,14 @@ from typing import Any, Dict
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
 
-logger = setup_logger('VideoDownloader')
+logger = setup_logger("VideoDownloader")
 
 
 class VideoDownloader(BaseDownloader):
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
 
-        aweme_id = parsed_url.get('aweme_id')
+        aweme_id = parsed_url.get("aweme_id")
         if not aweme_id:
             logger.error("No aweme_id found in parsed URL")
             return result
@@ -45,12 +45,12 @@ class VideoDownloader(BaseDownloader):
         return result
 
     async def _download_aweme(self, aweme_data: Dict[str, Any]) -> bool:
-        author = aweme_data.get('author', {}) or {}
-        author_name = author.get('nickname', 'unknown')
+        author = aweme_data.get("author", {}) or {}
+        author_name = author.get("nickname", "unknown")
         # Cache author on the hosting job so JobRow can display the nickname
         # and `retry_failed_awemes` doesn't need to re-fetch user info.
         self._progress_report_author(
-            nickname=author_name if author_name != 'unknown' else None,
-            sec_uid=author.get('sec_uid'),
+            nickname=author_name if author_name != "unknown" else None,
+            sec_uid=author.get("sec_uid"),
         )
         return await self._download_aweme_assets(aweme_data, author_name)

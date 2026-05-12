@@ -58,9 +58,7 @@ def _make_aweme(publish_ts: int, aweme_id: str = "7600000000000000000"):
 async def test_default_template_matches_legacy_filename(tmp_path, monkeypatch):
     """Users who don't touch the new settings see zero behaviour change."""
     downloader, api_client = _build_downloader(tmp_path)
-    downloader.config.update(
-        music=False, cover=False, avatar=False, json=False, folderstyle=True
-    )
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
 
     saved = []
 
@@ -68,9 +66,7 @@ async def test_default_template_matches_legacy_filename(tmp_path, monkeypatch):
         saved.append(save_path)
         return True
 
-    downloader._download_with_retry = _fake_download.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download.__get__(downloader, VideoDownloader)
 
     async def _fake_session():
         return object()
@@ -80,12 +76,7 @@ async def test_default_template_matches_legacy_filename(tmp_path, monkeypatch):
     publish_ts = int(datetime(2024, 3, 15, 18, 30).timestamp())
     aweme = _make_aweme(publish_ts, aweme_id="7412345678901234567")
 
-    assert (
-        await downloader._download_aweme_assets(
-            aweme, author_name="爬山佬", mode="post"
-        )
-        is True
-    )
+    assert await downloader._download_aweme_assets(aweme, author_name="爬山佬", mode="post") is True
 
     assert len(saved) == 1
     save_path = saved[0]
@@ -114,9 +105,7 @@ async def test_custom_filename_template_applies(tmp_path, monkeypatch):
         saved.append(save_path)
         return True
 
-    downloader._download_with_retry = _fake_download.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download.__get__(downloader, VideoDownloader)
 
     async def _fake_session():
         return object()
@@ -126,12 +115,7 @@ async def test_custom_filename_template_applies(tmp_path, monkeypatch):
     publish_ts = int(datetime(2024, 7, 4, 9, 15).timestamp())
     aweme = _make_aweme(publish_ts, aweme_id="7419999999999999999")
 
-    assert (
-        await downloader._download_aweme_assets(
-            aweme, author_name="爬山佬", mode="post"
-        )
-        is True
-    )
+    assert await downloader._download_aweme_assets(aweme, author_name="爬山佬", mode="post") is True
 
     assert len(saved) == 1
     save_path = saved[0]
@@ -158,9 +142,7 @@ async def test_folderstyle_false_skips_subdirectory(tmp_path, monkeypatch):
         saved.append(save_path)
         return True
 
-    downloader._download_with_retry = _fake_download.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download.__get__(downloader, VideoDownloader)
 
     async def _fake_session():
         return object()
@@ -170,12 +152,7 @@ async def test_folderstyle_false_skips_subdirectory(tmp_path, monkeypatch):
     publish_ts = int(datetime(2024, 1, 1, 0, 0).timestamp())
     aweme = _make_aweme(publish_ts, aweme_id="7401010101010101010")
 
-    assert (
-        await downloader._download_aweme_assets(
-            aweme, author_name="爬山佬", mode="post"
-        )
-        is True
-    )
+    assert await downloader._download_aweme_assets(aweme, author_name="爬山佬", mode="post") is True
 
     # With folderstyle=False the save_dir is just `{base}/{author}/{mode}`
     # — no per-aweme subdir.

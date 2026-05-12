@@ -9,13 +9,10 @@ class MixUserModeStrategy(BaseUserModeStrategy):
     mode_name = "mix"
     api_method_name = "get_user_mix"
 
-    async def collect_items(
-        self, sec_uid: str, user_info: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def collect_items(self, sec_uid: str, user_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         raw_items = await self._collect_paged_aweme(sec_uid, user_info)
         aweme_items = [
-            a for item in raw_items
-            if (a := self._extract_aweme_from_item(item)) is not None
+            a for item in raw_items if (a := self._extract_aweme_from_item(item)) is not None
         ]
         if aweme_items:
             return aweme_items

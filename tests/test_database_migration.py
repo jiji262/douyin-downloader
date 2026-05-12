@@ -139,9 +139,7 @@ def _base_payload(aweme_id: str):
 
 async def _fetch_sec_uid(db: Database, aweme_id: str):
     conn = await db._get_conn()
-    cursor = await conn.execute(
-        "SELECT author_sec_uid FROM aweme WHERE aweme_id = ?", (aweme_id,)
-    )
+    cursor = await conn.execute("SELECT author_sec_uid FROM aweme WHERE aweme_id = ?", (aweme_id,))
     row = await cursor.fetchone()
     return None if row is None else row[0]
 

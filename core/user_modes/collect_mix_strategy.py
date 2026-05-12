@@ -12,9 +12,7 @@ class CollectMixUserModeStrategy(BaseUserModeStrategy):
     mode_name = "collectmix"
     api_method_name = "get_user_collect_mix"
 
-    async def collect_items(
-        self, sec_uid: str, user_info: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def collect_items(self, sec_uid: str, user_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         fetch_collect_mix = getattr(self.downloader.api_client, self.api_method_name, None)
         if not callable(fetch_collect_mix):
             logger.warning("API client missing %s", self.api_method_name)

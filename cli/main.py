@@ -1,22 +1,22 @@
-import asyncio
 import argparse
+import asyncio
 import json
 import logging
 import sys
 from pathlib import Path
 from typing import Any
 
-from config import ConfigLoader
 from auth import CookieManager
-from storage import Database, FileManager
-from control import QueueManager, RateLimiter, RetryHandler
-from core import DouyinAPIClient, URLParser, DownloaderFactory
 from cli.progress_display import ProgressDisplay
-from utils.logger import setup_logger, set_console_log_level
+from config import ConfigLoader
+from control import QueueManager, RateLimiter, RetryHandler
+from core import DouyinAPIClient, DownloaderFactory, URLParser
+from storage import Database, FileManager
+from utils.logger import set_console_log_level, setup_logger
 from utils.notifier import build_notifier
 from utils.validators import is_short_url, normalize_short_url
 
-logger = setup_logger('CLI')
+logger = setup_logger("CLI")
 display = ProgressDisplay()
 
 
@@ -39,10 +39,10 @@ async def download_url(
 ):
     if progress_reporter:
         progress_reporter.advance_step("初始化", "创建下载组件")
-    file_manager = FileManager(config.get('path'))
-    rate_limiter = RateLimiter(max_per_second=float(config.get('rate_limit', 2) or 2))
-    retry_handler = RetryHandler(max_retries=config.get('retry_times', 3))
-    queue_manager = QueueManager(max_workers=int(config.get('thread', 5) or 5))
+    file_manager = FileManager(config.get("path"))
+    rate_limiter = RateLimiter(max_per_second=float(config.get("rate_limit", 2) or 2))
+    retry_handler = RetryHandler(max_retries=config.get("retry_times", 3))
+    queue_manager = QueueManager(max_workers=int(config.get("thread", 5) or 5))
 
     original_url = url
 
@@ -76,7 +76,7 @@ async def download_url(
             progress_reporter.advance_step("创建下载器", f"URL 类型: {parsed['type']}")
 
         downloader = DownloaderFactory.create(
-            parsed['type'],
+            parsed["type"],
             config,
             api_client,
             file_manager,
@@ -115,16 +115,19 @@ async def download_url(
             )
         if result and database:
             safe_config = {
-                k: v for k, v in config.config.items()
+                k: v
+                for k, v in config.config.items()
                 if k not in ("cookies", "cookie", "transcript")
             }
-            await database.add_history({
-                'url': original_url,
-                'url_type': parsed['type'],
-                'total_count': result.total,
-                'success_count': result.success,
-                'config': json.dumps(safe_config, ensure_ascii=False),
-            })
+            await database.add_history(
+                {
+                    "url": original_url,
+                    "url_type": parsed["type"],
+                    "total_count": result.total,
+                    "success_count": result.success,
+                    "config": json.dumps(safe_config, ensure_ascii=False),
+                }
+            )
 
         if progress_reporter:
             if result:
@@ -145,7 +148,7 @@ async def main_async(args):
     if args.config:
         config_path = args.config
     else:
-        config_path = 'config.yml'
+        config_path = "config.yml"
 
     # 若 config 不存在且使用了 --hot-board / --search / --serve 等独立子命令，
     # 允许以默认配置运行（只要命令行提供了 --path）。
@@ -179,8 +182,8 @@ async def main_async(args):
     if args.url:
         urls = args.url if isinstance(args.url, list) else [args.url]
         for url in urls:
-            if url not in config.get('link', []):
-                config.update(link=config.get('link', []) + [url])
+            if url not in config.get("link", []):
+                config.update(link=config.get("link", []) + [url])
 
     if args.thread:
         config.update(thread=args.thread)
@@ -197,8 +200,8 @@ async def main_async(args):
         display.print_warning("Cookies may be invalid or incomplete")
 
     database = None
-    if config.get('database'):
-        db_path = config.get('database_path', 'dy_downloader.db') or 'dy_downloader.db'
+    if config.get("database"):
+        db_path = config.get("database_path", "dy_downloader.db") or "dy_downloader.db"
         database = Database(db_path=str(db_path))
         await database.initialize()
         display.print_success("Database initialized")
@@ -241,6 +244,7 @@ async def main_async(args):
 
     if all_results:
         from core.downloader_base import DownloadResult
+
         total_result = DownloadResult()
         for r in all_results:
             total_result.total += r.total
@@ -265,17 +269,13 @@ async def _run_discovery_subcommand(args, config: ConfigLoader) -> None:
     cookie_manager = CookieManager()
     cookie_manager.set_cookies(cookies)
 
-    base_path = Path(config.get('path') or './Downloaded/')
+    base_path = Path(config.get("path") or "./Downloaded/")
 
     async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
         if args.hot_board is not None:
             display.print_info("拉取抖音热搜榜...")
-            result = await dump_hot_board(
-                api_client, base_path, limit=int(args.hot_board or 0)
-            )
-            display.print_success(
-                f"热榜已保存：{result['count']} 条 -> {result['path']}"
-            )
+            result = await dump_hot_board(api_client, base_path, limit=int(args.hot_board or 0))
+            display.print_success(f"热榜已保存：{result['count']} 条 -> {result['path']}")
         if args.search:
             display.print_info(f"搜索关键词：{args.search}")
             result = await search_and_dump(
@@ -284,9 +284,7 @@ async def _run_discovery_subcommand(args, config: ConfigLoader) -> None:
                 base_path,
                 max_items=int(args.search_max or 50),
             )
-            display.print_success(
-                f"搜索结果已保存：{result['count']} 条 -> {result['path']}"
-            )
+            display.print_success(f"搜索结果已保存：{result['count']} 条 -> {result['path']}")
 
 
 async def _run_serve_subcommand(args, config: ConfigLoader) -> None:
@@ -300,15 +298,11 @@ async def _run_serve_subcommand(args, config: ConfigLoader) -> None:
         )
         return
 
-    display.print_info(
-        f"启动 REST 服务：http://{args.serve_host}:{args.serve_port}"
-    )
+    display.print_info(f"启动 REST 服务：http://{args.serve_host}:{args.serve_port}")
     await run_server(config, host=args.serve_host, port=args.serve_port)
 
 
-async def _dispatch_notifications(
-    config: ConfigLoader, total_result: Any, url_count: int
-) -> None:
+async def _dispatch_notifications(config: ConfigLoader, total_result: Any, url_count: int) -> None:
     notifier = build_notifier(config)
     if not notifier.enabled:
         return
@@ -341,51 +335,47 @@ async def _dispatch_notifications(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Douyin Downloader - 抖音批量下载工具')
-    parser.add_argument('-u', '--url', action='append', help='Download URL(s)')
-    parser.add_argument('-c', '--config', help='Config file path (default: config.yml)')
-    parser.add_argument('-p', '--path', help='Save path')
-    parser.add_argument('-t', '--thread', type=int, help='Thread count')
-    parser.add_argument('--show-warnings', action='store_true', help='Show warning logs in console')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose console logs')
+    parser = argparse.ArgumentParser(description="Douyin Downloader - 抖音批量下载工具")
+    parser.add_argument("-u", "--url", action="append", help="Download URL(s)")
+    parser.add_argument("-c", "--config", help="Config file path (default: config.yml)")
+    parser.add_argument("-p", "--path", help="Save path")
+    parser.add_argument("-t", "--thread", type=int, help="Thread count")
+    parser.add_argument("--show-warnings", action="store_true", help="Show warning logs in console")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose console logs")
     parser.add_argument(
-        '--hot-board',
+        "--hot-board",
         type=int,
-        nargs='?',
+        nargs="?",
         const=0,
         default=None,
-        metavar='N',
-        help='拉取抖音热搜榜并导出 JSONL，可选上限 N（默认全部）',
+        metavar="N",
+        help="拉取抖音热搜榜并导出 JSONL，可选上限 N（默认全部）",
     )
     parser.add_argument(
-        '--search',
+        "--search",
         type=str,
         default=None,
-        metavar='KEYWORD',
-        help='按关键词搜索作品并导出 JSONL',
+        metavar="KEYWORD",
+        help="按关键词搜索作品并导出 JSONL",
     )
     parser.add_argument(
-        '--search-max',
+        "--search-max",
         type=int,
         default=50,
-        help='--search 场景下最多拉取条数（默认 50）',
+        help="--search 场景下最多拉取条数（默认 50）",
     )
     parser.add_argument(
-        '--serve',
-        action='store_true',
-        help='以 REST API 服务模式运行（需要安装 fastapi + uvicorn）',
+        "--serve",
+        action="store_true",
+        help="以 REST API 服务模式运行（需要安装 fastapi + uvicorn）",
     )
-    parser.add_argument(
-        '--serve-host', type=str, default='127.0.0.1', help='REST 服务监听地址'
-    )
-    parser.add_argument(
-        '--serve-port', type=int, default=8000, help='REST 服务监听端口'
-    )
+    parser.add_argument("--serve-host", type=str, default="127.0.0.1", help="REST 服务监听地址")
+    parser.add_argument("--serve-port", type=int, default=8000, help="REST 服务监听端口")
     try:
         from __init__ import __version__
     except ImportError:
         __version__ = "2.0.0"
-    parser.add_argument('--version', action='version', version=__version__)
+    parser.add_argument("--version", action="version", version=__version__)
 
     args = parser.parse_args()
 
@@ -407,5 +397,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

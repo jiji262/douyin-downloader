@@ -7,9 +7,7 @@ class TestPickHighestQualityPlayAddr:
     def test_empty_input_returns_none(self):
         assert BaseDownloader._pick_highest_quality_play_addr({}) is None
         assert BaseDownloader._pick_highest_quality_play_addr({"bit_rate": []}) is None
-        assert (
-            BaseDownloader._pick_highest_quality_play_addr({"bit_rate": None}) is None
-        )
+        assert BaseDownloader._pick_highest_quality_play_addr({"bit_rate": None}) is None
 
     def test_selects_highest_bit_rate(self):
         video = {
@@ -107,9 +105,7 @@ def test_collect_image_live_urls_prefers_high_bitrate(tmp_path):
                             },
                             {
                                 "bit_rate": 2_000_000,
-                                "play_addr": {
-                                    "url_list": ["https://high.example/live"]
-                                },
+                                "play_addr": {"url_list": ["https://high.example/live"]},
                             },
                         ],
                         "play_addr": {"url_list": ["https://fallback.example/live"]},

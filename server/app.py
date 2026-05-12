@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
-from core import DouyinAPIClient, URLParser, DownloaderFactory
+from core import DouyinAPIClient, DownloaderFactory, URLParser
 from server.jobs import JobManager
 from storage import FileManager
 from utils.logger import setup_logger
@@ -53,11 +53,10 @@ class _ServerDeps:
         # on macOS is often '/' when launched by Electron).
         if config.config_path:
             from pathlib import Path
-            cookie_file = str(
-                Path(config.config_path).resolve().parent / '.cookies.json'
-            )
+
+            cookie_file = str(Path(config.config_path).resolve().parent / ".cookies.json")
         else:
-            cookie_file = '.cookies.json'
+            cookie_file = ".cookies.json"
         self.cookie_manager = CookieManager(cookie_file=cookie_file)
         # Load cookies from the config (env var / YAML cookie key) first, then
         # fall back to whatever is already on disk in the cookie file. This
@@ -71,15 +70,9 @@ class _ServerDeps:
             # session without requiring a fresh login on every app restart.
             self.cookie_manager.get_cookies()
         self.file_manager = FileManager(config.get("path"))
-        self.rate_limiter = RateLimiter(
-            max_per_second=float(config.get("rate_limit", 2) or 2)
-        )
-        self.retry_handler = RetryHandler(
-            max_retries=int(config.get("retry_times", 3) or 3)
-        )
-        self.queue_manager = QueueManager(
-            max_workers=int(config.get("thread", 5) or 5)
-        )
+        self.rate_limiter = RateLimiter(max_per_second=float(config.get("rate_limit", 2) or 2))
+        self.retry_handler = RetryHandler(max_retries=int(config.get("retry_times", 3) or 3))
+        self.queue_manager = QueueManager(max_workers=int(config.get("thread", 5) or 5))
 
 
 async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:

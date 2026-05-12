@@ -3,9 +3,9 @@ from typing import Callable, TypeVar
 
 from utils.logger import setup_logger
 
-logger = setup_logger('RetryHandler')
+logger = setup_logger("RetryHandler")
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class RetryHandler:
@@ -26,7 +26,9 @@ class RetryHandler:
                 last_error = e
                 if attempt < self.max_retries:
                     delay = self.retry_delays[min(attempt, len(self.retry_delays) - 1)]
-                    logger.warning("Attempt %d failed: %s, retrying in %ds...", attempt + 1, e, delay)
+                    logger.warning(
+                        "Attempt %d failed: %s, retrying in %ds...", attempt + 1, e, delay
+                    )
                     await asyncio.sleep(delay)
 
         logger.error("All %d attempts failed: %s", total_attempts, last_error)

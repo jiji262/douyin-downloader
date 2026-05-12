@@ -13,6 +13,7 @@ async def test_process_tasks_returns_results_in_order():
     def make_task(value):
         async def _task():
             return value
+
         return _task
 
     tasks = [make_task(i) for i in range(5)]

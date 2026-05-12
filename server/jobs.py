@@ -140,9 +140,7 @@ class JobManager:
                 job.failed = int(counts.get("failed", 0))
                 job.skipped = int(counts.get("skipped", 0))
                 # 只要跑完就是 success；具体成功/失败个数通过字段区分
-                job.status = (
-                    JobStatus.SUCCESS if job.failed == 0 else JobStatus.FAILED
-                )
+                job.status = JobStatus.SUCCESS if job.failed == 0 else JobStatus.FAILED
             except Exception as exc:
                 job.status = JobStatus.FAILED
                 job.error = f"{type(exc).__name__}: {exc}"
