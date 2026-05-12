@@ -48,6 +48,10 @@ dev = [
     "pytest-asyncio>=0.21",
     "ruff>=0.4.0",
     "httpx>=0.25",
+    # Property-based tests (tests/test_database_top_authors.py,
+    # test_notifier_redactor_property.py, test_proxy_validator_parity.py).
+    # Missing hypothesis caused 3 collection errors pre-fix.
+    "hypothesis>=6.0",
 ]
 all = [
     "douyin-downloader[browser,transcribe,server,dev]",
