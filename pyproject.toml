@@ -68,6 +68,16 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["."]
 testpaths = ["tests"]
+# aiosqlite's background worker thread occasionally outlives the test's
+# event loop (TestClient's lifespan tears down the loop immediately after
+# shutdown, but the worker may wake one more time to `call_soon_threadsafe`
+# and hit `RuntimeError: Event loop is closed`). This is a known upstream
+# aiosqlite/pytest-asyncio interaction, not our bug — the connection is
+# already closed cleanly at the contract level. Mirrors desktop's config
+# so `pytest tests/` output is clean in both projects.
+filterwarnings = [
+  "ignore:Exception in thread Thread-.*_connection_worker_thread:pytest.PytestUnhandledThreadExceptionWarning",
+]
 
 [tool.ruff]
 target-version = "py38"
