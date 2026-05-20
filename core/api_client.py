@@ -34,6 +34,7 @@ _USER_AGENT_POOL = [
 
 class DouyinAPIClient:
     BASE_URL = "https://www.douyin.com"
+    LIVE_BASE_URL = "https://live.douyin.com"
     _BROWSER_COOKIE_BLOCKLIST = {
         "sessionid",
         "sessionid_ss",
@@ -148,13 +149,20 @@ class DouyinAPIClient:
         signed_url, _xbogus, ua = self._signer.build(url)
         return signed_url, ua
 
-    def build_signed_path(self, path: str, params: Dict[str, Any]) -> Tuple[str, str]:
+    def build_signed_path(
+        self,
+        path: str,
+        params: Dict[str, Any],
+        *,
+        base_url: Optional[str] = None,
+    ) -> Tuple[str, str]:
         query = urlencode(params)
-        base_url = f"{self.BASE_URL}{path}"
-        ab_signed = self._build_abogus_url(base_url, query)
+        host = base_url or self.BASE_URL
+        full_base = f"{host}{path}"
+        ab_signed = self._build_abogus_url(full_base, query)
         if ab_signed:
             return ab_signed
-        return self.sign_url(f"{base_url}?{query}")
+        return self.sign_url(f"{full_base}?{query}")
 
     def _build_abogus_url(self, base_url: str, query: str) -> Optional[Tuple[str, str]]:
         if not self._abogus_enabled:
@@ -169,6 +177,20 @@ class DouyinAPIClient:
             logger.warning("Failed to generate a_bogus, fallback to X-Bogus: %s", exc)
             return None
 
+    def _host_headers(self, base_url: Optional[str]) -> Dict[str, str]:
+        """Return per-host request headers derived from the base URL."""
+        if base_url is None:
+            return {}
+        _per_host: Dict[str, Dict[str, str]] = {
+            self.LIVE_BASE_URL: {
+                "Referer": f"{self.LIVE_BASE_URL}/",
+                "Origin": self.LIVE_BASE_URL,
+            },
+        }
+        if base_url not in _per_host and base_url != self.BASE_URL:
+            logger.debug("No extra host headers defined for base_url=%s", base_url)
+        return _per_host.get(base_url, {})
+
     async def _request_json(
         self,
         path: str,
@@ -176,17 +198,24 @@ class DouyinAPIClient:
         *,
         suppress_error: bool = False,
         max_retries: int = 3,
+        base_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         await self._ensure_session()
         delays = [1, 2, 5]
         last_exc: Optional[Exception] = None
 
+        base_headers = {**self.headers}
+        host_extra = self._host_headers(base_url)
+        if host_extra:
+            base_headers.update(host_extra)
+
         for attempt in range(max_retries):
-            signed_url, ua = self.build_signed_path(path, params)
+            signed_url, ua = self.build_signed_path(path, params, base_url=base_url)
             try:
+                req_headers = {**base_headers, "User-Agent": ua}
                 async with self._session.get(
                     signed_url,
-                    headers={**self.headers, "User-Agent": ua},
+                    headers=req_headers,
                     proxy=self.proxy or None,
                 ) as response:
                     if response.status == 200:
@@ -512,6 +541,7 @@ class DouyinAPIClient:
             "/webcast/room/web/enter/",
             params,
             suppress_error=True,
+            base_url=self.LIVE_BASE_URL,
         )
         if not raw:
             return None
