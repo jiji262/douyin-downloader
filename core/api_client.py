@@ -179,12 +179,17 @@ class DouyinAPIClient:
 
     def _host_headers(self, base_url: Optional[str]) -> Dict[str, str]:
         """Return per-host request headers derived from the base URL."""
-        if base_url == self.LIVE_BASE_URL:
-            return {
+        if base_url is None:
+            return {}
+        _per_host: Dict[str, Dict[str, str]] = {
+            self.LIVE_BASE_URL: {
                 "Referer": f"{self.LIVE_BASE_URL}/",
                 "Origin": self.LIVE_BASE_URL,
-            }
-        return {}
+            },
+        }
+        if base_url not in _per_host and base_url != self.BASE_URL:
+            logger.debug("No extra host headers defined for base_url=%s", base_url)
+        return _per_host.get(base_url, {})
 
     async def _request_json(
         self,
