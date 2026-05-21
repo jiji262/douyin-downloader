@@ -81,10 +81,23 @@ class UserDownloader(BaseDownloader):
         has_regular_mode = bool(normalized_modes - self.SELF_COLLECT_MODES)
 
         if has_collect_mode and sec_uid != "self":
-            logger.error(
-                "Modes collect/collectmix only support /user/self?showTab=favorite_collection"
-            )
-            return False
+            # Desktop "我的内容 / 下载本收藏夹" sends the real self sec_uid
+            # together with a ``collects_id`` filter — by the time the
+            # request reaches here the sidecar has already verified via
+            # the cookie scope (``_resolve_viewer_sec_uid``) that the
+            # caller is the logged-in user, so a real sec_uid + collect
+            # mode + collects_id is the legit my-content path. Without
+            # this branch ``download()`` would short-circuit and produce
+            # an empty DownloadResult, which the JobManager renders as
+            # the silent "已完成 0 项" failure.
+            collects_id = (str(self.config.get("collects_id") or "")).strip()
+            if not collects_id:
+                logger.error(
+                    "Modes collect/collectmix only support "
+                    "/user/self?showTab=favorite_collection or "
+                    "my-content 下载本收藏夹 (collects_id required)"
+                )
+                return False
         if has_collect_mode and has_regular_mode:
             logger.error("Modes collect/collectmix cannot be combined with post/like/mix/music")
             return False
@@ -121,11 +134,36 @@ class UserDownloader(BaseDownloader):
                 "nickname": "self",
             }
 
+        # Desktop my-content "下载本收藏夹" path: real sec_uid + collect
+        # mode + collects_id filter. The cookie scope upstream already
+        # guarantees this is the viewer themselves, so we can skip the
+        # network round-trip via ``api_client.get_user_info``.
+        if (
+            normalized_modes.issubset(self.SELF_COLLECT_MODES)
+            and (str(self.config.get("collects_id") or "")).strip()
+        ):
+            self._progress_update_step("获取作者信息", "使用当前登录账号收藏夹上下文")
+            return {
+                "uid": sec_uid,
+                "sec_uid": sec_uid,
+                "nickname": "self",
+            }
+
         self._progress_update_step("获取作者信息", f"sec_uid={sec_uid}")
         return await self.api_client.get_user_info(sec_uid)
 
     def _get_mode_strategy(self, mode: str):
         normalized_mode = (mode or "").strip()
+
+        # The "collect" strategy supports an optional ``collects_id`` filter
+        # that constrains paging to a single folder (desktop "我的收藏 / 下载
+        # 本收藏夹"). When the filter is set we bypass the cache so the next
+        # call with a different (or absent) filter doesn't reuse a stale
+        # strategy bound to the previous folder. The no-filter path keeps
+        # caching to preserve the existing CLI behaviour.
+        if normalized_mode == "collect":
+            return self._make_collect_strategy()
+
         if normalized_mode in self._mode_strategy_cache:
             return self._mode_strategy_cache[normalized_mode]
 
@@ -136,6 +174,30 @@ class UserDownloader(BaseDownloader):
         strategy = strategy_cls(self)
         self._mode_strategy_cache[normalized_mode] = strategy
         return strategy
+
+    def _make_collect_strategy(self):
+        """Construct the collect strategy, threading ``collects_id`` from
+        the per-job config when present. Caches only the no-filter path
+        (matching the historic CLI behaviour) so a subsequent call with a
+        different filter doesn't pick up a stale binding.
+        """
+        strategy_cls = self.mode_registry.get("collect")
+        if strategy_cls is None:
+            return None
+
+        raw_filter = self.config.get("collects_id")
+        collects_id = (str(raw_filter).strip() if raw_filter is not None else "") or None
+
+        if collects_id is None:
+            cached = self._mode_strategy_cache.get("collect")
+            if cached is not None:
+                return cached
+            strategy = strategy_cls(self)
+            self._mode_strategy_cache["collect"] = strategy
+            return strategy
+
+        # Filtered path is request-scoped — never cached.
+        return strategy_cls(self, collects_id=collects_id)
 
     async def _download_mode_items(
         self,

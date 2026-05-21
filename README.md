@@ -434,7 +434,7 @@ pytest -q
 | `live.*` | Live stream recording options (max_duration_seconds / chunk_size / idle_timeout_seconds) |
 | `notifications.*` | Bark/Telegram/Webhook push on completion |
 | `server.*` | REST API server tuning (max_jobs, job_ttl_seconds) |
-| `proxy` | HTTP/HTTPS proxy for API requests and media downloads, e.g. `http://127.0.0.1:7890` |
+| `proxy` | HTTP/HTTPS proxy, stable residential proxies such as [Swiftproxy](https://www.swiftproxy.net/?ref=douyindownloader) are recommended for better reliability |
 | `database` | Enable SQLite deduplication and history |
 | `database_path` | SQLite path, default is `dy_downloader.db` in the current working directory |
 | `thread` | Concurrent download count |
