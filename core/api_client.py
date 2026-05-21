@@ -407,6 +407,49 @@ class DouyinAPIClient:
         raw = await self._request_json("/aweme/v1/web/music/list/", params)
         return self._normalize_paged_response(raw, item_keys=["music_list"])
 
+    async def get_following_page(
+        self,
+        sec_uid: str,
+        *,
+        max_time: int = 0,
+        count: int = 20,
+    ) -> Dict[str, Any]:
+        """Fetch a single page of the logged-in account's following list.
+
+        Desktop-only: used by ``core/following.FollowingService`` to sync the
+        "My Following" tab. Douyin's web endpoint paginates via time-based
+        cursoring: the response contains ``min_time`` which must be passed as
+        ``max_time`` in the next request to get the next page. The ``count``
+        parameter is capped at 20 by the server regardless of what we send.
+
+        Returns a normalized dict with ``items``, ``has_more``, ``min_time``,
+        ``max_time``, ``status_code``, and ``raw`` (the full response).
+        """
+        params = await self._default_query()
+        params.update(
+            {
+                "user_id": sec_uid,
+                "sec_user_id": sec_uid,
+                "offset": 0,
+                "count": count,
+                "source_type": "1",
+                "gps_access": "0",
+                "address_book_access": "0",
+                "min_change": "0",
+            }
+        )
+        if max_time > 0:
+            params["max_time"] = max_time
+        raw = await self._request_json("/aweme/v1/web/user/following/list/", params)
+        normalized = self._normalize_paged_response(
+            raw,
+            item_keys=["followings", "follow_list", "user_list"],
+        )
+        # Expose the time-based pagination fields for the sync loop.
+        normalized["min_time"] = int(raw.get("min_time") or 0) if isinstance(raw, dict) else 0
+        normalized["max_time_resp"] = int(raw.get("max_time") or 0) if isinstance(raw, dict) else 0
+        return normalized
+
     async def _build_collect_page_params(self, max_cursor: int, count: int) -> Dict[str, Any]:
         params = await self._default_query()
         params.update(
@@ -454,6 +497,26 @@ class DouyinAPIClient:
         params.update({"sec_user_id": sec_uid})
 
         data = await self._request_json("/aweme/v1/web/user/profile/other/", params)
+        if data:
+            return data.get("user")
+        return None
+
+    async def get_self_info(self) -> Optional[Dict[str, Any]]:
+        """Fetch the logged-in user's own profile.
+
+        Uses the ``/aweme/v1/web/user/profile/self/`` endpoint which
+        identifies the user from the session cookies — no ``sec_uid``
+        parameter needed. Returns the ``user`` dict (containing
+        ``sec_uid``, ``uid``, ``nickname``, etc.) or ``None`` on failure.
+
+        Desktop-only: used by the Following sync to resolve the
+        logged-in user's ``sec_uid`` before calling
+        ``get_following_page``.
+        """
+        params = await self._default_query()
+        data = await self._request_json(
+            "/aweme/v1/web/user/profile/self/", params
+        )
         if data:
             return data.get("user")
         return None
