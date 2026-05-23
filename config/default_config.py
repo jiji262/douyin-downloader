@@ -54,6 +54,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "api_url": "https://api.openai.com/v1/audio/transcriptions",
         "api_key_env": "OPENAI_API_KEY",
         "api_key": "",
+        # When true (default), the desktop sidecar runs the source video
+        # through ffmpeg locally and uploads only the extracted mono mp3
+        # to the transcription endpoint. Saves bandwidth and avoids the
+        # OpenAI 25 MiB single-file ceiling. Set to false to fall back to
+        # uploading the source video itself (legacy behaviour). The UI
+        # deliberately does not surface this toggle — see
+        # ``.kiro/specs/transcript-audio-extract-and-ui`` Requirement 1.
+        "upload_audio_only": True,
     },
     "auto_cookie": False,
     "browser_fallback": {
