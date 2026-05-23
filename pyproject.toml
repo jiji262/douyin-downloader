@@ -8,13 +8,12 @@ version = "2.0.0"
 description = "Douyin batch downloader with no-watermark support"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -29,6 +28,13 @@ dependencies = [
     "pyyaml>=6.0.1",
     "python-dateutil>=2.8.2",
     "gmssl>=3.2.2",
+    # Bundled ffmpeg static binary used by core/audio_extraction.py to
+    # extract audio tracks before uploading to the OpenAI-compatible
+    # transcription endpoint. Pinned exact so the sidecar builds are
+    # reproducible across CI machines. 0.6.0 is the first release that
+    # ships a native macOS arm64 wheel; older versions only shipped
+    # x86_64 macOS binaries.
+    "imageio-ffmpeg==0.6.0",
 ]
 
 [project.optional-dependencies]

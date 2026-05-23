@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -229,6 +230,21 @@ class ConfigLoader:
         except OSError as exc:
             logger.warning("Failed to write config %s: %s", target, exc)
             return False
+
+        # ``transcript.api_key`` (Requirement 5) and other potentially
+        # sensitive fields land inside this file as plaintext. On POSIX
+        # we tighten permissions to 0o600 (owner read/write only) right
+        # after the write so a co-located malicious process or another
+        # local user can't ``cat`` the key. On Windows we skip — POSIX
+        # mode bits aren't meaningful, ACLs are the right knob, and
+        # changing them belongs to a separate hardening task.
+        if sys.platform != "win32":
+            try:
+                os.chmod(target, 0o600)
+            except OSError as exc:
+                logger.warning(
+                    "settings_chmod_failed: path=%s error=%r", target, exc
+                )
         return True
 
     def get(self, key: str, default: Any = None) -> Any:
