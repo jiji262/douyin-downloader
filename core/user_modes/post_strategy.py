@@ -24,6 +24,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         pagination_restricted = False
 
         number_limit = int(self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0)
+        media_filter_enabled = self._media_type_filter_enabled()
 
         self.downloader._progress_update_step("拉取作品列表", "分页抓取中")
 
@@ -59,9 +60,13 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                 pagination_restricted = True
                 break
 
-            if number_limit > 0 and len(aweme_list) >= number_limit:
-                aweme_list = aweme_list[:number_limit]
-                break
+            if number_limit > 0:
+                if media_filter_enabled:
+                    if len(self._filter_by_media_type(aweme_list)) >= number_limit:
+                        break
+                elif len(aweme_list) >= number_limit:
+                    aweme_list = aweme_list[:number_limit]
+                    break
 
         if pagination_restricted:
             self.downloader._progress_update_step("拉取作品列表", "分页受限，尝试浏览器回补")
