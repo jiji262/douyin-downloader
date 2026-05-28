@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from core.downloader_base import DownloadResult
 from utils.logger import setup_logger
@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from core.user_downloader import UserDownloader
 
 logger = setup_logger("UserModeStrategy")
+
+_MEDIA_TYPE_CHOICES = {"video", "gallery"}
 
 
 class BaseUserModeStrategy(ABC):
@@ -43,6 +45,7 @@ class BaseUserModeStrategy(ABC):
     def apply_filters(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         filtered = self._filter_pinned_items(items)
         filtered = self.downloader._filter_by_time(filtered)
+        filtered = self._filter_by_media_type(filtered)
         return self.downloader._limit_count(filtered, self.mode_name)
 
     def _filter_pinned_items(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -50,6 +53,30 @@ class BaseUserModeStrategy(ABC):
         if callable(filterer):
             return filterer(items)
         return items
+
+    def _configured_media_types(self) -> Optional[Set[str]]:
+        if self.mode_name == "music":
+            return None
+        raw = self.downloader.config.get("media_types", None)
+        if not isinstance(raw, (list, tuple, set)):
+            return None
+        media_types = {value for value in raw if isinstance(value, str)}
+        selected = media_types.intersection(_MEDIA_TYPE_CHOICES)
+        if not selected or selected == _MEDIA_TYPE_CHOICES:
+            return None
+        return selected
+
+    def _media_type_filter_enabled(self) -> bool:
+        return self._configured_media_types() is not None
+
+    def _filter_by_media_type(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        selected = self._configured_media_types()
+        if selected is None:
+            return items
+        detector = getattr(self.downloader, "_detect_media_type", None)
+        if not callable(detector):
+            return items
+        return [item for item in items if detector(item) in selected]
 
     async def _collect_paged_aweme(
         self, sec_uid: str, user_info: Dict[str, Any]
@@ -68,6 +95,7 @@ class BaseUserModeStrategy(ABC):
         has_more = True
 
         number_limit = int(self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0)
+        media_filter_enabled = self._media_type_filter_enabled()
         increase_enabled = bool(
             self.downloader.config.get("increase", {}).get(self.mode_name, False)
         )
@@ -104,9 +132,13 @@ class BaseUserModeStrategy(ABC):
             else:
                 aweme_list.extend(page_items)
 
-            if number_limit > 0 and len(aweme_list) >= number_limit:
-                aweme_list = aweme_list[:number_limit]
-                break
+            if number_limit > 0:
+                if media_filter_enabled:
+                    if len(self._filter_by_media_type(aweme_list)) >= number_limit:
+                        break
+                elif len(aweme_list) >= number_limit:
+                    aweme_list = aweme_list[:number_limit]
+                    break
 
             has_more = bool(page.get("has_more", False))
             max_cursor = int(page.get("max_cursor", 0) or 0)
