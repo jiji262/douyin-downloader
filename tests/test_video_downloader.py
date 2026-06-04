@@ -93,9 +93,57 @@ async def test_video_downloader_reports_item_progress(tmp_path, monkeypatch):
 
     assert result.total == 1
     assert result.success == 1
-    assert reporter.item_totals == [(1, "单视频下载")]
-    assert ("下载作品", "单视频资源下载中") in reporter.step_updates
+    assert reporter.item_totals == [(1, "单作品下载")]
+    assert ("下载作品", "单作品资源下载中") in reporter.step_updates
     assert reporter.item_events == [("success", "123")]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_downloader_downloads_note_video_fallback(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    aweme_id = "7646971177114611826"
+
+    async def _fake_should_download(self, _aweme_id):
+        return True
+
+    async def _fake_get_video_detail(_aweme_id: str):
+        assert _aweme_id == aweme_id
+        return {
+            "aweme_id": aweme_id,
+            "aweme_type": 68,
+            "desc": "note 视频作品",
+            "video": {
+                "play_addr_h264": {
+                    "url_list": ["https://v3-web.douyinvod.com/note-h264.mp4"]
+                }
+            },
+        }
+
+    async def _fake_get_session():
+        return object()
+
+    saved = []
+
+    async def _fake_download_with_retry(self, url, save_path, _session, **_kwargs):
+        saved.append((url, save_path))
+        return True
+
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
+    monkeypatch.setattr(api_client, "get_video_detail", _fake_get_video_detail)
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    result = await downloader.download({"type": "gallery", "aweme_id": aweme_id})
+
+    assert result.total == 1
+    assert result.success == 1
+    assert result.failed == 0
+    assert saved[0][0] == "https://v3-web.douyinvod.com/note-h264.mp4"
+    assert saved[0][1].suffix == ".mp4"
 
     await api_client.close()
 
@@ -158,6 +206,42 @@ async def test_build_no_watermark_url_avoids_playwm_when_uri_can_be_signed(tmp_p
 
     assert url == signed_url
     assert headers["User-Agent"] == "UnitTestAgent/2.0"
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    signed_url = "https://www.douyin.com/aweme/v1/play/?video_id=clean&watermark=0"
+
+    def _fake_build_signed_path(path, params):
+        assert path == "/aweme/v1/play/"
+        assert params["video_id"] == "clean"
+        return signed_url, "UnitTestAgent/2.1"
+
+    monkeypatch.setattr(api_client, "build_signed_path", _fake_build_signed_path)
+
+    aweme = {
+        "aweme_id": "1",
+        "video": {
+            "play_addr_h264": {
+                "url_list": ["https://v3-web.douyinvod.com/direct-h264.mp4"]
+            },
+            "play_addr": {
+                "uri": "clean",
+                "url_list": ["https://v3-web.douyinvod.com/playwm/abc.mp4?watermark=1"],
+            },
+        },
+    }
+
+    url, headers = downloader._build_no_watermark_url(aweme)
+
+    assert url == signed_url
+    assert headers["User-Agent"] == "UnitTestAgent/2.1"
 
     await api_client.close()
 

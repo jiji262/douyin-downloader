@@ -538,16 +538,26 @@ class BaseDownloader(ABC):
 
     # aweme_type codes that indicate image/note content
     _GALLERY_AWEME_TYPES = {2, 68, 150}
+    _PLAY_ADDR_KEYS = (
+        "play_addr_h264",
+        "play_addr_265",
+        "play_addr_256",
+        "play_addr",
+    )
 
     def _detect_media_type(self, aweme_data: Dict[str, Any]) -> str:
-        if (
-            aweme_data.get("image_post_info")
-            or aweme_data.get("images")
-            or aweme_data.get("image_list")
-        ):
+        if self._iter_gallery_items(aweme_data):
             return "gallery"
         aweme_type = aweme_data.get("aweme_type")
         if isinstance(aweme_type, int) and aweme_type in self._GALLERY_AWEME_TYPES:
+            video = aweme_data.get("video") if isinstance(aweme_data.get("video"), dict) else {}
+            if self._has_video_source(video):
+                logger.info(
+                    "Detected note video via aweme_type=%s for aweme %s",
+                    aweme_type,
+                    aweme_data.get("aweme_id"),
+                )
+                return "video"
             logger.info(
                 "Detected gallery via aweme_type=%s for aweme %s",
                 aweme_type,
@@ -561,9 +571,7 @@ class BaseDownloader(ABC):
     ) -> Optional[Tuple[str, Dict[str, str]]]:
         video = aweme_data.get("video", {})
         quality = str(self.config.get("video_quality") or "highest")
-        play_addr = self._pick_play_addr_by_quality(video, quality) or video.get(
-            "play_addr", {}
-        )
+        play_addr = self._pick_preferred_play_addr(video, quality) or {}
         url_candidates = [c for c in (play_addr.get("url_list") or []) if c]
         url_candidates.sort(key=lambda u: 0 if "watermark=0" in u else 1)
 
@@ -701,6 +709,37 @@ class BaseDownloader(ABC):
         entries.sort(key=lambda t: (-t[0], -t[1]))
         return entries[0][2]
 
+    @staticmethod
+    def _pick_preferred_play_addr(
+        video: Dict[str, Any], quality: str = "highest"
+    ) -> Optional[Dict[str, Any]]:
+        preferred = BaseDownloader._pick_play_addr_by_quality(video, quality)
+        if preferred:
+            return preferred
+        if not isinstance(video, dict):
+            return None
+        primary = video.get("play_addr")
+        if isinstance(primary, dict) and primary.get("uri"):
+            return primary
+        for key in BaseDownloader._PLAY_ADDR_KEYS:
+            candidate = video.get(key)
+            if isinstance(candidate, dict) and (
+                BaseDownloader._extract_first_url(candidate) or candidate.get("uri")
+            ):
+                return candidate
+        return None
+
+    @staticmethod
+    def _has_video_source(video: Dict[str, Any]) -> bool:
+        if BaseDownloader._pick_preferred_play_addr(video):
+            return True
+        if not isinstance(video, dict):
+            return False
+        return bool(
+            video.get("vid")
+            or (isinstance(video.get("download_addr"), dict) and video["download_addr"].get("uri"))
+        )
+
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
         return [
             candidates[0]
@@ -742,9 +781,12 @@ class BaseDownloader(ABC):
                 continue
             video = item.get("video") if isinstance(item.get("video"), dict) else {}
             # 实况图同样会有 bit_rate 多档，按配置的画质偏好选择对应档位。
-            preferred_play_addr = self._pick_play_addr_by_quality(video, quality)
+            preferred_play_addr = self._pick_preferred_play_addr(video, quality)
             live_url = self._pick_first_media_url(
                 preferred_play_addr,
+                video.get("play_addr_h264"),
+                video.get("play_addr_265"),
+                video.get("play_addr_256"),
                 video.get("play_addr"),
                 video.get("download_addr"),
                 item.get("video_play_addr"),

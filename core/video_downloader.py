@@ -16,8 +16,8 @@ class VideoDownloader(BaseDownloader):
             return result
 
         result.total = 1
-        self._progress_set_item_total(1, "单视频下载")
-        self._progress_update_step("下载作品", "单视频资源下载中")
+        self._progress_set_item_total(1, "单作品下载")
+        self._progress_update_step("下载作品", "单作品资源下载中")
 
         if not await self._should_download(aweme_id):
             logger.info("Video %s already downloaded, skipping", aweme_id)
