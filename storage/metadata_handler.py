@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import aiofiles
+
 from utils.logger import setup_logger
 
 logger = setup_logger("MetadataHandler")
@@ -20,12 +21,10 @@ class MetadataHandler:
                 await f.write(json.dumps(data, ensure_ascii=False, indent=2))
             return True
         except Exception as e:
-            logger.error(f"Failed to save metadata: {save_path}, error: {e}")
+            logger.error("Failed to save metadata: %s, error: %s", save_path, e)
             return False
 
-    async def append_download_manifest(
-        self, base_path: Path, record: Dict[str, Any]
-    ) -> bool:
+    async def append_download_manifest(self, base_path: Path, record: Dict[str, Any]) -> bool:
         manifest_path = base_path / "download_manifest.jsonl"
         normalized_record = {
             "recorded_at": datetime.now().isoformat(timespec="seconds"),
@@ -39,9 +38,7 @@ class MetadataHandler:
                     await f.write("\n")
             return True
         except Exception as e:
-            logger.error(
-                f"Failed to append download manifest: {manifest_path}, error: {e}"
-            )
+            logger.error("Failed to append download manifest: %s, error: %s", manifest_path, e)
             return False
 
     async def load_metadata(self, file_path: Path) -> Dict[str, Any]:
@@ -50,5 +47,5 @@ class MetadataHandler:
                 content = await f.read()
                 return json.loads(content)
         except Exception as e:
-            logger.error(f"Failed to load metadata: {file_path}, error: {e}")
+            logger.error("Failed to load metadata: %s, error: %s", file_path, e)
             return {}

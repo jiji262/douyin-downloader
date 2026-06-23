@@ -43,3 +43,11 @@ config*.yml
 !config.example.yml
 .cookies.json
 config/cookies.json
+.omx/
+
+# Editor / IDE local settings
+.claude/
+.idea/
+.vscode/
+.omc/
+.gstack/

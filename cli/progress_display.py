@@ -104,9 +104,7 @@ class ProgressDisplay:
         if self._progress and self._url_task_id is not None:
             detail = ""
             if result:
-                detail = (
-                    f"成功 {result.success} / 失败 {result.failed} / 跳过 {result.skipped}"
-                )
+                detail = f"成功 {result.success} / 失败 {result.failed} / 跳过 {result.skipped}"
             self._progress.update(
                 self._url_task_id,
                 completed=self._URL_STEP_TOTAL,
@@ -116,9 +114,7 @@ class ProgressDisplay:
 
         if self._progress and self._overall_task_id is not None:
             if self._single_url_item_mode:
-                self._progress.update(
-                    self._overall_task_id, completed=self._item_total or 1
-                )
+                self._progress.update(self._overall_task_id, completed=self._item_total or 1)
             else:
                 self._progress.advance(self._overall_task_id, 1)
 
@@ -133,9 +129,7 @@ class ProgressDisplay:
 
         if self._progress and self._overall_task_id is not None:
             if self._single_url_item_mode:
-                self._progress.update(
-                    self._overall_task_id, completed=self._item_total or 1
-                )
+                self._progress.update(self._overall_task_id, completed=self._item_total or 1)
             else:
                 self._progress.advance(self._overall_task_id, 1)
 

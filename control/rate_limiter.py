@@ -1,12 +1,15 @@
 import asyncio
+import random
 import time
 
 
 class RateLimiter:
     def __init__(self, max_per_second: float = 2):
+        if max_per_second <= 0:
+            max_per_second = 2
         self.max_per_second = max_per_second
         self.min_interval = 1.0 / max_per_second
-        self.last_request = 0
+        self.last_request = 0.0
         self._lock = asyncio.Lock()
 
     async def acquire(self):
@@ -18,4 +21,8 @@ class RateLimiter:
                 wait_time = self.min_interval - time_since_last
                 await asyncio.sleep(wait_time)
 
+            # Jitter must run inside the lock so that the next caller waits
+            # min_interval since the actual fire time, not since the prior
+            # caller acquired the lock.
+            await asyncio.sleep(random.uniform(0, 0.5))
             self.last_request = time.time()

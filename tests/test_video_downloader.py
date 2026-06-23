@@ -1,7 +1,10 @@
+import asyncio
 import json
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
@@ -55,9 +58,7 @@ async def test_video_downloader_skip_counts_total(tmp_path, monkeypatch):
     async def _fake_should_download(self, _):
         return False
 
-    downloader._should_download = _fake_should_download.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
 
     result = await downloader.download({"aweme_id": "123"})
 
@@ -84,21 +85,65 @@ async def test_video_downloader_reports_item_progress(tmp_path, monkeypatch):
     async def _fake_download_aweme(self, _aweme_data):
         return True
 
-    downloader._should_download = _fake_should_download.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
     monkeypatch.setattr(api_client, "get_video_detail", _fake_get_video_detail)
-    downloader._download_aweme = _fake_download_aweme.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_aweme = _fake_download_aweme.__get__(downloader, VideoDownloader)
 
     result = await downloader.download({"aweme_id": "123"})
 
     assert result.total == 1
     assert result.success == 1
-    assert reporter.item_totals == [(1, "单视频下载")]
-    assert ("下载作品", "单视频资源下载中") in reporter.step_updates
+    assert reporter.item_totals == [(1, "单作品下载")]
+    assert ("下载作品", "单作品资源下载中") in reporter.step_updates
     assert reporter.item_events == [("success", "123")]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_downloader_downloads_note_video_fallback(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    aweme_id = "7646971177114611826"
+
+    async def _fake_should_download(self, _aweme_id):
+        return True
+
+    async def _fake_get_video_detail(_aweme_id: str):
+        assert _aweme_id == aweme_id
+        return {
+            "aweme_id": aweme_id,
+            "aweme_type": 68,
+            "desc": "note 视频作品",
+            "video": {
+                "play_addr_h264": {
+                    "url_list": ["https://v3-web.douyinvod.com/note-h264.mp4"]
+                }
+            },
+        }
+
+    async def _fake_get_session():
+        return object()
+
+    saved = []
+
+    async def _fake_download_with_retry(self, url, save_path, _session, **_kwargs):
+        saved.append((url, save_path))
+        return True
+
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
+    monkeypatch.setattr(api_client, "get_video_detail", _fake_get_video_detail)
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    result = await downloader.download({"type": "gallery", "aweme_id": aweme_id})
+
+    assert result.total == 1
+    assert result.success == 1
+    assert result.failed == 0
+    assert saved[0][0] == "https://v3-web.douyinvod.com/note-h264.mp4"
+    assert saved[0][1].suffix == ".mp4"
 
     await api_client.close()
 
@@ -118,9 +163,7 @@ async def test_build_no_watermark_url_signs_with_headers(tmp_path, monkeypatch):
         "aweme_id": "1",
         "video": {
             "play_addr": {
-                "url_list": [
-                    "https://www.douyin.com/aweme/v1/play/?video_id=1&watermark=0"
-                ]
+                "url_list": ["https://www.douyin.com/aweme/v1/play/?video_id=1&watermark=0"]
             }
         },
     }
@@ -131,6 +174,74 @@ async def test_build_no_watermark_url_signs_with_headers(tmp_path, monkeypatch):
     assert headers["User-Agent"] == "UnitTestAgent/1.0"
     assert headers["Accept"] == "*/*"
     assert headers["Referer"].startswith("https://www.douyin.com")
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_build_no_watermark_url_avoids_playwm_when_uri_can_be_signed(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    signed_url = "https://www.douyin.com/aweme/v1/play/?video_id=clean&watermark=0"
+
+    def _fake_build_signed_path(path, params):
+        assert path == "/aweme/v1/play/"
+        assert params["video_id"] == "clean"
+        assert params["watermark"] == "0"
+        return signed_url, "UnitTestAgent/2.0"
+
+    monkeypatch.setattr(api_client, "build_signed_path", _fake_build_signed_path)
+
+    aweme = {
+        "aweme_id": "1",
+        "video": {
+            "play_addr": {
+                "uri": "clean",
+                "url_list": ["https://v3-web.douyinvod.com/playwm/abc.mp4?watermark=1"],
+            }
+        },
+    }
+
+    url, headers = downloader._build_no_watermark_url(aweme)
+
+    assert url == signed_url
+    assert headers["User-Agent"] == "UnitTestAgent/2.0"
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    signed_url = "https://www.douyin.com/aweme/v1/play/?video_id=clean&watermark=0"
+
+    def _fake_build_signed_path(path, params):
+        assert path == "/aweme/v1/play/"
+        assert params["video_id"] == "clean"
+        return signed_url, "UnitTestAgent/2.1"
+
+    monkeypatch.setattr(api_client, "build_signed_path", _fake_build_signed_path)
+
+    aweme = {
+        "aweme_id": "1",
+        "video": {
+            "play_addr_h264": {
+                "url_list": ["https://v3-web.douyinvod.com/direct-h264.mp4"]
+            },
+            "play_addr": {
+                "uri": "clean",
+                "url_list": ["https://v3-web.douyinvod.com/playwm/abc.mp4?watermark=1"],
+            },
+        },
+    }
+
+    url, headers = downloader._build_no_watermark_url(aweme)
+
+    assert url == signed_url
+    assert headers["User-Agent"] == "UnitTestAgent/2.1"
 
     await api_client.close()
 
@@ -150,13 +261,9 @@ async def test_should_download_skips_when_aweme_exists_locally(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_download_aweme_assets_uses_publish_date_and_writes_manifest(
-    tmp_path, monkeypatch
-):
+async def test_download_aweme_assets_uses_publish_date_and_writes_manifest(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
-    downloader.config.update(
-        music=False, cover=False, avatar=False, json=False, folderstyle=True
-    )
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
 
     async def _fake_get_session():
         return object()
@@ -169,9 +276,7 @@ async def test_download_aweme_assets_uses_publish_date_and_writes_manifest(
         saved_paths.append(save_path)
         return True
 
-    downloader._download_with_retry = _fake_download_with_retry.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
 
     aweme_id = "7600224486650121526"
     publish_ts = 1707303025
@@ -211,9 +316,7 @@ async def test_download_aweme_assets_uses_publish_date_and_writes_manifest(
 
 
 @pytest.mark.asyncio
-async def test_download_aweme_assets_keeps_success_when_transcript_skipped(
-    tmp_path, monkeypatch
-):
+async def test_download_aweme_assets_keeps_success_when_transcript_skipped(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
     downloader.config.update(
         music=False,
@@ -238,9 +341,7 @@ async def test_download_aweme_assets_keeps_success_when_transcript_skipped(
     async def _fake_download_with_retry(self, _url, _save_path, _session, **_kwargs):
         return True
 
-    downloader._download_with_retry = _fake_download_with_retry.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
 
     aweme_data = {
         "aweme_id": "7600224486650121527",
@@ -255,3 +356,546 @@ async def test_download_aweme_assets_keeps_success_when_transcript_skipped(
     assert success is True
 
     await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_video_writes_cover_avatar_and_json(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False,
+        cover=True,
+        avatar=True,
+        json=True,
+        folderstyle=True,
+        transcript={"enabled": False},
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121527",
+        "desc": "附加资源",
+        "create_time": 1707303025,
+        "author": {
+            "nickname": "测试作者",
+            "avatar_larger": {"url_list": ["https://example.com/avatar.jpg"]},
+        },
+        "video": {
+            "play_addr": {"url_list": ["https://example.com/video.mp4"]},
+            "cover": {"url_list": ["https://example.com/cover.jpg"]},
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert any(path.name.endswith(".mp4") for path in saved_paths)
+    assert any(path.name.endswith("_cover.jpg") for path in saved_paths)
+    assert any(path.name.endswith("_avatar.jpg") for path in saved_paths)
+    metadata_files = list(tmp_path.rglob("*_data.json"))
+    assert len(metadata_files) == 1
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_downloads_live_photo_videos(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121528",
+        "desc": "实况图文",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {"url_list": ["https://example.com/1.webp"]},
+                    "video": {"play_addr": {"url_list": ["https://example.com/1_live.mp4"]}},
+                },
+                {
+                    "video": {"play_addr": {"url_list": ["https://example.com/2_live.mp4"]}},
+                },
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert any(path.suffix == ".webp" for path in saved_paths)
+    assert sum(path.suffix == ".mp4" for path in saved_paths) == 2
+    assert any("_live_1.mp4" in path.name for path in saved_paths)
+    assert any("_live_2.mp4" in path.name for path in saved_paths)
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_preserves_real_image_extensions(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121991",
+        "desc": "图集后缀归一化",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {
+                        "url_list": ["https://example.com/gallery_1.png~tplv-obj.image?x=1"]
+                    }
+                },
+                {
+                    "display_image": {
+                        "url_list": ["https://example.com/gallery_2.jpeg~tplv-resize:1080:0.image"]
+                    }
+                },
+                {
+                    "display_image": {
+                        "url_list": ["https://example.com/gallery_3.jpg?from=unit-test"]
+                    }
+                },
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert [path.suffix for path in saved_paths] == [".png", ".jpeg", ".jpg"]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_uses_response_content_type_for_suffix(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    content = b"fake png content"
+    publish_ts = 1707303025
+    publish_date = datetime.fromtimestamp(publish_ts).strftime("%Y-%m-%d")
+    aweme_id = "7600224486650121992"
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.content_length = len(content)
+    mock_response.headers = {"Content-Type": "image/png; charset=binary"}
+
+    async def iter_chunked(_size):
+        yield content
+
+    mock_response.content = MagicMock()
+    mock_response.content.iter_chunked = iter_chunked
+
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = ctx
+
+    async def _fake_get_session():
+        return mock_session
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    aweme_data = {
+        "aweme_id": aweme_id,
+        "desc": "响应头决定后缀",
+        "create_time": publish_ts,
+        "image_post_info": {
+            "images": [{"display_image": {"url_list": ["https://example.com/gallery_1.image?x=1"]}}]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    save_dir = tmp_path / "测试作者" / "post" / f"{publish_date}_响应头决定后缀_{aweme_id}"
+    saved_files = sorted(path.name for path in save_dir.iterdir() if path.is_file())
+    assert saved_files == [f"{publish_date}_响应头决定后缀_{aweme_id}_1.png"]
+
+    manifest_path = tmp_path / "download_manifest.jsonl"
+    lines = manifest_path.read_text(encoding="utf-8").strip().splitlines()
+    manifest_entry = json.loads(lines[-1])
+    assert manifest_entry["file_names"] == saved_files
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_tries_next_image_candidate(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    attempted_urls = []
+
+    async def _fake_download_with_retry(self, url, _save_path, _session, **_kwargs):
+        attempted_urls.append(url)
+        return url.endswith("good.jpeg")
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121993",
+        "desc": "候选图回退",
+        "image_post_info": {
+            "images": [
+                {
+                    "download_url_list": [
+                        "https://example.com/bad.jpg",
+                        "https://example.com/good.jpeg",
+                    ],
+                    "url_list": ["https://example.com/preview.webp"],
+                }
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert attempted_urls == [
+        "https://example.com/preview.webp",
+        "https://example.com/bad.jpg",
+        "https://example.com/good.jpeg",
+    ]
+
+    await api_client.close()
+
+
+def test_collect_image_urls_prefers_jpeg_over_webp_companion(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100006",
+        "images": [
+            {
+                "download_url_list": [
+                    "https://example.com/image.webp",
+                    "https://example.com/image.jpeg",
+                ],
+            },
+        ],
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+
+    assert urls == ["https://example.com/image.jpeg"]
+
+    asyncio.run(api_client.close())
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_succeeds_with_only_live_videos(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121529",
+        "desc": "仅实况图文",
+        "image_post_info": {
+            "images": [
+                {"video": {"play_addr": {"url_list": ["https://example.com/only_live_1.mp4"]}}},
+                {"video": {"play_addr": {"url_list": ["https://example.com/only_live_2.mp4"]}}},
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert len(saved_paths) == 2
+    assert all(path.suffix == ".mp4" for path in saved_paths)
+    assert any("_live_1.mp4" in path.name for path in saved_paths)
+    assert any("_live_2.mp4" in path.name for path in saved_paths)
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_download_aweme_assets_gallery_fails_when_live_video_download_fails(
+    tmp_path, monkeypatch
+):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        if save_path.name.endswith("_live_2.mp4"):
+            return False
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    aweme_data = {
+        "aweme_id": "7600224486650121530",
+        "desc": "实况下载失败场景",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {"url_list": ["https://example.com/ok.webp"]},
+                    "video": {"play_addr": {"url_list": ["https://example.com/live_ok.mp4"]}},
+                },
+                {"video": {"play_addr": {"url_list": ["https://example.com/live_fail.mp4"]}}},
+            ]
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is False
+    assert any(path.name.endswith(".webp") for path in saved_paths)
+    assert any(path.name.endswith("_live_1.mp4") for path in saved_paths)
+    assert any(path.name.endswith("_live_2.mp4") for path in saved_paths)
+
+    await api_client.close()
+
+
+def test_detect_media_type_by_aweme_type(tmp_path):
+    """aweme_type 2/68/150 should be detected as gallery even without images key."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    for aweme_type in (2, 68, 150):
+        assert downloader._detect_media_type({"aweme_type": aweme_type}) == "gallery"
+
+    assert downloader._detect_media_type({"aweme_type": 4}) == "video"
+    assert downloader._detect_media_type({"aweme_type": 0}) == "video"
+    assert downloader._detect_media_type({}) == "video"
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_old_format_url_list(tmp_path):
+    """Old format: items have url_list directly."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100001",
+        "images": [
+            {"url_list": ["https://example.com/img1.webp"]},
+            {"url_list": ["https://example.com/img2.webp"]},
+        ],
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    assert urls == [
+        "https://example.com/img1.webp",
+        "https://example.com/img2.webp",
+    ]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_old_format_prefers_url_list(tmp_path):
+    """Old format: url_list is the no-watermark image source."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100002",
+        "images": [
+            {
+                "url_list": ["https://example.com/preview1.webp"],
+                "download_url_list": ["https://example.com/download1.webp"],
+            },
+        ],
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    assert urls == ["https://example.com/preview1.webp"]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_new_format_prefers_display_image(tmp_path):
+    """New format: display_image is the no-watermark image source."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100003",
+        "image_post_info": {
+            "images": [
+                {
+                    "download_url": {"url_list": ["https://cdn.example.com/download.webp"]},
+                    "display_image": {"url_list": ["https://cdn.example.com/display.webp"]},
+                },
+            ]
+        },
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    assert urls == ["https://cdn.example.com/display.webp"]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_prefers_aweme_image_url_list_before_display_image(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100003-url-list",
+        "image_post_info": {
+            "images": [
+                {
+                    "url_list": ["https://cdn.example.com/clean-from-aweme.webp"],
+                    "display_image": {
+                        "url_list": ["https://cdn.example.com/tplv-dy-water-v2/display.webp"]
+                    },
+                    "download_url_list": ["https://cdn.example.com/tplv-dy-water-v2/download.webp"],
+                },
+            ]
+        },
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+    assert urls == ["https://cdn.example.com/clean-from-aweme.webp"]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_prefers_non_watermark_gallery_fields(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100004",
+        "image_post_info": {
+            "images": [
+                {
+                    "display_image": {"url_list": ["https://cdn.example.com/clean-display.webp"]},
+                    "download_url": {
+                        "url_list": ["https://cdn.example.com/tplv-dy-water-v2/water-download.webp"]
+                    },
+                    "owner_watermark_image": {
+                        "url_list": ["https://cdn.example.com/owner_watermark_image.webp"]
+                    },
+                },
+                {
+                    "url_list": ["https://cdn.example.com/clean-top.webp"],
+                    "download_url_list": [
+                        "https://cdn.example.com/tplv-dy-water-v2/water-list.webp"
+                    ],
+                },
+            ]
+        },
+    }
+
+    urls = downloader._collect_image_urls(aweme_data)
+
+    assert urls == [
+        "https://cdn.example.com/clean-display.webp",
+        "https://cdn.example.com/clean-top.webp",
+    ]
+
+    asyncio.run(api_client.close())
+
+
+def test_iter_gallery_items_image_list_key(tmp_path):
+    """Some responses use image_list instead of images."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100004",
+        "image_post_info": {
+            "image_list": [{"display_image": {"url_list": ["https://example.com/img.webp"]}}]
+        },
+    }
+
+    items = downloader._iter_gallery_items(aweme_data)
+    assert len(items) == 1
+    assert items[0]["display_image"]["url_list"][0] == "https://example.com/img.webp"
+
+    asyncio.run(api_client.close())
+
+
+def test_iter_gallery_items_top_level_image_list(tmp_path):
+    """Fallback: top-level image_list key."""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100005",
+        "image_list": [{"url_list": ["https://example.com/top.webp"]}],
+    }
+
+    items = downloader._iter_gallery_items(aweme_data)
+    assert len(items) == 1
+
+    asyncio.run(api_client.close())

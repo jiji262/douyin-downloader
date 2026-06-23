@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "douyin-downloader"
+version = "2.0.0"
+description = "Douyin batch downloader with no-watermark support"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "aiohttp>=3.9.0",
+    "aiofiles>=23.2.1",
+    "aiosqlite>=0.19.0",
+    "rich>=13.7.0",
+    "pyyaml>=6.0.1",
+    "python-dateutil>=2.8.2",
+    "gmssl>=3.2.2",
+    # Bundled ffmpeg static binary used by core/audio_extraction.py to
+    # extract audio tracks before uploading to the OpenAI-compatible
+    # transcription endpoint. Pinned exact so the sidecar builds are
+    # reproducible across CI machines. 0.6.0 is the first release that
+    # ships a native macOS arm64 wheel; older versions only shipped
+    # x86_64 macOS binaries.
+    "imageio-ffmpeg==0.6.0",
+]
+
+[project.optional-dependencies]
+browser = [
+    "playwright>=1.40.0",
+]
+transcribe = [
+    "openai-whisper>=20231117",
+]
+server = [
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "pydantic>=2.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.4.0",
+    "httpx>=0.25",
+    # Property-based tests (tests/test_database_top_authors.py,
+    # test_notifier_redactor_property.py, test_proxy_validator_parity.py).
+    # Missing hypothesis caused 3 collection errors pre-fix.
+    "hypothesis>=6.0",
+]
+all = [
+    "douyin-downloader[browser,transcribe,server,dev]",
+]
+
+[project.scripts]
+douyin-dl = "cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*", "tools*", "server*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+# aiosqlite's background worker thread occasionally outlives the test's
+# event loop (TestClient's lifespan tears down the loop immediately after
+# shutdown, but the worker may wake one more time to `call_soon_threadsafe`
+# and hit `RuntimeError: Event loop is closed`). This is a known upstream
+# aiosqlite/pytest-asyncio interaction, not our bug — the connection is
+# already closed cleanly at the contract level. Mirrors desktop's config
+# so `pytest tests/` output is clean in both projects.
+filterwarnings = [
+  "ignore:Exception in thread Thread-.*_connection_worker_thread:pytest.PytestUnhandledThreadExceptionWarning",
+]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

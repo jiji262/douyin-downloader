@@ -19,11 +19,11 @@ Change Log  :
 -------------------------------------------------
 """
 
-import time
 import random
+import time
+from typing import Callable, Dict, List, Union
 
-from gmssl import sm3, func
-from typing import Union, Callable, List, Dict
+from gmssl import func, sm3
 
 
 class StringProcessor:
@@ -305,9 +305,7 @@ class CryptoUtility:
         """
         return param + self.salt
 
-    def process_param(
-        self, param: Union[str, List[int]], add_salt: bool
-    ) -> Union[str, List[int]]:
+    def process_param(self, param: Union[str, List[int]], add_salt: bool) -> Union[str, List[int]]:
         """
         处理输入参数，根据需要添加盐值 (Process input parameter and add salt if needed).
 
@@ -322,9 +320,7 @@ class CryptoUtility:
             param = self.add_salt(param)
         return param
 
-    def params_to_array(
-        self, param: Union[str, List[int]], add_salt: bool = True
-    ) -> List[int]:
+    def params_to_array(self, param: Union[str, List[int]], add_salt: bool = True) -> List[int]:
         """
         获取输入参数的哈希数组 (Get the hash array of the input parameter).
 
@@ -353,6 +349,14 @@ class CryptoUtility:
         result_str = []
         index_b = self.big_array[1]
         initial_value = 0
+        # `value_e` is populated at the end of each loop iteration (see
+        # below) and consumed at the top of the NEXT iteration's `else`
+        # branch (index > 0). The index==0 branch doesn't read it, so
+        # static analysis can't tell that it's always defined before
+        # first use. Pre-declare 0 here to silence F821 without changing
+        # runtime behaviour — the 0 is overwritten on iteration 0 before
+        # any `else` branch runs.
+        value_e = 0
 
         for index, char in enumerate(bytes_str):
             if index == 0:
@@ -374,9 +378,7 @@ class CryptoUtility:
             value_e = self.big_array[(index + 2) % len(self.big_array)]
             sum_initial = (index_b + value_e) % len(self.big_array)
             initial_value = self.big_array[sum_initial]
-            self.big_array[sum_initial] = self.big_array[
-                (index + 2) % len(self.big_array)
-            ]
+            self.big_array[sum_initial] = self.big_array[(index + 2) % len(self.big_array)]
             self.big_array[(index + 2) % len(self.big_array)] = initial_value
             index_b = sum_initial
 
@@ -402,9 +404,7 @@ class CryptoUtility:
         binary_string += "0" * padding_length
 
         # 将二进制字符串分割为6位一组
-        base64_indices = [
-            int(binary_string[i : i + 6], 2) for i in range(0, len(binary_string), 6)
-        ]
+        base64_indices = [int(binary_string[i : i + 6], 2) for i in range(0, len(binary_string), 6)]
 
         # 根据自定义字符表生成输出字符串
         output_string = "".join(
@@ -437,9 +437,7 @@ class CryptoUtility:
                     | ord(abogus_bytes_str[i + 2])
                 )
             elif i + 1 < len(abogus_bytes_str):
-                n = (ord(abogus_bytes_str[i]) << 16) | (
-                    ord(abogus_bytes_str[i + 1]) << 8
-                )
+                n = (ord(abogus_bytes_str[i]) << 16) | (ord(abogus_bytes_str[i + 1]) << 8)
             else:
                 n = ord(abogus_bytes_str[i]) << 16
 
@@ -648,19 +646,13 @@ class ABogus:
         self.array2 = []  # 加密请求头 为空
         self.array3 = []  # 加密UA
         self.options = options  # GET [0, 1, 8] POST [0, 1, 14]
-        self.ua_key = b"\x00\x01\x0E"  # ua加密key
+        self.ua_key = b"\x00\x01\x0e"  # ua加密key
 
-        self.character = (
-            "Dkdpgh2ZmsQB80/MfvV36XI1R45-WUAlEixNLwoqYTOPuzKFjJnry79HbGcaStCe"
-        )
-        self.character2 = (
-            "ckdp1h4ZKsUB80/Mfvw36XIgR25+WQAlEi7NLboqYTOPuzmFjJnryx9HVGDaStCe"
-        )
+        self.character = "Dkdpgh2ZmsQB80/MfvV36XI1R45-WUAlEixNLwoqYTOPuzKFjJnry79HbGcaStCe"
+        self.character2 = "ckdp1h4ZKsUB80/Mfvw36XIgR25+WQAlEi7NLboqYTOPuzmFjJnryx9HVGDaStCe"
         self.character_list = [self.character, self.character2]  # 自定义base64字符表
 
-        self.crypto_utility = CryptoUtility(
-            self.salt, self.character_list
-        )  # 加密工具类
+        self.crypto_utility = CryptoUtility(self.salt, self.character_list)  # 加密工具类
 
         self.user_agent = (
             user_agent
@@ -733,12 +725,8 @@ class ABogus:
         start_encryption = int(time.time() * 1000)
 
         # params参数加盐加密
-        array1 = self.crypto_utility.params_to_array(
-            self.crypto_utility.params_to_array(params)
-        )
-        array2 = self.crypto_utility.params_to_array(
-            self.crypto_utility.params_to_array(body)
-        )
+        array1 = self.crypto_utility.params_to_array(self.crypto_utility.params_to_array(params))
+        array2 = self.crypto_utility.params_to_array(self.crypto_utility.params_to_array(body))
         array3 = self.crypto_utility.params_to_array(
             self.crypto_utility.base64_encode(
                 StringProcessor.to_ord_str(

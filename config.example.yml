@@ -13,6 +13,23 @@ end_time: ""
 
 folderstyle: true
 
+# 文件/目录命名模板。可用变量：
+#   {id} {title} {author} {author_id} {date} {year} {month} {day}
+#   {time} {timestamp} {type} {mode}
+# 要求模板中至少包含 {id} 以避免重名覆盖。
+filename_template: "{date}_{title}_{id}"
+folder_template: "{date}_{title}_{id}"
+
+# 作者目录层命名方式。可选值：
+#   nickname     - 仅作者昵称（默认，最直观，但重名会合并、改名会分裂）
+#   sec_uid      - 作者 sec_uid（稳定唯一，但不直观）
+#   nickname_uid - 昵称_sec_uid（直观 + 唯一，推荐重度用户）
+# 切换只影响后续下载，不会迁移已存在的目录。
+author_dir: "nickname"
+
+# 默认不下载作者主页置顶作品；如需包含置顶，改为 true
+download_pinned: false
+
 mode:
   - post
 
@@ -22,6 +39,8 @@ number:
   allmix: 0
   mix: 0
   music: 0
+  collect: 0
+  collectmix: 0
 
 increase:
   post: false
@@ -32,7 +51,9 @@ increase:
 
 thread: 5
 retry_times: 3
+proxy: ""
 database: true
+database_path: dy_downloader.db
 
 progress:
   quiet_logs: true
@@ -54,6 +75,43 @@ browser_fallback:
   max_scrolls: 240
   idle_rounds: 8
   wait_timeout_seconds: 600
+
+# 评论采集（可选）：启用后每个作品会额外生成 *_comments.json
+comments:
+  enabled: false
+  include_replies: false
+  max_comments: 0   # 0 = 不限
+  page_size: 20
+
+# 直播录制（可选）：当 link 指向 live.douyin.com/{room_id} 或 /follow/live/{room_id} 时生效
+live:
+  max_duration_seconds: 0   # 0 = 录到主播下播
+  chunk_size: 65536
+  idle_timeout_seconds: 30
+
+# 下载完成通知（可选）。providers 支持 bark / telegram / webhook
+notifications:
+  enabled: false
+  on_success: true
+  on_failure: true
+  providers: []
+  # 示例：
+  # providers:
+  #   - type: bark
+  #     url: https://api.day.app/YOUR_DEVICE_KEY
+  #     sound: bell
+  #   - type: telegram
+  #     bot_token: "123456:ABC..."
+  #     chat_id: "987654321"
+  #   - type: webhook
+  #     url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+  #     extra_body:
+  #       msgtype: text
+
+# REST API 服务模式（可选，需额外安装 fastapi + uvicorn）
+server:
+  max_jobs: 500
+  job_ttl_seconds: 86400   # 完成态 job 保留 24 小时
 
 cookies:
   msToken: YOUR_MS_TOKEN

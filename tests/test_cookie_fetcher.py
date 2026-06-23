@@ -2,8 +2,10 @@ import asyncio
 import time
 
 import pytest
+
 from tools.cookie_fetcher import (
     extract_ms_token_from_text,
+    filter_cookies,
     goto_with_fallback,
     try_extract_ms_token,
     wait_for_login_confirmation,
@@ -74,9 +76,7 @@ def test_goto_with_fallback_handles_target_closed():
     class TargetClosedError(Exception):
         pass
 
-    page = FakePage(
-        [TargetClosedError("Target page, context or browser has been closed")]
-    )
+    page = FakePage([TargetClosedError("Target page, context or browser has been closed")])
     wait_until = asyncio.run(goto_with_fallback(page, "https://www.douyin.com/"))
 
     assert wait_until == "target_closed"
@@ -140,9 +140,27 @@ def test_try_extract_ms_token_from_observed_headers():
 
 def test_extract_ms_token_from_text_supports_json_and_query_formats():
     assert (
-        extract_ms_token_from_text(
-            "https://www.douyin.com/?foo=1&msToken=query-token&bar=2"
-        )
+        extract_ms_token_from_text("https://www.douyin.com/?foo=1&msToken=query-token&bar=2")
         == "query-token"
     )
     assert extract_ms_token_from_text('{"msToken":"json-token","x":1}') == "json-token"
+
+
+def test_filter_cookies_keeps_waf_and_fingerprint_keys_but_drops_unrelated_keys():
+    cookies = filter_cookies(
+        {
+            "ttwid": "ttwid-token",
+            "msToken": "ms-token",
+            "_waftokenid": "waf-token",
+            "s_v_web_id": "verify-id",
+            "__ac_signature": "ac-signature",
+            "random_cookie": "should-be-filtered",
+        }
+    )
+
+    assert cookies["ttwid"] == "ttwid-token"
+    assert cookies["msToken"] == "ms-token"
+    assert cookies["_waftokenid"] == "waf-token"
+    assert cookies["s_v_web_id"] == "verify-id"
+    assert cookies["__ac_signature"] == "ac-signature"
+    assert "random_cookie" not in cookies
