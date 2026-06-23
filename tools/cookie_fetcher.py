@@ -8,12 +8,29 @@ from typing import Any, Dict, List, Optional, Sequence
 from urllib.parse import parse_qs, unquote, urlparse
 
 import yaml
+
 from utils.cookie_utils import parse_cookie_header, sanitize_cookies
 
 DEFAULT_URL = "https://www.douyin.com/"
 DEFAULT_OUTPUT = Path("config/cookies.json")
 REQUIRED_KEYS = {"msToken", "ttwid", "odin_tt", "passport_csrf_token"}
 SUGGESTED_KEYS = REQUIRED_KEYS | {"sid_guard", "sessionid", "sid_tt"}
+DEFAULT_AUXILIARY_KEYS = {
+    "_waftokenid",
+    "s_v_web_id",
+    "__ac_nonce",
+    "__ac_signature",
+    "UIFID",
+    "UIFID_TEMP",
+    "d_ticket",
+    "x-web-secsdk-uid",
+    "__security_server_data_status",
+}
+DEFAULT_AUXILIARY_PREFIXES = (
+    "__security_mc_",
+    "bd_ticket_guard_",
+    "_bd_ticket_crypt_",
+)
 PRIMARY_WAIT_UNTIL = "networkidle"
 FALLBACK_WAIT_UNTIL = "domcontentloaded"
 PRIMARY_TIMEOUT_MS = 300_000
@@ -96,12 +113,8 @@ async def capture_cookies(args: argparse.Namespace) -> int:
 
         page.on("request", _on_request)
 
-        print(
-            "[INFO] Browser launched. Please complete Douyin login in the opened window."
-        )
-        print(
-            "[INFO] Press Enter in this terminal once the homepage shows you are logged in."
-        )
+        print("[INFO] Browser launched. Please complete Douyin login in the opened window.")
+        print("[INFO] Press Enter in this terminal once the homepage shows you are logged in.")
 
         await wait_for_login_confirmation(page, args.url)
 
@@ -127,9 +140,7 @@ async def capture_cookies(args: argparse.Namespace) -> int:
     picked = sanitize_cookies(picked)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(picked, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    args.output.write_text(json.dumps(picked, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[INFO] Saved {len(picked)} cookie(s) to {args.output.resolve()}")
 
     missing = REQUIRED_KEYS - picked.keys()
@@ -172,9 +183,7 @@ async def goto_with_fallback(page: Any, url: str) -> str:
             f"falling back to {FALLBACK_WAIT_UNTIL}."
         )
     try:
-        await page.goto(
-            url, wait_until=FALLBACK_WAIT_UNTIL, timeout=FALLBACK_TIMEOUT_MS
-        )
+        await page.goto(url, wait_until=FALLBACK_WAIT_UNTIL, timeout=FALLBACK_TIMEOUT_MS)
         return FALLBACK_WAIT_UNTIL
     except Exception as exc:
         if is_target_closed_error(exc):
@@ -192,11 +201,13 @@ async def goto_with_fallback(page: Any, url: str) -> str:
         raise
 
 
-async def wait_for_login_confirmation(
-    page: Any, url: str, input_func: Any = input
-) -> None:
+async def wait_for_login_confirmation(page: Any, url: str, input_func: Any = input) -> None:
     # 页面导航放到后台执行，避免在导航等待期间终端无法响应 Enter。
     nav_task = asyncio.create_task(goto_with_fallback(page, url))
+    # 让 nav_task 至少进入第一个 await 点。否则在某些调度时序下，
+    # 若 input_func 立即返回（例如自动化测试或用户立刻按 Enter），
+    # 可能导致 goto 尚未被调度便被 cancel，从而漏掉页面加载。
+    await asyncio.sleep(0)
     await asyncio.to_thread(input_func)
 
     if not nav_task.done():
@@ -288,9 +299,7 @@ async def try_extract_ms_token(
             extra = extract_ms_token_from_text(text)
             if extra:
                 return extra
-            if len(text) <= 2048 and all(
-                ch not in text for ch in [";", " ", "\n", "\r", "\t"]
-            ):
+            if len(text) <= 2048 and all(ch not in text for ch in [";", " ", "\n", "\r", "\t"]):
                 return text
     except Exception:
         pass
@@ -319,7 +328,14 @@ def extract_ms_token_from_text(text: str) -> Optional[str]:
 
 def filter_cookies(cookies: Dict[str, str]) -> Dict[str, str]:
     cookies = sanitize_cookies(cookies)
-    picked = {k: v for k, v in cookies.items() if k in SUGGESTED_KEYS}
+    picked = {}
+    for key, value in cookies.items():
+        if key in SUGGESTED_KEYS or key in DEFAULT_AUXILIARY_KEYS:
+            picked[key] = value
+            continue
+        if any(key.startswith(prefix) for prefix in DEFAULT_AUXILIARY_PREFIXES):
+            picked[key] = value
+
     if not picked:
         return cookies
     return picked

@@ -1,0 +1,16 @@
+.git
+.gitignore
+.github
+.omx
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+.pytest_cache
+.ruff_cache
+Downloaded
+*.db
+.cookies.json
+config.yml

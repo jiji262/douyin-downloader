@@ -1,10 +1,11 @@
 import asyncio
-from typing import List, Callable, Any, TypeVar
+from typing import Any, Callable, List, TypeVar
+
 from utils.logger import setup_logger
 
-logger = setup_logger('QueueManager')
+logger = setup_logger("QueueManager")
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class QueueManager:
@@ -13,25 +14,29 @@ class QueueManager:
         self.semaphore = asyncio.Semaphore(max_workers)
 
     async def process_tasks(self, tasks: List[Callable], *args, **kwargs) -> List[Any]:
+        # Failures surface as exception instances in the result list (via
+        # return_exceptions=True). Callers can filter with isinstance(r, BaseException).
         async def _task_wrapper(task):
             async with self.semaphore:
                 try:
                     return await task(*args, **kwargs)
-                except Exception as e:
-                    logger.error(f"Task failed: {e}")
-                    return None
+                except Exception:
+                    logger.exception("Task failed")
+                    raise
 
-        results = await asyncio.gather(*[_task_wrapper(task) for task in tasks], return_exceptions=True)
-        return results
+        return await asyncio.gather(
+            *[_task_wrapper(task) for task in tasks], return_exceptions=True
+        )
 
     async def download_batch(self, download_func: Callable, items: List[Any]) -> List[Any]:
         async def _download_wrapper(item):
             async with self.semaphore:
                 try:
                     return await download_func(item)
-                except Exception as e:
-                    logger.error(f"Download failed for item: {e}")
-                    return {'status': 'error', 'error': str(e), 'item': item}
+                except Exception:
+                    logger.exception("Download failed for item: %r", item)
+                    raise
 
-        results = await asyncio.gather(*[_download_wrapper(item) for item in items], return_exceptions=False)
-        return results
+        return await asyncio.gather(
+            *[_download_wrapper(item) for item in items], return_exceptions=True
+        )

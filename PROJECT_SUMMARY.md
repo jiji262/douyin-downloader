@@ -25,11 +25,13 @@
 - SQLite 去重与增量下载（当前对 `increase.post` 生效）
 - 翻页受限时的浏览器兜底（采集 `aweme_id` 并补全详情）
 
-### 2.2 暂未支持（配置项预留）
+### 2.2 已新增（本次实现）
 
 - 用户点赞下载（`mode: [like]`）
-- 合集下载（`mode: [mix]` / `collection`）
-- `number.like` / `number.mix` / `increase.like` / `increase.mix` 等预留字段
+- 用户合集下载（`mode: [mix]`）与单合集链接（`/collection/{mix_id}`、`/mix/{mix_id}`）
+- 用户音乐模式下载（`mode: [music]`）与单音乐链接（`/music/{music_id}`）
+- `number.like` / `number.mix` / `number.music` 与 `increase.like` / `increase.mix` / `increase.music` 生效
+- `number.allmix` / `increase.allmix` 兼容保留，并在加载时归一化到 `mix`
 
 
 ## 3. 架构与模块
@@ -125,7 +127,7 @@ PYTHONPATH=. pytest -q
 结果：
 
 ```text
-32 passed
+71 passed
 ```
 
 说明：当前有 `pytest-asyncio` 的 deprecation warning（事件循环 scope 配置），不影响功能正确性。
@@ -133,6 +135,6 @@ PYTHONPATH=. pytest -q
 
 ## 8. 后续建议
 
-1. 增加 `mode: like/mix` 的实际下载实现，打通预留配置。
+1. 为 `like/mix/music` 增加浏览器兜底，降低 API 分页受限影响。
 2. 为 `download_manifest.jsonl` 增加轮转或归档策略（长期运行场景）。
 3. 补充数据库查询 CLI（例如按作者/日期/标签检索）。

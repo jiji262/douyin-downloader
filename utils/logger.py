@@ -2,6 +2,9 @@ import logging
 import sys
 from pathlib import Path
 
+_APP_LOGGER_PREFIX = "dy-downloader"
+_KNOWN_LOGGER_NAMES = set()
+
 
 def setup_logger(
     name: str = "dy-downloader",
@@ -12,6 +15,7 @@ def setup_logger(
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.propagate = False
+    _KNOWN_LOGGER_NAMES.add(name)
 
     if logger.handlers:
         return logger
@@ -39,9 +43,8 @@ def setup_logger(
 
 
 def set_console_log_level(level: int) -> None:
-    for logger in logging.Logger.manager.loggerDict.values():
-        if not isinstance(logger, logging.Logger):
-            continue
+    for name in _KNOWN_LOGGER_NAMES:
+        logger = logging.getLogger(name)
         for handler in logger.handlers:
             if isinstance(handler, logging.StreamHandler) and not isinstance(
                 handler, logging.FileHandler
