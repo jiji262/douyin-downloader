@@ -153,6 +153,31 @@ async def capture_cookies(args: argparse.Namespace) -> int:
     return 0
 
 
+async def fetch_cookies(
+    *,
+    output: Path,
+    config: Optional[Path] = None,
+    url: str = DEFAULT_URL,
+    browser: str = "chromium",
+    headless: bool = False,
+    include_all: bool = False,
+) -> int:
+    """Parameterised entry to the manual-login cookie capture flow.
+
+    Thin wrapper around :func:`capture_cookies` so callers (e.g. the CLI
+    auto-relogin flow) don't have to fake an argparse.Namespace.
+    """
+    args = argparse.Namespace(
+        output=output,
+        config=config,
+        url=url,
+        browser=browser,
+        headless=headless,
+        include_all=include_all,
+    )
+    return await capture_cookies(args)
+
+
 def is_timeout_error(exc: Exception) -> bool:
     return exc.__class__.__name__ == "TimeoutError" or "Timeout" in str(exc)
 
