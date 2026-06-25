@@ -264,6 +264,8 @@ class DouyinAPIClient:
                         )
                         return {}
                     last_exc = RuntimeError(f"HTTP {response.status} for {path}")
+            except LoginRequiredError:
+                raise
             except Exception as exc:
                 last_exc = exc
 
