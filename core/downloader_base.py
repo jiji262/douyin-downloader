@@ -320,11 +320,11 @@ class BaseDownloader(ABC):
             downloaded_files.append(video_path)
 
             if self.config.get("cover"):
-                cover_url = self._extract_first_url(aweme_data.get("video", {}).get("cover"))
-                if cover_url:
+                cover_source = aweme_data.get("video", {}).get("cover")
+                if self._extract_urls(cover_source):
                     cover_path = save_dir / f"{file_stem}_cover.jpg"
-                    if await self._download_with_retry(
-                        cover_url,
+                    if await self._download_first_available(
+                        cover_source,
                         cover_path,
                         session,
                         headers=self._download_headers(),
@@ -406,11 +406,11 @@ class BaseDownloader(ABC):
 
         if self.config.get("avatar"):
             author = aweme_data.get("author", {})
-            avatar_url = self._extract_first_url(author.get("avatar_larger"))
-            if avatar_url:
+            avatar_source = author.get("avatar_larger")
+            if self._extract_urls(avatar_source):
                 avatar_path = save_dir / f"{file_stem}_avatar.jpg"
-                if await self._download_with_retry(
-                    avatar_url,
+                if await self._download_first_available(
+                    avatar_source,
                     avatar_path,
                     session,
                     headers=self._download_headers(),
@@ -536,6 +536,41 @@ class BaseDownloader(ABC):
                 f"Download error for {save_path.name}: {error}",
             )
             return False
+
+    async def _download_first_available(
+        self,
+        source: Any,
+        save_path: Path,
+        session,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        optional: bool = False,
+        **kwargs,
+    ) -> bool | Path:
+        """Download an asset, falling back across every mirror in ``url_list``.
+
+        Douyin serves images from multiple CDN mirrors (e.g. p3/p9). The first
+        mirror occasionally returns 403 while a later one succeeds, so try each
+        URL in turn and return on the first success instead of giving up after
+        ``url_list[0]`` and silently dropping the asset.
+        """
+        urls = self._extract_urls(source)
+        result: bool | Path = False
+        for index, url in enumerate(urls):
+            is_last = index == len(urls) - 1
+            result = await self._download_with_retry(
+                url,
+                save_path,
+                session,
+                headers=headers,
+                # Keep earlier-mirror failures quiet; only the final attempt
+                # reflects the caller's chosen log level.
+                optional=optional or not is_last,
+                **kwargs,
+            )
+            if result:
+                return result
+        return result
 
     # aweme_type codes that indicate image/note content
     _GALLERY_AWEME_TYPES = {2, 68, 150}

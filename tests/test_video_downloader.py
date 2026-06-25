@@ -412,6 +412,77 @@ async def test_download_aweme_assets_video_writes_cover_avatar_and_json(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_download_aweme_assets_cover_falls_back_across_mirrors(tmp_path, monkeypatch):
+    """Cover/avatar downloads must try every mirror in ``url_list``.
+
+    Douyin returns multiple CDN mirrors per image (p3/p9); the first sometimes
+    returns 403 while a later one succeeds. The download must fall back instead
+    of giving up after ``url_list[0]`` and silently dropping the real cover.
+    """
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False,
+        cover=True,
+        avatar=True,
+        json=False,
+        folderstyle=True,
+        transcript={"enabled": False},
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    attempted = []
+
+    async def _fake_download_with_retry(self, url, _save_path, _session, **_kwargs):
+        attempted.append(url)
+        # First mirror hard-fails (simulates 403); a later mirror succeeds.
+        return "mirror-fail" not in url
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121599",
+        "desc": "封面首镜像失败应回退",
+        "author": {
+            "nickname": "测试作者",
+            "avatar_larger": {
+                "url_list": [
+                    "https://mirror-fail.douyinpic.com/avatar.jpg",
+                    "https://p9-ok.douyinpic.com/avatar.jpg",
+                ]
+            },
+        },
+        "video": {
+            "play_addr": {"url_list": ["https://example.com/video.mp4"]},
+            "cover": {
+                "url_list": [
+                    "https://mirror-fail.douyinpic.com/cover.jpg",
+                    "https://p9-ok.douyinpic.com/cover.jpg",
+                ]
+            },
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    # Both cover mirrors attempted, and the working fallback was reached.
+    assert "https://mirror-fail.douyinpic.com/cover.jpg" in attempted
+    assert "https://p9-ok.douyinpic.com/cover.jpg" in attempted
+    # Same fallback behaviour for the avatar.
+    assert "https://p9-ok.douyinpic.com/avatar.jpg" in attempted
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_download_aweme_assets_gallery_downloads_live_photo_videos(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
     downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)

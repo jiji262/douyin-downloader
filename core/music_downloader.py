@@ -131,15 +131,15 @@ class MusicDownloader(BaseDownloader):
         if not success:
             return False
 
-        cover_url = self._extract_first_url(
+        cover_source = (
             detail.get("cover_large")
             or detail.get("cover_thumb")
             or (detail.get("music") or {}).get("cover_large")
         )
-        if cover_url and self.config.get("cover"):
+        if self._extract_urls(cover_source) and self.config.get("cover"):
             cover_path = save_dir / f"{file_stem}_cover.jpg"
-            await self._download_with_retry(
-                cover_url,
+            await self._download_first_available(
+                cover_source,
                 cover_path,
                 session,
                 headers=self._download_headers(),
