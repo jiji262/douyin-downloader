@@ -670,6 +670,13 @@ git commit -m "feat(cli): auto-relogin and retry once on expired Douyin session"
 - Modify: `tools/cookie_fetcher.py` (identical to CLI Task 2)
 - Test: `tests/test_api_client_login_required.py` (copy of CLI Task 1 test)
 
+**Why desktop needs this (it has no Douyin search):** The desktop GUI has no Douyin
+content search — its "搜索" box is a local task-list filter (`/api/v1/history?q=`). The
+benefit comes from desktop's login-required personal-content endpoints
+(`/api/v1/my-content/likes`, `/collects`, `/collectmixes`, `/self`), which route through
+the shared `_request_json` and return the same `2483 / 请先登录` on an expired session.
+This task mirrors detection only; no search code is added to desktop.
+
 **Interfaces:**
 - Produces: same `LoginRequiredError` / `_is_login_required` / `fetch_cookies` symbols in desktop. NOT consumed by any desktop interactive flow in this task — `server/jobs.py` already catches `Exception` and surfaces it.
 

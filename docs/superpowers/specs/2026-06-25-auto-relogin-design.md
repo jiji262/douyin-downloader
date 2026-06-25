@@ -155,6 +155,12 @@ async def _run_with_relogin(make_coro, config, cookie_manager) -> Any:
 
 ## 桌面端同步清单（desktop）
 
+> 注意：桌面端**没有抖音搜索功能**（GUI 的"搜索"框只是任务列表本地过滤 `/api/v1/history?q=`，
+> 不是抖音内容搜索）。但检测是 endpoint 无关的：桌面的个人内容端点
+> （`/api/v1/my-content/likes`、`/collects`、`/collectmixes`、`/self`）都走共享 `_request_json`、
+> 都需要登录，会话失效时同样返回 2483。**桌面端的收益来自这些 my-content 流程，而非搜索。**
+> 因此本同步不搬任何搜索代码。
+
 - **必做**：把 `LoginRequiredError` + `_is_login_required` + `_request_json` 检测落点
   同步进 desktop `core/api_client.py`（该文件与 CLI 逐字节相同，零冲突），并在 desktop
   `core/__init__.py` 同步导出。
