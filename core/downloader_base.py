@@ -298,6 +298,7 @@ class BaseDownloader(ABC):
             folder_name=folder_name,
             author_sec_uid=extract_author_sec_uid(aweme_data),
             author_dir_style=self.config.get("author_dir") or "nickname",
+            group_by_mode=self.config.get("group_by_mode", True),
         )
         downloaded_files: List[Path] = []
 

@@ -19,6 +19,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     #   "nickname_uid" - 昵称_sec_uid（直观 + 唯一）
     # 切换只影响后续下载，不会迁移已存在的目录。
     "author_dir": "nickname",
+    # 是否按下载模式（post / like / mix …）再分一层子文件夹。
+    #   True  - 作者目录下再分 post/like/... （默认，与历史行为一致）
+    #   False - 不分模式层，文件直接落在作者目录下（复刻 legacy 布局，无 POST 文件夹）
+    "group_by_mode": True,
     "download_pinned": False,
     "mode": ["post"],
     "number": {
