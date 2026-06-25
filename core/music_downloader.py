@@ -113,6 +113,7 @@ class MusicDownloader(BaseDownloader):
             folder_name=folder_name,
             author_sec_uid=None,
             author_dir_style=self.config.get("author_dir") or "nickname",
+            group_by_mode=self.config.get("group_by_mode", True),
         )
 
         music_ext = self._infer_audio_extension(music_url)

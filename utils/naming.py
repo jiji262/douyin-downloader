@@ -75,8 +75,12 @@ def validate_template(template: str, *, field_name: str = "template") -> None:
       - 不得只包含空白或空串
       - 至少引用一个允许变量（防止用户写成纯静态常量导致不同作品互相覆盖）
       - 引用的变量必须在 ``ALLOWED_VARIABLES`` 白名单内
-      - 必须引用 ``{id}`` —— 保证跨作品唯一性（否则同一作者同一天的两条作品
-        会因为 stem 相同而彼此覆盖）
+
+    注意：``{id}`` **不再强制**。用户可选择不含作品 ID 的模板（例如用
+    ``{date} {hour}.{minute}.{second}_{title}_{type}`` 复刻 legacy 布局），靠
+    发布时间精确到秒来保证唯一性。代价是基于文件名的「磁盘级去重」
+    （``downloader_base`` 从文件名抠 15–20 位 aweme_id）会失效，跨作品去重只能
+    依赖数据库——这是用户的显式取舍，校验层不再代为阻止。
     """
     if not isinstance(template, str):
         raise TemplateValidationError(f"{field_name} must be a string")
@@ -106,9 +110,6 @@ def validate_template(template: str, *, field_name: str = "template") -> None:
             + ", ".join(sorted(set(unknown)))
             + f"; allowed: {', '.join(ALLOWED_VARIABLES)}"
         )
-
-    if "id" not in variables:
-        raise TemplateValidationError(f"{field_name} must reference {{id}} to guarantee uniqueness")
 
 
 def render_template(

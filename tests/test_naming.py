@@ -42,7 +42,6 @@ def test_validate_template_accepts_defaults():
         ("a" * (MAX_TEMPLATE_LENGTH + 1) + "{id}", "<="),
         ("foo/bar_{id}", "path separators"),
         ("foo\\bar_{id}", "path separators"),
-        ("{date}_{title}", "{id}"),
         ("{unknown}_{id}", "unknown"),
         ("static_prefix", "at least one variable"),
     ],
@@ -53,9 +52,18 @@ def test_validate_template_rejects(bad: str, needle: str):
     assert needle in str(exc.value)
 
 
+def test_validate_template_allows_missing_id():
+    """{id} is no longer mandatory — users may rely on date-to-second
+    uniqueness (e.g. reproducing the legacy `YYYY-MM-DD HH.MM.SS_title_type`
+    layout). validate_template must accept id-less templates that still
+    reference at least one known variable."""
+    validate_template("{date}_{title}")
+    validate_template("{date} {hour}.{minute}.{second}_{title}_{type}")
+
+
 def test_validate_template_uses_field_name_in_error():
     with pytest.raises(TemplateValidationError) as exc:
-        validate_template("{date}", field_name="filename_template")
+        validate_template("{nope}", field_name="filename_template")
     assert "filename_template" in str(exc.value)
 
 

@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -9,6 +10,12 @@ from utils.logger import setup_logger
 from utils.validators import sanitize_filename
 
 logger = setup_logger("FileManager")
+
+# sec_uid 是 [A-Za-z0-9_-] 的稳定 token，本身已是文件系统安全字符。仅替换真正
+# 非法的路径字符，但【不】折叠连续下划线、不截断长度——legacy DouYin-Downloader
+# 的 ``user_<sec_uid>`` 目录用的就是原始 sec_uid（含 ``__``），折叠后会对不上
+# 用户已有的目录。详见 ``_AUTHOR_DIR_STYLES`` 的 ``user_sec_uid``。
+_SEC_UID_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 class FileManager:
@@ -22,7 +29,7 @@ class FileManager:
 
     # 作者目录层可选风格（与 DEFAULT_CONFIG["author_dir"]、REST SettingsPatch
     # 的 Literal、前端下拉三处保持一致）。
-    _AUTHOR_DIR_STYLES = ("nickname", "sec_uid", "nickname_uid")
+    _AUTHOR_DIR_STYLES = ("nickname", "sec_uid", "nickname_uid", "user_sec_uid")
 
     def __init__(self, base_path: str = "./Downloaded"):
         self.base_path = Path(base_path)
@@ -40,6 +47,7 @@ class FileManager:
         *,
         author_sec_uid: Optional[str] = None,
         author_dir_style: str = "nickname",
+        group_by_mode: bool = True,
     ) -> Path:
         """Compute (and create) the destination directory for a download.
 
@@ -53,10 +61,17 @@ class FileManager:
         composed (see :data:`_AUTHOR_DIR_STYLES`). Unknown values or missing
         ``author_sec_uid`` fall back to ``nickname`` with a ``WARNING`` so
         downloads never fail on a misconfiguration.
+
+        ``group_by_mode`` controls whether the download mode (``post`` /
+        ``like`` / ``mix`` …) gets its own sub-directory under the author. When
+        ``False`` the mode layer is dropped entirely, so files land directly
+        under the author directory (reproducing the legacy layout with no
+        ``POST`` folder). It is independent of ``folderstyle`` (the per-aweme
+        sub-folder).
         """
         safe_author = self._compose_author_dir(author_name, author_sec_uid, author_dir_style)
 
-        if mode:
+        if mode and group_by_mode:
             save_dir = self.base_path / safe_author / mode
         else:
             save_dir = self.base_path / safe_author
@@ -85,12 +100,18 @@ class FileManager:
         Behaviour matrix (kept in lock-step with the ``author_dir`` option
         surfaced in settings UI and ``DEFAULT_CONFIG``):
 
-        - ``nickname``    → ``sanitize_filename(author_name)`` (legacy)
-        - ``sec_uid``     → ``sanitize_filename(author_sec_uid)``;
+        - ``nickname``     → ``sanitize_filename(author_name)`` (legacy)
+        - ``sec_uid``      → ``sanitize_filename(author_sec_uid)``;
           empty/None → fall back to nickname + ``logger.warning``.
         - ``nickname_uid`` → ``sanitize_filename(f"{author_name}_{author_sec_uid}")``;
           sec_uid missing → fall back to nickname + ``logger.warning``.
-        - Unknown style   → fall back to nickname + ``logger.warning``.
+        - ``user_sec_uid`` → ``user_<raw sec_uid>`` to reproduce the legacy
+          DouYin-Downloader layout. Uses the underscore-preserving
+          :meth:`_sanitize_sec_uid_token` (NOT ``sanitize_filename``) so real
+          sec_uids containing ``__`` keep their double underscore and match the
+          user's existing ``user_MS4...__...`` directories. sec_uid missing →
+          fall back to nickname + ``logger.warning``.
+        - Unknown style    → fall back to nickname + ``logger.warning``.
 
         Never raises — a misconfiguration must degrade into a still-working
         download, not a hard failure.
@@ -118,6 +139,16 @@ class FileManager:
                 return nickname_dir
             return sanitize_filename(sec_uid)
 
+        if style == "user_sec_uid":
+            if not sec_uid:
+                logger.warning(
+                    "author_dir=user_sec_uid but sec_uid is missing for %r, "
+                    "falling back to nickname",
+                    author_name,
+                )
+                return nickname_dir
+            return f"user_{cls._sanitize_sec_uid_token(sec_uid)}"
+
         # style == "nickname_uid"
         if not sec_uid:
             logger.warning(
@@ -126,6 +157,18 @@ class FileManager:
             )
             return nickname_dir
         return sanitize_filename(f"{author_name}_{sec_uid}")
+
+    @staticmethod
+    def _sanitize_sec_uid_token(sec_uid: str) -> str:
+        """Minimal sanitize for a sec_uid used as (part of) a directory name.
+
+        Unlike :func:`utils.validators.sanitize_filename`, this preserves
+        consecutive underscores and does not truncate — sec_uids are stable
+        ``[A-Za-z0-9_-]`` tokens, and the legacy on-disk layout used them raw.
+        Only genuinely illegal path characters are replaced, as defense in
+        depth.
+        """
+        return _SEC_UID_ILLEGAL_RE.sub("_", sec_uid).strip("._- ")
 
     async def download_file(
         self,
