@@ -20,6 +20,33 @@ except Exception:  # pragma: no cover - optional dependency
 
 logger = setup_logger("APIClient")
 
+_LOGIN_REQUIRED_STATUS_CODES = {2483}
+
+
+class LoginRequiredError(Exception):
+    """Raised when Douyin rejects a request because the session is not logged in.
+
+    Signalled by ``status_code == 2483`` (or a ``status_msg`` asking to log in).
+    Higher layers (CLI) catch this to trigger an interactive re-login + retry.
+    """
+
+    def __init__(self, status_code: int, status_msg: str, path: str):
+        self.status_code = status_code
+        self.status_msg = status_msg
+        self.path = path
+        super().__init__(
+            f"login required (status_code={status_code}) at {path}: {status_msg}"
+        )
+
+
+def _is_login_required(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    code = data.get("status_code")
+    msg = str(data.get("status_msg") or "")
+    return code in _LOGIN_REQUIRED_STATUS_CODES or "请先登录" in msg
+
+
 _USER_AGENT_POOL = [
     (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -220,7 +247,14 @@ class DouyinAPIClient:
                                     len(body),
                                 )
                                 return {}
-                        return data if isinstance(data, dict) else {}
+                        result = data if isinstance(data, dict) else {}
+                        if _is_login_required(result):
+                            raise LoginRequiredError(
+                                int(result.get("status_code") or 0),
+                                str(result.get("status_msg") or ""),
+                                path,
+                            )
+                        return result
                     if response.status < 500 and response.status != 429:
                         log_fn = logger.debug if suppress_error else logger.error
                         log_fn(
