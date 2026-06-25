@@ -16,6 +16,14 @@ def test_can_interactive_login_requires_tty(monkeypatch):
     assert lf.can_interactive_login(serve=False) is False
 
 
+def test_can_interactive_login_handles_isatty_error(monkeypatch):
+    def _boom():
+        raise ValueError("I/O operation on closed file")
+
+    monkeypatch.setattr(lf.sys.stdin, "isatty", _boom)
+    assert lf.can_interactive_login(serve=False) is False
+
+
 @pytest.mark.asyncio
 async def test_interactive_relogin_success(monkeypatch, tmp_path):
     cookies_path = tmp_path / "cookies.json"
@@ -29,7 +37,9 @@ async def test_interactive_relogin_success(monkeypatch, tmp_path):
     monkeypatch.setattr(lf, "fetch_cookies", fake_fetch)
 
     result = await lf.interactive_relogin(cookies_path=cookies_path)
-    assert result == {"sessionid": "fresh", "ttwid": "t"}
+    assert result is not None
+    assert result["sessionid"] == "fresh"  # spec contract: dict with a sessionid
+    assert result == {"sessionid": "fresh", "ttwid": "t"}  # full passthrough of sanitized cookies
 
 
 @pytest.mark.asyncio
