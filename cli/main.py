@@ -11,6 +11,8 @@ from cli.progress_display import ProgressDisplay
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core import DouyinAPIClient, DownloaderFactory, URLParser
+from core import LoginRequiredError
+from cli.login_flow import can_interactive_login, interactive_relogin
 from storage import Database, FileManager
 from utils.logger import set_console_log_level, setup_logger
 from utils.notifier import build_notifier
@@ -28,6 +30,39 @@ def _as_bool(value: Any, default: bool = True) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+async def _run_with_relogin(make_coro, config, cookie_manager, *, serve=False):
+    """Run make_coro(); on LoginRequiredError, relogin once and retry.
+
+    make_coro is a zero-arg callable returning a fresh coroutine each call,
+    so the retry re-creates its own DouyinAPIClient with refreshed cookies.
+    """
+    for attempt in range(2):
+        try:
+            return await make_coro()
+        except LoginRequiredError as exc:
+            if attempt == 1 or not can_interactive_login(serve=serve):
+                display.print_error(
+                    f"登录态失效，需要重新登录（status {exc.status_code}）："
+                    f"{exc.status_msg or '请先登录'}。"
+                )
+                if not can_interactive_login(serve=serve):
+                    display.print_warning(
+                        "当前为非交互环境，未自动打开浏览器。请手动更新 "
+                        "config/cookies.json（或运行 python tools/cookie_fetcher.py 登录）。"
+                    )
+                raise
+            display.print_warning(
+                f"检测到未登录（status {exc.status_code}），开始重新登录…"
+            )
+            new_cookies = await interactive_relogin()
+            if not new_cookies:
+                display.print_error("重新登录未完成，已中止。")
+                raise
+            config.update(cookies=new_cookies)
+            cookie_manager.set_cookies(new_cookies)
+            display.print_success("已更新登录态，正在重试…")
 
 
 async def download_url(
@@ -173,7 +208,15 @@ async def main_async(args):
 
     # 独立子命令：热榜 / 搜索 / 服务
     if args.hot_board is not None or args.search:
-        await _run_discovery_subcommand(args, config)
+        discovery_cookies = config.get_cookies()
+        discovery_cm = CookieManager()
+        discovery_cm.set_cookies(discovery_cookies)
+        await _run_with_relogin(
+            lambda: _run_discovery_subcommand(args, config),
+            config,
+            discovery_cm,
+            serve=False,
+        )
         return
     if args.serve:
         await _run_serve_subcommand(args, config)
@@ -223,12 +266,17 @@ async def main_async(args):
         for i, url in enumerate(urls, 1):
             display.start_url(i, len(urls), url)
 
-            result = await download_url(
-                url,
+            result = await _run_with_relogin(
+                lambda u=url: download_url(
+                    u,
+                    config,
+                    cookie_manager,
+                    database,
+                    progress_reporter=display,
+                ),
                 config,
                 cookie_manager,
-                database,
-                progress_reporter=display,
+                serve=False,
             )
             if result:
                 all_results.append(result)
