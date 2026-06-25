@@ -32,22 +32,25 @@ def _as_bool(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
-async def _run_with_relogin(make_coro, config, cookie_manager, *, serve=False):
+async def _run_with_relogin(make_coro, cookie_manager, *, serve=False):
     """Run make_coro(); on LoginRequiredError, relogin once and retry.
 
     make_coro is a zero-arg callable returning a fresh coroutine each call,
     so the retry re-creates its own DouyinAPIClient with refreshed cookies.
+    Refreshed cookies propagate through ``cookie_manager`` as a clean replace
+    (not a merge), and both call sites read their cookies from it on retry.
     """
     for attempt in range(2):
         try:
             return await make_coro()
         except LoginRequiredError as exc:
-            if attempt == 1 or not can_interactive_login(serve=serve):
+            interactive = can_interactive_login(serve=serve)
+            if attempt == 1 or not interactive:
                 display.print_error(
                     f"登录态失效，需要重新登录（status {exc.status_code}）："
                     f"{exc.status_msg or '请先登录'}。"
                 )
-                if not can_interactive_login(serve=serve):
+                if not interactive:
                     display.print_warning(
                         "当前为非交互环境，未自动打开浏览器。请手动更新 "
                         "config/cookies.json（或运行 python tools/cookie_fetcher.py 登录）。"
@@ -60,7 +63,6 @@ async def _run_with_relogin(make_coro, config, cookie_manager, *, serve=False):
             if not new_cookies:
                 display.print_error("重新登录未完成，已中止。")
                 raise
-            config.update(cookies=new_cookies)
             cookie_manager.set_cookies(new_cookies)
             display.print_success("已更新登录态，正在重试…")
 
@@ -208,12 +210,10 @@ async def main_async(args):
 
     # 独立子命令：热榜 / 搜索 / 服务
     if args.hot_board is not None or args.search:
-        discovery_cookies = config.get_cookies()
         discovery_cm = CookieManager()
-        discovery_cm.set_cookies(discovery_cookies)
+        discovery_cm.set_cookies(config.get_cookies())
         await _run_with_relogin(
-            lambda: _run_discovery_subcommand(args, config),
-            config,
+            lambda: _run_discovery_subcommand(args, config, discovery_cm),
             discovery_cm,
             serve=False,
         )
@@ -274,7 +274,6 @@ async def main_async(args):
                     database,
                     progress_reporter=display,
                 ),
-                config,
                 cookie_manager,
                 serve=False,
             )
@@ -309,13 +308,11 @@ async def main_async(args):
         await _dispatch_notifications(config, None, len(urls))
 
 
-async def _run_discovery_subcommand(args, config: ConfigLoader) -> None:
+async def _run_discovery_subcommand(
+    args, config: ConfigLoader, cookie_manager: CookieManager
+) -> None:
     """处理 --hot-board 与 --search 子命令。"""
     from core.discovery import dump_hot_board, search_and_dump
-
-    cookies = config.get_cookies()
-    cookie_manager = CookieManager()
-    cookie_manager.set_cookies(cookies)
 
     base_path = Path(config.get("path") or "./Downloaded/")
 

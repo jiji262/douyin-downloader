@@ -4,20 +4,20 @@ import pytest
 
 import cli.main as m
 from auth import CookieManager
-from config import ConfigLoader
 from core import LoginRequiredError
 
 
-def _mk():
-    config = ConfigLoader(None)
+def _mk_cm():
     cm = CookieManager()
-    cm.set_cookies({"sessionid": "old"})
-    return config, cm
+    # Seed a stale key that the fresh login does NOT return, to prove the
+    # refresh is a clean replace (not a merge that leaves stale keys behind).
+    cm.set_cookies({"sessionid": "old", "stale_csrf": "X"})
+    return cm
 
 
 @pytest.mark.asyncio
 async def test_retries_once_after_relogin(monkeypatch):
-    config, cm = _mk()
+    cm = _mk_cm()
     calls = {"n": 0}
 
     async def make_coro():
@@ -32,17 +32,18 @@ async def test_retries_once_after_relogin(monkeypatch):
     monkeypatch.setattr(m, "can_interactive_login", lambda *, serve=False: True)
     monkeypatch.setattr(m, "interactive_relogin", fake_relogin)
 
-    result = await m._run_with_relogin(make_coro, config, cm)
+    result = await m._run_with_relogin(make_coro, cm)
 
     assert result == "done"
     assert calls["n"] == 2
-    assert cm.get_cookies().get("sessionid") == "fresh"
-    assert config.get_cookies().get("sessionid") == "fresh"
+    fresh = cm.get_cookies()
+    assert fresh.get("sessionid") == "fresh"
+    assert "stale_csrf" not in fresh  # clean replace, not a merge
 
 
 @pytest.mark.asyncio
 async def test_non_interactive_does_not_relogin(monkeypatch):
-    config, cm = _mk()
+    cm = _mk_cm()
     called = {"relogin": False}
 
     async def make_coro():
@@ -56,13 +57,13 @@ async def test_non_interactive_does_not_relogin(monkeypatch):
     monkeypatch.setattr(m, "interactive_relogin", fake_relogin)
 
     with pytest.raises(LoginRequiredError):
-        await m._run_with_relogin(make_coro, config, cm)
+        await m._run_with_relogin(make_coro, cm)
     assert called["relogin"] is False
 
 
 @pytest.mark.asyncio
 async def test_gives_up_when_relogin_fails(monkeypatch):
-    config, cm = _mk()
+    cm = _mk_cm()
 
     async def make_coro():
         raise LoginRequiredError(2483, "请先登录", "/search")
@@ -74,4 +75,4 @@ async def test_gives_up_when_relogin_fails(monkeypatch):
     monkeypatch.setattr(m, "interactive_relogin", fake_relogin)
 
     with pytest.raises(LoginRequiredError):
-        await m._run_with_relogin(make_coro, config, cm)
+        await m._run_with_relogin(make_coro, cm)
