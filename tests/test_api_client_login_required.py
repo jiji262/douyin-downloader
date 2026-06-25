@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.api_client import LoginRequiredError, _is_login_required
+from core.api_client import DouyinAPIClient, LoginRequiredError, _is_login_required
 
 
 @pytest.mark.parametrize(
@@ -34,3 +34,66 @@ def test_login_required_error_exported_from_core():
     from core import LoginRequiredError as Exported
 
     assert Exported is LoginRequiredError
+
+
+class _FakeResp:
+    def __init__(self, status, body, data):
+        self.status = status
+        self._body = body
+        self._data = data
+
+    async def read(self):
+        return self._body
+
+    async def json(self, content_type=None):
+        return self._data
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, resp):
+        self._resp = resp
+        self.closed = False
+
+    def get(self, url, headers=None, proxy=None):
+        return self._resp
+
+
+def _install_fake_session(monkeypatch, client, resp):
+    async def fake_ensure_session():
+        client._session = _FakeSession(resp)
+
+    monkeypatch.setattr(client, "_ensure_session", fake_ensure_session)
+    monkeypatch.setattr(
+        client, "build_signed_path", lambda path, params: ("http://example.test", "ua")
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_json_raises_login_required_to_caller(monkeypatch):
+    client = DouyinAPIClient({"sessionid": "x"})
+    resp = _FakeResp(
+        200,
+        '{"status_code":2483,"status_msg":"请先登录"}'.encode("utf-8"),
+        {"status_code": 2483, "status_msg": "请先登录"},
+    )
+    _install_fake_session(monkeypatch, client, resp)
+
+    with pytest.raises(LoginRequiredError) as excinfo:
+        await client._request_json("/aweme/v1/web/general/search/single/", {})
+    assert excinfo.value.status_code == 2483
+
+
+@pytest.mark.asyncio
+async def test_request_json_returns_dict_on_normal_response(monkeypatch):
+    client = DouyinAPIClient({"sessionid": "x"})
+    resp = _FakeResp(200, b'{"status_code":0}', {"status_code": 0, "data": []})
+    _install_fake_session(monkeypatch, client, resp)
+
+    result = await client._request_json("/x", {})
+    assert result == {"status_code": 0, "data": []}
