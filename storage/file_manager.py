@@ -5,6 +5,7 @@ from typing import Dict, Optional, Union
 
 import aiofiles
 import aiohttp
+import httpx
 
 from utils.logger import setup_logger
 from utils.validators import sanitize_filename
@@ -202,36 +203,29 @@ class FileManager:
                 proxy=proxy or None,
             ) as response:
                 if response.status == 200:
-                    final_path = self._resolve_save_path_from_content_type(
+                    return await self._persist_stream(
+                        response.content.iter_chunked(8192),
                         save_path,
+                        response.content_length,
                         response.headers,
                         prefer_response_content_type=prefer_response_content_type,
+                        return_saved_path=return_saved_path,
                     )
-                    tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
-                    expected_size = response.content_length
-                    written = 0
-                    async with aiofiles.open(tmp_path, "wb") as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-                            written += len(chunk)
-                    if expected_size is not None and written != expected_size:
-                        logger.warning(
-                            "Size mismatch for %s: expected %d, got %d",
-                            save_path.name,
-                            expected_size,
-                            written,
-                        )
-                        tmp_path.unlink(missing_ok=True)
-                        return False
-                    os.replace(str(tmp_path), str(final_path))
-                    return final_path if return_saved_path else True
-                else:
-                    logger.debug(
-                        "Download failed for %s, status=%s",
-                        final_path.name,
-                        response.status,
-                    )
-                    return False
+                status = response.status
+                logger.debug("Download failed for %s, status=%s", final_path.name, status)
+            # aiohttp connection released here. Douyin's image CDN 403s aiohttp's
+            # TLS fingerprint for some assets (e.g. ``biz_tag=pcweb_cover`` covers)
+            # while serving httpx/curl/requests fine, so retry those via httpx.
+            if status == 403:
+                return await self._download_via_httpx(
+                    url,
+                    save_path,
+                    headers=headers,
+                    proxy=proxy,
+                    prefer_response_content_type=prefer_response_content_type,
+                    return_saved_path=return_saved_path,
+                )
+            return False
         except Exception as e:
             logger.debug("Download error for %s: %s", final_path.name, e)
             tmp_path.unlink(missing_ok=True)
@@ -239,6 +233,90 @@ class FileManager:
         finally:
             if should_close:
                 await session.close()
+
+    async def _persist_stream(
+        self,
+        chunk_iter,
+        save_path: Path,
+        expected_size: Optional[int],
+        response_headers,
+        *,
+        prefer_response_content_type: bool = False,
+        return_saved_path: bool = False,
+    ) -> Union[bool, Path]:
+        """Stream ``chunk_iter`` to a temp file and atomically rename it.
+
+        Shared by the aiohttp and httpx download paths so the content-type
+        resolution, size-mismatch guard, and atomic rename stay identical.
+        """
+        final_path = self._resolve_save_path_from_content_type(
+            save_path,
+            response_headers,
+            prefer_response_content_type=prefer_response_content_type,
+        )
+        tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
+        written = 0
+        async with aiofiles.open(tmp_path, "wb") as f:
+            async for chunk in chunk_iter:
+                await f.write(chunk)
+                written += len(chunk)
+        if expected_size is not None and written != expected_size:
+            logger.warning(
+                "Size mismatch for %s: expected %d, got %d",
+                final_path.name,
+                expected_size,
+                written,
+            )
+            tmp_path.unlink(missing_ok=True)
+            return False
+        os.replace(str(tmp_path), str(final_path))
+        return final_path if return_saved_path else True
+
+    async def _download_via_httpx(
+        self,
+        url: str,
+        save_path: Path,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        proxy: Optional[str] = None,
+        prefer_response_content_type: bool = False,
+        return_saved_path: bool = False,
+    ) -> Union[bool, Path]:
+        """Download an asset via httpx, whose TLS fingerprint the Douyin image
+        CDN accepts when aiohttp's is rejected (403). Mirrors aiohttp's
+        redirect-following and streaming-to-disk behaviour."""
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(300.0),
+                proxy=proxy or None,
+                follow_redirects=True,
+            ) as client:
+                async with client.stream("GET", url, headers=headers) as response:
+                    if response.status_code != 200:
+                        logger.debug(
+                            "httpx fallback failed for %s, status=%s",
+                            save_path.name,
+                            response.status_code,
+                        )
+                        return False
+                    # httpx auto-decompresses; Content-Length is the *compressed*
+                    # size, so only trust it when the body isn't encoded.
+                    expected_size: Optional[int] = None
+                    if not response.headers.get("Content-Encoding"):
+                        content_length = response.headers.get("Content-Length")
+                        if content_length is not None and content_length.isdigit():
+                            expected_size = int(content_length)
+                    return await self._persist_stream(
+                        response.aiter_bytes(),
+                        save_path,
+                        expected_size,
+                        response.headers,
+                        prefer_response_content_type=prefer_response_content_type,
+                        return_saved_path=return_saved_path,
+                    )
+        except Exception as e:
+            logger.debug("httpx fallback error for %s: %s", save_path.name, e)
+            return False
 
     @classmethod
     def _resolve_save_path_from_content_type(
