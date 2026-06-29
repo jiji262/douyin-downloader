@@ -290,6 +290,110 @@ async def test_download_file_atomic_write(tmp_path):
     assert not save_path.with_suffix(".mp4.tmp").exists()
 
 
+def _aiohttp_session_returning_status(status):
+    """Build a mock aiohttp session whose ``get`` yields a response with the
+    given HTTP status (and no body — the non-200 path never reads content)."""
+    mock_response = AsyncMock()
+    mock_response.status = status
+
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = ctx
+    return mock_session
+
+
+class _FakeHttpxResponse:
+    def __init__(self, status_code, content, headers):
+        self.status_code = status_code
+        self._content = content
+        self.headers = headers
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def aiter_bytes(self):
+        yield self._content
+
+
+class _FakeHttpxClient:
+    def __init__(self, response, calls):
+        self._response = response
+        self._calls = calls
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def stream(self, method, url, headers=None):
+        self._calls.append((method, url, headers))
+        return self._response
+
+
+@pytest.mark.asyncio
+async def test_download_file_falls_back_to_httpx_on_403(tmp_path, monkeypatch):
+    """Douyin's image CDN 403s aiohttp's TLS fingerprint for some assets
+    (e.g. ``biz_tag=pcweb_cover`` covers) while serving httpx/curl. On a 403
+    we must retry the same URL via httpx and persist the result."""
+    fm = FileManager(str(tmp_path))
+    save_path = tmp_path / "cover.jpg"
+    content = b"jpeg-bytes-from-httpx"
+
+    calls = []
+    response = _FakeHttpxResponse(
+        200, content, {"Content-Type": "image/jpeg", "Content-Length": str(len(content))}
+    )
+    monkeypatch.setattr(
+        "storage.file_manager.httpx.AsyncClient",
+        lambda *a, **k: _FakeHttpxClient(response, calls),
+    )
+
+    result = await fm.download_file(
+        "https://p3-pc-sign.douyinpic.com/cover.jpg",
+        save_path,
+        session=_aiohttp_session_returning_status(403),
+    )
+
+    assert result is True
+    assert save_path.exists()
+    assert save_path.read_bytes() == content
+    assert not save_path.with_suffix(".jpg.tmp").exists()
+    assert len(calls) == 1  # httpx was actually used
+
+
+@pytest.mark.asyncio
+async def test_download_file_no_httpx_fallback_on_404(tmp_path, monkeypatch):
+    """A genuine 404 (dead/expired asset) must NOT trigger the httpx fallback —
+    falling back on every non-200 would double every doomed request."""
+    fm = FileManager(str(tmp_path))
+    save_path = tmp_path / "gone.jpg"
+
+    calls = []
+
+    def _boom(*a, **k):
+        calls.append((a, k))
+        raise AssertionError("httpx must not be called on 404")
+
+    monkeypatch.setattr("storage.file_manager.httpx.AsyncClient", _boom)
+
+    result = await fm.download_file(
+        "https://example.com/gone.jpg",
+        save_path,
+        session=_aiohttp_session_returning_status(404),
+    )
+
+    assert result is False
+    assert not save_path.exists()
+    assert calls == []
+
+
 @pytest.mark.asyncio
 async def test_download_file_size_mismatch_cleans_up(tmp_path):
     fm = FileManager(str(tmp_path))
