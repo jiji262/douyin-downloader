@@ -1,7 +1,7 @@
 import json
 import re
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 from urllib.parse import urlparse
@@ -230,9 +230,11 @@ class BaseDownloader(ABC):
         # a user asking for ``end_time=2024-01-31`` wants everything published
         # *on* Jan 31 too. ``strptime`` lands on 00:00:00, so extend the bound
         # to the last second of that day; otherwise every post after midnight
-        # on the end date is silently dropped.
+        # on the end date is silently dropped. Use ``timedelta(days=1)`` rather
+        # than ``+ 86400`` so ``.timestamp()`` accounts for the actual day
+        # length across DST transitions (a spring-forward day is only 23h).
         end_ts = (
-            int(datetime.strptime(end_time, "%Y-%m-%d").timestamp()) + 86400 - 1
+            int((datetime.strptime(end_time, "%Y-%m-%d") + timedelta(days=1)).timestamp()) - 1
             if end_time
             else None
         )
