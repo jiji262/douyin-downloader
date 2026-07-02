@@ -226,7 +226,16 @@ class BaseDownloader(ABC):
         start_ts = (
             int(datetime.strptime(start_time, "%Y-%m-%d").timestamp()) if start_time else None
         )
-        end_ts = int(datetime.strptime(end_time, "%Y-%m-%d").timestamp()) if end_time else None
+        # ``end_time`` is a date (``YYYY-MM-DD``) and the filter is inclusive:
+        # a user asking for ``end_time=2024-01-31`` wants everything published
+        # *on* Jan 31 too. ``strptime`` lands on 00:00:00, so extend the bound
+        # to the last second of that day; otherwise every post after midnight
+        # on the end date is silently dropped.
+        end_ts = (
+            int(datetime.strptime(end_time, "%Y-%m-%d").timestamp()) + 86400 - 1
+            if end_time
+            else None
+        )
 
         filtered: List[Dict[str, Any]] = []
         for aweme in aweme_list:
@@ -338,7 +347,10 @@ class BaseDownloader(ABC):
                         downloaded_files.append(cover_path)
 
             if self.config.get("music"):
-                music_url = self._extract_first_url(aweme_data.get("music", {}).get("play_url"))
+                # ``music`` is frequently an explicit ``null`` in real payloads
+                # (original sound removed, some reposts). ``get(k, {})`` only
+                # defaults on a missing key, not on ``None`` — use ``or {}``.
+                music_url = self._extract_first_url((aweme_data.get("music") or {}).get("play_url"))
                 if music_url:
                     music_path = save_dir / f"{file_stem}_music.mp3"
                     if await self._download_with_retry(
@@ -410,7 +422,7 @@ class BaseDownloader(ABC):
             return False
 
         if self.config.get("avatar"):
-            author = aweme_data.get("author", {})
+            author = aweme_data.get("author") or {}
             avatar_source = author.get("avatar_larger")
             if self._extract_urls(avatar_source):
                 avatar_path = save_dir / f"{file_stem}_avatar.jpg"
@@ -444,7 +456,7 @@ class BaseDownloader(ABC):
             if saved is not None:
                 downloaded_files.append(comments_path)
 
-        author = aweme_data.get("author", {})
+        author = aweme_data.get("author") or {}
         if self.database:
             metadata_json = json.dumps(aweme_data, ensure_ascii=False)
             cover = (aweme_data.get("video") or {}).get("cover") or {}
@@ -623,7 +635,10 @@ class BaseDownloader(ABC):
     def _build_no_watermark_url(
         self, aweme_data: Dict[str, Any]
     ) -> Optional[Tuple[str, Dict[str, str]]]:
-        video = aweme_data.get("video", {})
+        # ``video`` can be an explicit ``null`` (not just missing) for note
+        # posts and some reposts; ``get(k, {})`` wouldn't guard that and the
+        # ``video.get(...)`` fallbacks below would raise AttributeError.
+        video = aweme_data.get("video") or {}
         quality = str(self.config.get("video_quality") or "highest")
         play_addr = self._pick_preferred_play_addr(video, quality) or {}
         url_candidates = [c for c in (play_addr.get("url_list") or []) if c]
