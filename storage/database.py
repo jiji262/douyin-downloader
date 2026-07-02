@@ -19,6 +19,15 @@ def order_cover_mirrors(urls: List[Any]) -> List[str]:
     return (non_p3 + p3)[:3]
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE wildcards so user input matches literally.
+
+    Pair with ``LIKE ? ESCAPE '\\'`` — otherwise a search for ``100%``
+    behaves as a prefix wildcard instead of the literal string.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _cover_urls_from_metadata(metadata: str) -> str:
     """Extract an ordered cover-mirror JSON array from an aweme metadata blob.
 
@@ -243,14 +252,24 @@ class Database:
          create_time, download_time, file_path, metadata, cover_urls, job_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(aweme_id) DO UPDATE SET
-          aweme_type = excluded.aweme_type,
-          title = excluded.title,
-          author_id = excluded.author_id,
-          author_name = excluded.author_name,
+          aweme_type = CASE WHEN COALESCE(excluded.aweme_type, '') != ''
+                            THEN excluded.aweme_type
+                            ELSE aweme.aweme_type END,
+          title = CASE WHEN COALESCE(excluded.title, '') != ''
+                       THEN excluded.title
+                       ELSE aweme.title END,
+          author_id = CASE WHEN COALESCE(excluded.author_id, '') != ''
+                           THEN excluded.author_id
+                           ELSE aweme.author_id END,
+          author_name = CASE WHEN COALESCE(excluded.author_name, '') != ''
+                             THEN excluded.author_name
+                             ELSE aweme.author_name END,
           author_sec_uid = CASE WHEN COALESCE(excluded.author_sec_uid, '') != ''
                                 THEN excluded.author_sec_uid
                                 ELSE aweme.author_sec_uid END,
-          create_time = excluded.create_time,
+          create_time = CASE WHEN COALESCE(excluded.create_time, 0) != 0
+                             THEN excluded.create_time
+                             ELSE aweme.create_time END,
           download_time = CASE WHEN COALESCE(excluded.file_path, '') != ''
                                THEN excluded.download_time
                                ELSE aweme.download_time END,
@@ -378,8 +397,8 @@ class Database:
         where: list = ["file_path IS NOT NULL AND file_path != ''"]
         params: list = []
         if author:
-            where.append("LOWER(COALESCE(author_name, '')) LIKE ?")
-            params.append(f"%{author.lower()}%")
+            where.append("LOWER(COALESCE(author_name, '')) LIKE ? ESCAPE '\\'")
+            params.append(f"%{_escape_like(author.lower())}%")
         if author_sec_uid:
             where.append("author_sec_uid = ?")
             params.append(author_sec_uid)
@@ -396,8 +415,8 @@ class Database:
             where.append("aweme_type = ?")
             params.append(aweme_type)
         if title:
-            where.append("LOWER(COALESCE(title, '')) LIKE ?")
-            params.append(f"%{title.lower()}%")
+            where.append("LOWER(COALESCE(title, '')) LIKE ? ESCAPE '\\'")
+            params.append(f"%{_escape_like(title.lower())}%")
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
         cursor = await db.execute(f"SELECT COUNT(*) FROM aweme {where_sql}", params)
