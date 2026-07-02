@@ -181,18 +181,35 @@ class Database:
             await db.execute(
                 "ALTER TABLE aweme ADD COLUMN cover_urls TEXT NOT NULL DEFAULT ''"
             )
-            cursor = await db.execute(
-                "SELECT id, metadata FROM aweme "
-                "WHERE metadata IS NOT NULL AND metadata != ''"
-            )
-            rows = await cursor.fetchall()
-            for row_id, metadata in rows:
-                cover_urls = _cover_urls_from_metadata(metadata)
-                if cover_urls:
-                    await db.execute(
-                        "UPDATE aweme SET cover_urls = ? WHERE id = ?",
-                        (cover_urls, row_id),
+            # Commit the ALTER before the backfill so a crash mid-backfill
+            # leaves an explicit (column present, partially filled) state
+            # instead of rolling the column back with the data.
+            await db.commit()
+            # Keyset-paginate: metadata blobs are full aweme-detail JSON
+            # (often 50-300 KB each) — fetching the whole table at once
+            # would spike memory on heavy libraries.
+            last_id = 0
+            while True:
+                cursor = await db.execute(
+                    "SELECT id, metadata FROM aweme "
+                    "WHERE id > ? AND metadata IS NOT NULL AND metadata != '' "
+                    "ORDER BY id LIMIT 500",
+                    (last_id,),
+                )
+                rows = await cursor.fetchall()
+                if not rows:
+                    break
+                updates = []
+                for row_id, metadata in rows:
+                    cover_urls = _cover_urls_from_metadata(metadata)
+                    if cover_urls:
+                        updates.append((cover_urls, row_id))
+                    last_id = row_id
+                if updates:
+                    await db.executemany(
+                        "UPDATE aweme SET cover_urls = ? WHERE id = ?", updates
                     )
+                await db.commit()
         if "job_id" not in existing_columns:
             await db.execute(
                 "ALTER TABLE aweme ADD COLUMN job_id TEXT NOT NULL DEFAULT ''"
@@ -202,8 +219,16 @@ class Database:
         self._initialized = True
 
     async def is_downloaded(self, aweme_id: str) -> bool:
+        # Row existence is NOT enough: rows can exist with an empty
+        # file_path (e.g. synced from the desktop sibling's my-content
+        # feature). Treating those as "downloaded" would make like-mode
+        # incremental batches stop at the first such row.
         db = await self._get_conn()
-        cursor = await db.execute("SELECT id FROM aweme WHERE aweme_id = ?", (aweme_id,))
+        cursor = await db.execute(
+            "SELECT id FROM aweme WHERE aweme_id = ? "
+            "AND file_path IS NOT NULL AND file_path != ''",
+            (aweme_id,),
+        )
         result = await cursor.fetchone()
         return result is not None
 
@@ -222,7 +247,9 @@ class Database:
           title = excluded.title,
           author_id = excluded.author_id,
           author_name = excluded.author_name,
-          author_sec_uid = COALESCE(excluded.author_sec_uid, aweme.author_sec_uid),
+          author_sec_uid = CASE WHEN COALESCE(excluded.author_sec_uid, '') != ''
+                                THEN excluded.author_sec_uid
+                                ELSE aweme.author_sec_uid END,
           create_time = excluded.create_time,
           download_time = CASE WHEN COALESCE(excluded.file_path, '') != ''
                                THEN excluded.download_time
@@ -292,9 +319,13 @@ class Database:
         await db.commit()
 
     async def get_latest_aweme_time(self, author_id: str) -> Optional[int]:
+        # Same downloaded-only rule as is_downloaded(): non-downloaded rows
+        # must not poison the author increment baseline.
         db = await self._get_conn()
         cursor = await db.execute(
-            "SELECT MAX(create_time) FROM aweme WHERE author_id = ?", (author_id,)
+            "SELECT MAX(create_time) FROM aweme WHERE author_id = ? "
+            "AND file_path IS NOT NULL AND file_path != ''",
+            (author_id,),
         )
         result = await cursor.fetchone()
         return result[0] if result and result[0] else None
