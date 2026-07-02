@@ -162,6 +162,7 @@ class MusicDownloader(BaseDownloader):
                     "create_time": None,
                     "file_path": str(save_dir),
                     "metadata": json.dumps(detail or {}, ensure_ascii=False),
+                    "job_id": self.job_id or "",
                 },
                 author_sec_uid=extract_author_sec_uid(detail),
             )

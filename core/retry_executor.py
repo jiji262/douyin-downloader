@@ -100,6 +100,7 @@ async def retry_failed_awemes(
     overrides: Optional[Dict[str, Any]] = None,
     author_hint: Optional[Dict[str, Any]] = None,
     on_item_outcome: Optional[Callable[[str], None]] = None,
+    job_id: Optional[str] = None,
 ) -> Dict[str, int]:
     """Retry the given aweme ids in place and return summary counts.
 
@@ -154,6 +155,7 @@ async def retry_failed_awemes(
                 retry_handler,
                 queue_manager,
                 progress_reporter=reporter,
+                job_id=job_id,
             )
             if downloader is None:
                 raise RuntimeError(f"No downloader available for retry (url_type={factory_type})")
