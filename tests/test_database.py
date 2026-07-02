@@ -302,3 +302,81 @@ async def test_add_aweme_download_time_null_without_file_path(tmp_path):
     assert dt is None
 
     await database.close()
+
+
+# ---------------------------------------------------------------------------
+# Preserving-upsert regression tests (synced from the desktop sibling)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_add_aweme_preserves_author_sec_uid_against_empty_string(tmp_path):
+    """Empty-string sec_uid (sync convention) must not clobber a real value."""
+    database = Database(str(tmp_path / "test.db"))
+    await database.initialize()
+
+    await database.add_aweme(
+        {"aweme_id": "S1", "aweme_type": "video", "title": "t",
+         "file_path": "/tmp/s.mp4", "metadata": "", "author_sec_uid": "SEC_REAL"}
+    )
+    await database.add_aweme(
+        {"aweme_id": "S1", "aweme_type": "video", "title": "t2",
+         "file_path": "", "metadata": "", "author_sec_uid": ""}
+    )
+    db = await database._get_conn()
+    cursor = await db.execute("SELECT author_sec_uid FROM aweme WHERE aweme_id = ?", ("S1",))
+    (sec,) = await cursor.fetchone()
+    assert sec == "SEC_REAL"
+
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_is_downloaded_and_latest_time_ignore_rows_without_file_path(tmp_path):
+    """Rows without a downloaded artifact must not count as downloaded nor
+    poison the author increment baseline."""
+    database = Database(str(tmp_path / "test.db"))
+    await database.initialize()
+
+    await database.add_aweme(
+        {"aweme_id": "SYNC1", "aweme_type": "video", "title": "liked",
+         "author_id": "AUTH", "create_time": 9_999, "file_path": "", "metadata": ""}
+    )
+    assert await database.is_downloaded("SYNC1") is False
+    assert await database.get_latest_aweme_time("AUTH") is None
+
+    await database.add_aweme(
+        {"aweme_id": "DL1", "aweme_type": "video", "title": "dl",
+         "author_id": "AUTH", "create_time": 5_000, "file_path": "/tmp/d.mp4", "metadata": ""}
+    )
+    assert await database.is_downloaded("DL1") is True
+    assert await database.get_latest_aweme_time("AUTH") == 5_000
+
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_add_aweme_empty_payload_fields_do_not_regress_row(tmp_path):
+    """Empty/zero metadata fields in an upsert must not blank real values."""
+    database = Database(str(tmp_path / "test.db"))
+    await database.initialize()
+
+    await database.add_aweme(
+        {"aweme_id": "R1", "aweme_type": "gallery", "title": "真标题",
+         "author_id": "AUTH", "author_name": "作者甲", "create_time": 1_700_000_000,
+         "file_path": "/tmp/r.mp4", "metadata": ""}
+    )
+    await database.add_aweme(
+        {"aweme_id": "R1", "aweme_type": "", "title": "",
+         "author_id": "", "author_name": "", "create_time": 0,
+         "file_path": "", "metadata": ""}
+    )
+
+    db = await database._get_conn()
+    cursor = await db.execute(
+        "SELECT aweme_type, title, author_id, author_name, create_time "
+        "FROM aweme WHERE aweme_id = ?",
+        ("R1",),
+    )
+    row = await cursor.fetchone()
+    assert row == ("gallery", "真标题", "AUTH", "作者甲", 1_700_000_000)
+
+    await database.close()

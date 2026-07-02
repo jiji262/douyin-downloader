@@ -134,3 +134,24 @@ async def test_get_aweme_history_empty_db():
         res = await db.get_aweme_history(page=1, size=10)
         assert res == {"total": 0, "page": 1, "size": 10, "items": []}
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_history_author_filter_treats_wildcards_literally():
+    """`100%` must match the literal author name, not act as a LIKE prefix."""
+    with tempfile.TemporaryDirectory() as td:
+        db = Database(db_path=os.path.join(td, "esc.db"))
+        await db.initialize()
+        try:
+            await db.add_aweme(
+                {"aweme_id": "W1", "aweme_type": "video", "title": "t",
+                 "author_name": "100%正品店", "file_path": "/tmp/1.mp4", "metadata": ""}
+            )
+            await db.add_aweme(
+                {"aweme_id": "W2", "aweme_type": "video", "title": "t",
+                 "author_name": "100分先生", "file_path": "/tmp/2.mp4", "metadata": ""}
+            )
+            page = await db.get_aweme_history(author="100%")
+            assert [it["aweme_id"] for it in page["items"]] == ["W1"]
+        finally:
+            await db.close()
