@@ -449,6 +449,13 @@ class BaseDownloader(ABC):
             metadata_json = json.dumps(aweme_data, ensure_ascii=False)
             cover = (aweme_data.get("video") or {}).get("cover") or {}
             cover_list = cover.get("url_list")
+            if not cover_list:
+                # Image posts carry no video.cover — fall back to the first
+                # image's mirrors (same rule as the my-content projection).
+                images = aweme_data.get("images")
+                first_image = images[0] if isinstance(images, list) and images else None
+                if isinstance(first_image, dict):
+                    cover_list = first_image.get("url_list")
             record = {
                 "aweme_id": aweme_id,
                 "aweme_type": media_type,
