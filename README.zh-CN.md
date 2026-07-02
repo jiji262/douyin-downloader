@@ -576,7 +576,7 @@ sqlite3 dy_downloader.db "SELECT aweme_id, title, author_name, datetime(download
 
 ## 沟通群
 
-<img src="./img/fuye.jpg" alt="qun" width="360" />
+<img src="./img/fuye.jpg" alt="qun" width="240" />
 
 点击链接加入群聊【QQ群】：[https://qm.qq.com/q/9xoNt8Wzv4](https://qm.qq.com/q/9xoNt8Wzv4)
 
@@ -595,3 +595,7 @@ sqlite3 dy_downloader.db "SELECT aweme_id, title, author_name, datetime(download
 ## 许可证
 
 本项目采用 MIT License，详见 [LICENSE](./LICENSE)。
+
+## 友情链接
+
+- [LINUX DO](https://linux.do/)

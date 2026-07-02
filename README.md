@@ -450,7 +450,7 @@ pytest -q
 | `live.*` | Live stream recording options (max_duration_seconds / chunk_size / idle_timeout_seconds) |
 | `notifications.*` | Bark/Telegram/Webhook push on completion |
 | `server.*` | REST API server tuning (max_jobs, job_ttl_seconds) |
-| `proxy` | HTTP/HTTPS proxy, stable residential proxies such as [Swiftproxy](https://www.swiftproxy.net/?ref=douyindownloader) are recommended for better reliability |
+| `proxy` | Optional HTTP/HTTPS proxy setting |
 | `database` | Enable SQLite deduplication and history |
 | `database_path` | SQLite path, default is `dy_downloader.db` in the current working directory |
 | `thread` | Concurrent download count |
@@ -567,7 +567,7 @@ sqlite3 dy_downloader.db "SELECT aweme_id, title, author_name, datetime(download
 
 ## Community Group
 
-<img src="./img/fuye.jpg" alt="qun" width="360" />
+<img src="./img/fuye.jpg" alt="qun" width="240" />
 
 点击链接加入群聊【QQ群】：[https://qm.qq.com/q/9xoNt8Wzv4](https://qm.qq.com/q/9xoNt8Wzv4)
 
@@ -585,3 +585,7 @@ By continuing to use this project, you acknowledge and accept the statements abo
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+
+## Friendly Links
+
+- [LINUX DO](https://linux.do/)
