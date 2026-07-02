@@ -153,5 +153,8 @@ async def test_history_author_filter_treats_wildcards_literally():
             )
             page = await db.get_aweme_history(author="100%")
             assert [it["aweme_id"] for it in page["items"]] == ["W1"]
+            # Title filter still substring-matches after the ESCAPE change.
+            page = await db.get_aweme_history(title="t")
+            assert page["total"] == 2
         finally:
             await db.close()
