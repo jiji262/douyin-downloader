@@ -29,6 +29,7 @@ class DownloaderFactory:
         retry_handler: Optional[RetryHandler] = None,
         queue_manager: Optional[QueueManager] = None,
         progress_reporter: Optional[Any] = None,
+        job_id: Optional[str] = None,
     ) -> Optional[BaseDownloader]:
 
         common_args = {
@@ -41,6 +42,7 @@ class DownloaderFactory:
             "retry_handler": retry_handler,
             "queue_manager": queue_manager,
             "progress_reporter": progress_reporter,
+            "job_id": job_id,
         }
 
         if url_type == "video":

@@ -253,3 +253,52 @@ async def test_database_get_conn_reuses_single_connection_under_concurrency(tmp_
     assert connect_calls == [str(tmp_path / "test.db")]
 
     await database.close()
+
+
+# ---------------------------------------------------------------------------
+# Preserving upsert semantics (synced from desktop sibling, 2026-07)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_add_aweme_preserves_downloaded_fields_on_empty_upsert(tmp_path):
+    database = Database(str(tmp_path / "test.db"))
+    await database.initialize()
+
+    await database.add_aweme(
+        {
+            "aweme_id": "A1",
+            "aweme_type": "video",
+            "title": "old",
+            "file_path": "/tmp/a1.mp4",
+            "metadata": '{"k":1}',
+            "cover_urls": '["https://p9/c.jpg"]',
+        }
+    )
+    await database.add_aweme(
+        {"aweme_id": "A1", "aweme_type": "video", "title": "new", "file_path": "", "metadata": ""}
+    )
+
+    db = await database._get_conn()
+    cursor = await db.execute(
+        "SELECT title, file_path, metadata, cover_urls FROM aweme WHERE aweme_id = ?",
+        ("A1",),
+    )
+    row = await cursor.fetchone()
+    assert row == ("new", "/tmp/a1.mp4", '{"k":1}', '["https://p9/c.jpg"]')
+
+    await database.close()
+
+
+@pytest.mark.asyncio
+async def test_add_aweme_download_time_null_without_file_path(tmp_path):
+    database = Database(str(tmp_path / "test.db"))
+    await database.initialize()
+
+    await database.add_aweme(
+        {"aweme_id": "L1", "aweme_type": "video", "title": "t", "file_path": "", "metadata": ""}
+    )
+    db = await database._get_conn()
+    cursor = await db.execute("SELECT download_time FROM aweme WHERE aweme_id = ?", ("L1",))
+    (dt,) = await cursor.fetchone()
+    assert dt is None
+
+    await database.close()

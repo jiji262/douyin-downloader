@@ -13,6 +13,7 @@ from core.api_client import DouyinAPIClient
 from core.metadata import extract_author_sec_uid
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
+from storage.database import order_cover_mirrors
 from utils.logger import setup_logger
 from utils.naming import (
     DEFAULT_FILE_TEMPLATE,
@@ -55,6 +56,7 @@ class BaseDownloader(ABC):
         retry_handler: Optional[RetryHandler] = None,
         queue_manager: Optional[QueueManager] = None,
         progress_reporter: Optional[ProgressReporter] = None,
+        job_id: Optional[str] = None,
     ):
         self.config = config
         self.api_client = api_client
@@ -66,6 +68,9 @@ class BaseDownloader(ABC):
         thread_count = int(self.config.get("thread", 5) or 5)
         self.queue_manager = queue_manager or QueueManager(max_workers=thread_count)
         self.progress_reporter = progress_reporter
+        # Server job that spawned this downloader (empty for CLI runs);
+        # written onto each aweme row for job→aweme linkage.
+        self.job_id = job_id
         self.metadata_handler = MetadataHandler()
         self.transcript_manager = TranscriptManager(self.config, self.file_manager, self.database)
         self._local_aweme_ids: Optional[set[str]] = None
@@ -442,6 +447,8 @@ class BaseDownloader(ABC):
         author = aweme_data.get("author", {})
         if self.database:
             metadata_json = json.dumps(aweme_data, ensure_ascii=False)
+            cover = (aweme_data.get("video") or {}).get("cover") or {}
+            cover_list = cover.get("url_list")
             record = {
                 "aweme_id": aweme_id,
                 "aweme_type": media_type,
@@ -456,6 +463,10 @@ class BaseDownloader(ABC):
                 # the single-write path (add_aweme reads the payload as
                 # fallback when the kwarg is None) pick it up identically.
                 "author_sec_uid": extract_author_sec_uid(aweme_data),
+                "cover_urls": json.dumps(
+                    order_cover_mirrors(cover_list if isinstance(cover_list, list) else [])
+                ),
+                "job_id": self.job_id or "",
             }
             # Caller may opt into batched DB writes by passing a list; we just
             # accumulate the record and let the caller commit them all at once.

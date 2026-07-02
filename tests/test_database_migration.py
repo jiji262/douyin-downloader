@@ -272,3 +272,84 @@ async def test_delete_aweme_by_ids_dedupes_duplicate_ids(tmp_path):
         assert await db.is_downloaded("a") is False
     finally:
         await db.close()
+
+
+# ---------------------------------------------------------------------------
+# 7. cover_urls / job_id migrations + backfill (synced from desktop sibling)
+# ---------------------------------------------------------------------------
+def test_order_cover_mirrors_puts_p3_last_and_caps_at_three():
+    import json as _json  # noqa: F401  (parity with desktop test)
+
+    from storage.database import order_cover_mirrors
+
+    urls = [
+        "https://p3-sign.douyinpic.com/a.jpg",
+        "https://p26-sign.douyinpic.com/a.jpg",
+        "https://p9-sign.douyinpic.com/a.jpg",
+        "https://p11-sign.douyinpic.com/a.jpg",
+    ]
+    assert order_cover_mirrors(urls) == [
+        "https://p26-sign.douyinpic.com/a.jpg",
+        "https://p9-sign.douyinpic.com/a.jpg",
+        "https://p11-sign.douyinpic.com/a.jpg",
+    ]
+    assert order_cover_mirrors([]) == []
+    assert order_cover_mirrors([None, "", "https://p9-x/c.jpg"]) == ["https://p9-x/c.jpg"]
+
+
+async def test_migration_adds_cover_urls_and_backfills_from_metadata(tmp_path):
+    import json
+
+    db_path = str(tmp_path / "legacy.db")
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute(_LEGACY_AWEME_DDL)
+        await conn.execute(
+            "INSERT INTO aweme (aweme_id, aweme_type, title, metadata) VALUES (?, ?, ?, ?)",
+            (
+                "legacy_1",
+                "video",
+                "t",
+                json.dumps(
+                    {
+                        "video": {
+                            "cover": {
+                                "url_list": [
+                                    "https://p3-sign.douyinpic.com/a.jpg",
+                                    "https://p26-sign.douyinpic.com/a.jpg",
+                                ]
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO aweme (aweme_id, aweme_type, metadata) VALUES (?, ?, ?)",
+            ("legacy_bad", "video", "{not json"),
+        )
+        await conn.commit()
+
+    db = Database(db_path=db_path)
+    await db.initialize()
+    try:
+        cols = await _table_columns(db_path, "aweme")
+        assert "cover_urls" in cols
+        assert "job_id" in cols
+
+        conn = await db._get_conn()
+        cursor = await conn.execute(
+            "SELECT cover_urls FROM aweme WHERE aweme_id = ?", ("legacy_1",)
+        )
+        (cover_urls,) = await cursor.fetchone()
+        assert json.loads(cover_urls) == [
+            "https://p26-sign.douyinpic.com/a.jpg",
+            "https://p3-sign.douyinpic.com/a.jpg",
+        ]
+
+        cursor = await conn.execute(
+            "SELECT cover_urls FROM aweme WHERE aweme_id = ?", ("legacy_bad",)
+        )
+        (bad_cover,) = await cursor.fetchone()
+        assert bad_cover == ""
+    finally:
+        await db.close()
