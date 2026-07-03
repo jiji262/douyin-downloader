@@ -550,9 +550,7 @@ class DouyinAPIClient:
         ``get_following_page``.
         """
         params = await self._default_query()
-        data = await self._request_json(
-            "/aweme/v1/web/user/profile/self/", params
-        )
+        data = await self._request_json("/aweme/v1/web/user/profile/self/", params)
         if data:
             return data.get("user")
         return None
