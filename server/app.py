@@ -82,7 +82,12 @@ async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:
     API client 仍按请求创建（aiohttp session 不跨请求复用）；其余重量级依赖从
     _ServerDeps 共享。
     """
-    async with DouyinAPIClient(deps.cookie_manager.get_cookies()) as api_client:
+    # proxy 与 cli.main.download_url 对齐:API 请求、短链解析和 CDN 媒体
+    # 下载(downloader_base 读 api_client.proxy)统一走配置代理。
+    async with DouyinAPIClient(
+        deps.cookie_manager.get_cookies(),
+        proxy=deps.config.get("proxy"),
+    ) as api_client:
         if is_short_url(url):
             resolved = await api_client.resolve_short_url(normalize_short_url(url))
             if not resolved:
