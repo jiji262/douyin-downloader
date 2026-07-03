@@ -22,6 +22,9 @@ classifiers = [
 ]
 dependencies = [
     "aiohttp>=3.9.0",
+    # storage/file_manager.py imports httpx at runtime; keep in sync with
+    # requirements.txt or clean-room sidecar builds crash at boot.
+    "httpx>=0.25",
     "aiofiles>=23.2.1",
     "aiosqlite>=0.19.0",
     "rich>=13.7.0",
