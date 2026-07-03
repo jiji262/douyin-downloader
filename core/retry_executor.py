@@ -130,7 +130,9 @@ async def retry_failed_awemes(
 
     try:
         cookies = cookie_manager.get_cookies()
-        async with DouyinAPIClient(cookies) as api_client:
+        # proxy 与 cli.main.download_url / server._execute_download 对齐,
+        # 重试路径不能悄悄绕开配置代理直连。
+        async with DouyinAPIClient(cookies, proxy=config.get("proxy")) as api_client:
             if is_short_url(url):
                 resolved = await api_client.resolve_short_url(normalize_short_url(url))
                 if not resolved:
