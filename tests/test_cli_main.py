@@ -102,3 +102,34 @@ async def test_download_url_passes_proxy_to_api_client(monkeypatch, tmp_path):
     assert result is not None
     assert result.success == 1
     assert captured["proxy"] == "http://127.0.0.1:8899"
+
+
+@pytest.mark.asyncio
+async def test_discovery_subcommand_passes_proxy_to_api_client(monkeypatch, tmp_path):
+    """--hot-board / --search 与下载共用 DouyinAPIClient,同样必须透传代理。
+
+    与桌面仓的同名测试有意分叉:本仓的 _run_discovery_subcommand 多一个
+    cookie_manager 参数(重登录流程),直接注入 fake 即可。
+    """
+    config = main_module.ConfigLoader()
+    config.update(path=str(tmp_path), proxy="http://127.0.0.1:8899")
+
+    captured = {}
+
+    class _ProxyAPIClient(_FakeAPIClient):
+        def __init__(self, cookies, proxy=None):
+            captured["proxy"] = proxy
+            super().__init__(cookies, proxy=proxy)
+
+    async def _fake_dump_hot_board(_api_client, base_path, limit=0):
+        return {"count": 0, "path": str(base_path)}
+
+    from core import discovery
+
+    monkeypatch.setattr(main_module, "DouyinAPIClient", _ProxyAPIClient)
+    monkeypatch.setattr(discovery, "dump_hot_board", _fake_dump_hot_board)
+
+    args = SimpleNamespace(hot_board=0, search=None, search_max=None)
+    await main_module._run_discovery_subcommand(args, config, _FakeCookieManager())
+
+    assert captured["proxy"] == "http://127.0.0.1:8899"

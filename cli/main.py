@@ -316,7 +316,10 @@ async def _run_discovery_subcommand(
 
     base_path = Path(config.get("path") or "./Downloaded/")
 
-    async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
+    async with DouyinAPIClient(
+        cookie_manager.get_cookies(),
+        proxy=config.get("proxy"),
+    ) as api_client:
         if args.hot_board is not None:
             display.print_info("拉取抖音热搜榜...")
             result = await dump_hot_board(api_client, base_path, limit=int(args.hot_board or 0))
