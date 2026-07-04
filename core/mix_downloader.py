@@ -9,6 +9,21 @@ from utils.logger import setup_logger
 logger = setup_logger("MixDownloader")
 
 
+def derive_mix_collection_dir(mix_detail: Optional[Dict[str, Any]], mix_id: Any) -> str:
+    """Folder name for a 合集's own directory.
+
+    Prefer the mix's display name (``mix_name`` → ``title``); fall back to the
+    ``mix_id`` so downloads never collapse into a bare shared ``mix`` dir.
+    Shared by the fresh-download (:class:`MixDownloader`) and retry
+    (:mod:`core.retry_executor`) paths so a retried item lands in the SAME
+    ``<author>/mix/<collection>/`` folder as its originally-downloaded peers.
+    """
+    name = ""
+    if isinstance(mix_detail, dict):
+        name = (mix_detail.get("mix_name") or mix_detail.get("title") or "").strip()
+    return name or str(mix_id)
+
+
 class MixDownloader(BaseDownloader):
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
@@ -31,6 +46,9 @@ class MixDownloader(BaseDownloader):
             else None
         ) or "mix"
 
+        # Give each 合集 its own folder: <author>/mix/<合集名>/... .
+        collection_dir = derive_mix_collection_dir(mix_detail, mix_id)
+
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
             if not aweme_id:
@@ -41,7 +59,9 @@ class MixDownloader(BaseDownloader):
                 self._progress_advance_item("skipped", str(aweme_id))
                 return {"status": "skipped", "aweme_id": aweme_id}
 
-            success = await self._download_aweme_assets(item, author_name, mode="mix")
+            success = await self._download_aweme_assets(
+                item, author_name, mode="mix", collection_dir=collection_dir
+            )
             status = "success" if success else "failed"
             self._progress_advance_item(status, str(aweme_id))
             return {"status": status, "aweme_id": aweme_id}

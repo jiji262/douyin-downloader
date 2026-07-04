@@ -201,6 +201,67 @@ def test_get_save_path_group_by_mode_true_default_keeps_mode(tmp_path):
     assert path.parts[-2] == "某作者"
 
 
+def test_get_save_path_collection_dir_inserts_folder(tmp_path):
+    """``collection_dir`` inserts a folder between the mode layer and the
+    per-aweme leaf: ``base/<author>/mix/<collection>/<leaf>``. This is what
+    puts each 合集 in its own directory."""
+    fm = FileManager(str(tmp_path))
+    path = fm.get_save_path(
+        "某作者",
+        mode="mix",
+        folderstyle=True,
+        folder_name="2024-01-01_标题_123",
+        collection_dir="我的合集",
+    )
+    assert path.name == "2024-01-01_标题_123"
+    assert path.parent.name == "我的合集"
+    assert path.parent.parent.name == "mix"
+    assert path.parent.parent.parent.name == "某作者"
+
+
+def test_get_save_path_collection_dir_is_sanitized(tmp_path):
+    """Mix names can contain path separators / illegal chars; the collection
+    layer must be sanitized so it never escapes into sub-paths."""
+    from utils.validators import sanitize_filename
+
+    fm = FileManager(str(tmp_path))
+    raw = "a/b:c*d?"
+    path = fm.get_save_path(
+        "A", mode="mix", folderstyle=False, collection_dir=raw
+    )
+    # folderstyle off → the collection folder is the leaf.
+    assert path.name == sanitize_filename(raw)
+    assert "/" not in path.name
+
+
+def test_get_save_path_collection_dir_empty_keeps_legacy_layout(tmp_path):
+    """Empty/None ``collection_dir`` inserts no extra layer — zero behaviour
+    change for every non-mix caller."""
+    fm = FileManager(str(tmp_path))
+    for empty in ("", None, "   "):
+        path = fm.get_save_path(
+            "A", mode="mix", folderstyle=False, collection_dir=empty
+        )
+        assert path.name == "mix"
+        assert path.parent.name == "A"
+
+
+def test_get_save_path_collection_dir_group_by_mode_false(tmp_path):
+    """With group_by_mode off there is no ``mix`` layer, but the collection
+    folder still applies directly under the author dir."""
+    fm = FileManager(str(tmp_path))
+    path = fm.get_save_path(
+        "A",
+        mode="mix",
+        folderstyle=False,
+        collection_dir="合集X",
+        group_by_mode=False,
+    )
+    assert path.name == "合集X"
+    assert path.parent.name == "A"
+    assert "mix" not in path.parts
+
+
 def test_get_save_path_author_dir_user_sec_uid(tmp_path):
     """``user_sec_uid`` style prefixes the sec_uid with ``user_`` to match the
     legacy DouYin-Downloader on-disk layout."""

@@ -69,7 +69,7 @@ class BaseDownloader(ABC):
         self.queue_manager = queue_manager or QueueManager(max_workers=thread_count)
         self.progress_reporter = progress_reporter
         # Server job that spawned this downloader (empty for CLI runs);
-        # written onto each aweme row for job→aweme linkage.
+        # written onto each aweme row for the History job cross-filter.
         self.job_id = job_id
         self.metadata_handler = MetadataHandler()
         self.transcript_manager = TranscriptManager(self.config, self.file_manager, self.database)
@@ -254,6 +254,7 @@ class BaseDownloader(ABC):
         mode: Optional[str] = None,
         *,
         db_batch: Optional[List[Dict[str, Any]]] = None,
+        collection_dir: Optional[str] = None,
     ) -> bool:
         aweme_id = aweme_data.get("aweme_id")
         if not aweme_id:
@@ -304,6 +305,7 @@ class BaseDownloader(ABC):
             author_sec_uid=extract_author_sec_uid(aweme_data),
             author_dir_style=self.config.get("author_dir") or "nickname",
             group_by_mode=self.config.get("group_by_mode", True),
+            collection_dir=collection_dir,
         )
         downloaded_files: List[Path] = []
 
@@ -673,7 +675,9 @@ class BaseDownloader(ABC):
                 "highest": "1080p",
                 "lowest": "540p",
             }
-            ratio = ratio_map.get(quality, quality if quality in self._QUALITY_TARGET_WIDTH else "1080p")
+            ratio = ratio_map.get(
+                quality, quality if quality in self._QUALITY_TARGET_WIDTH else "1080p"
+            )
             params = {
                 "video_id": uri,
                 "ratio": ratio,
