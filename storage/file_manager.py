@@ -206,7 +206,9 @@ class FileManager:
                     return await self._persist_stream(
                         response.content.iter_chunked(8192),
                         save_path,
-                        response.content_length,
+                        self._expected_size_from_headers(
+                            response.headers, response.content_length
+                        ),
                         response.headers,
                         prefer_response_content_type=prefer_response_content_type,
                         return_saved_path=return_saved_path,
@@ -233,6 +235,29 @@ class FileManager:
         finally:
             if should_close:
                 await session.close()
+
+    @staticmethod
+    def _expected_size_from_headers(response_headers, content_length) -> Optional[int]:
+        """Return the byte count to validate the download against, or ``None``.
+
+        Both aiohttp and httpx transparently decompress the response body, so a
+        ``Content-Length`` header (which reflects the *compressed* size) can't be
+        compared against the decompressed bytes we actually write. When
+        ``Content-Encoding`` is present we skip the size check entirely;
+        otherwise we trust ``content_length``.
+
+        Defensive against mock/non-dict headers: only a real, non-empty string
+        encoding disables the check.
+        """
+        encoding = None
+        if response_headers is not None:
+            try:
+                encoding = response_headers.get("Content-Encoding")
+            except (AttributeError, TypeError):
+                encoding = None
+        if isinstance(encoding, str) and encoding.strip():
+            return None
+        return content_length
 
     async def _persist_stream(
         self,
@@ -300,16 +325,16 @@ class FileManager:
                         )
                         return False
                     # httpx auto-decompresses; Content-Length is the *compressed*
-                    # size, so only trust it when the body isn't encoded.
-                    expected_size: Optional[int] = None
-                    if not response.headers.get("Content-Encoding"):
-                        content_length = response.headers.get("Content-Length")
-                        if content_length is not None and content_length.isdigit():
-                            expected_size = int(content_length)
+                    # size, so only trust it when the body isn't encoded (shared
+                    # guard with the aiohttp path).
+                    raw_length = response.headers.get("Content-Length")
+                    parsed_length = (
+                        int(raw_length) if raw_length is not None and raw_length.isdigit() else None
+                    )
                     return await self._persist_stream(
                         response.aiter_bytes(),
                         save_path,
-                        expected_size,
+                        self._expected_size_from_headers(response.headers, parsed_length),
                         response.headers,
                         prefer_response_content_type=prefer_response_content_type,
                         return_saved_path=return_saved_path,

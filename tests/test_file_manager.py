@@ -395,6 +395,42 @@ async def test_download_file_no_httpx_fallback_on_404(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_download_file_keeps_content_encoded_body(tmp_path):
+    """aiohttp transparently decompresses the body, but ``content_length``
+    reflects the *compressed* ``Content-Length`` header. A gzip/br response
+    must NOT be discarded as a size mismatch — otherwise a perfectly good
+    download is deleted and reported as a failure."""
+    fm = FileManager(str(tmp_path))
+    save_path = tmp_path / "data.mp4"
+    decompressed = b"the fully decompressed body, longer than the compressed header"
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.content_length = 12  # compressed size from Content-Length
+    mock_response.headers = {"Content-Encoding": "gzip"}
+
+    async def iter_chunked(size):
+        yield decompressed
+
+    mock_response.content = MagicMock()
+    mock_response.content.iter_chunked = iter_chunked
+
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value = ctx
+
+    result = await fm.download_file(
+        "https://example.com/data.mp4", save_path, session=mock_session
+    )
+    assert result is True
+    assert save_path.exists()
+    assert save_path.read_bytes() == decompressed
+
+
+@pytest.mark.asyncio
 async def test_download_file_size_mismatch_cleans_up(tmp_path):
     fm = FileManager(str(tmp_path))
     save_path = tmp_path / "video.mp4"
