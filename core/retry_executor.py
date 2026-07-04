@@ -37,6 +37,7 @@ from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
 from core.downloader_factory import DownloaderFactory
+from core.mix_downloader import derive_mix_collection_dir
 from core.url_parser import URLParser
 from storage import Database, FileManager
 from utils.logger import setup_logger
@@ -146,6 +147,16 @@ async def retry_failed_awemes(
             mode = _derive_mode(overrides)
             factory_type = _derive_url_type_for_factory(parsed.get("type"))
 
+            # Retried 合集 items must land in the SAME per-collection folder as
+            # their originally-downloaded peers (see MixDownloader). The job URL
+            # carries the mix_id, so re-derive the collection name here; without
+            # this, retried items scatter into the bare ``<author>/mix/`` dir.
+            collection_dir: Optional[str] = None
+            mix_id = parsed.get("mix_id")
+            if mix_id:
+                mix_detail = await api_client.get_mix_detail(str(mix_id))
+                collection_dir = derive_mix_collection_dir(mix_detail, mix_id)
+
             downloader = DownloaderFactory.create(
                 factory_type,
                 config,
@@ -227,7 +238,9 @@ async def retry_failed_awemes(
 
                 ok = False
                 try:
-                    ok = await downloader._download_aweme_assets(aweme_data, author_name, mode=mode)
+                    ok = await downloader._download_aweme_assets(
+                        aweme_data, author_name, mode=mode, collection_dir=collection_dir
+                    )
                 except Exception as exc:  # pragma: no cover — defensive
                     logger.warning(
                         "Retry of aweme %s raised %s: %s",

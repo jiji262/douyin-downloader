@@ -49,6 +49,7 @@ class FileManager:
         author_sec_uid: Optional[str] = None,
         author_dir_style: str = "nickname",
         group_by_mode: bool = True,
+        collection_dir: Optional[str] = None,
     ) -> Path:
         """Compute (and create) the destination directory for a download.
 
@@ -69,6 +70,11 @@ class FileManager:
         under the author directory (reproducing the legacy layout with no
         ``POST`` folder). It is independent of ``folderstyle`` (the per-aweme
         sub-folder).
+
+        ``collection_dir`` inserts one more directory between the mode layer
+        and the per-aweme leaf, so each 合集 (mix) lands in its own folder
+        (``base/<author>/mix/<collection>/<leaf>``). It is sanitized here;
+        empty / whitespace-only values insert nothing (legacy layout).
         """
         safe_author = self._compose_author_dir(author_name, author_sec_uid, author_dir_style)
 
@@ -76,6 +82,12 @@ class FileManager:
             save_dir = self.base_path / safe_author / mode
         else:
             save_dir = self.base_path / safe_author
+
+        # Only insert a collection layer for a genuinely non-empty name;
+        # a blank/whitespace value must reproduce the legacy layout rather
+        # than sanitize into an ``untitled`` folder.
+        if collection_dir and str(collection_dir).strip():
+            save_dir = save_dir / sanitize_filename(str(collection_dir).strip())
 
         if folderstyle:
             leaf = folder_name
