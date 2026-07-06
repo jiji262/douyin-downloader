@@ -638,6 +638,49 @@ class DouyinAPIClient:
             "raw": raw,
         }
 
+    async def get_live_replay_episode(self, episode_id: str) -> Optional[Dict[str, Any]]:
+        """获取直播回放入口信息，包含回放对应的 room_id。"""
+        params = await self._default_query()
+        params.update({"channel": "", "episode_id": episode_id})
+        raw = await self._request_json(
+            "/aweme/v1/web/show/episode/enter/",
+            params,
+            suppress_error=True,
+        )
+        data = raw.get("data") if isinstance(raw, dict) else None
+        episode = data.get("episode") if isinstance(data, dict) else None
+        return episode if isinstance(episode, dict) else None
+
+    async def get_live_replay_info(
+        self, episode_id: str, room_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """获取直播回放条目，包含可播放的 video/audio URL 列表。"""
+        params = await self._default_query()
+        params.update({"channel": "", "episode_id": episode_id, "room_id": room_id})
+        raw = await self._request_json(
+            "/aweme/v1/web/show/episode/replay_list/",
+            params,
+            suppress_error=True,
+        )
+        data = raw.get("data") if isinstance(raw, dict) else None
+        groups = data.get("all_replay") if isinstance(data, dict) else None
+        if not isinstance(groups, list):
+            return None
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            items = group.get("info_list")
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("episode_id_str") or item.get("episode_id") or "") == str(
+                    episode_id
+                ):
+                    return item
+        return None
+
     async def get_hot_search_board(self) -> Dict[str, Any]:
         """获取抖音热搜榜。返回归一化 dict，items 为热搜词条列表。"""
         params = await self._default_query()
