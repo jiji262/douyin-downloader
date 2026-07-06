@@ -223,6 +223,23 @@ class FileManager:
                         prefer_response_content_type=prefer_response_content_type,
                         return_saved_path=return_saved_path,
                     )
+                if response.status == 206:
+                    expected_size = self._complete_content_range_size(response.headers)
+                    if expected_size is None:
+                        logger.warning(
+                            "Rejected incomplete range response for %s: %s",
+                            final_path.name,
+                            response.headers.get("Content-Range") if response.headers else None,
+                        )
+                        return False
+                    return await self._persist_stream(
+                        response.content.iter_chunked(8192),
+                        save_path,
+                        expected_size,
+                        response.headers,
+                        prefer_response_content_type=prefer_response_content_type,
+                        return_saved_path=return_saved_path,
+                    )
                 status = response.status
                 logger.debug("Download failed for %s, status=%s", final_path.name, status)
             # aiohttp connection released here. Douyin's image CDN 403s aiohttp's
@@ -245,6 +262,21 @@ class FileManager:
         finally:
             if should_close:
                 await session.close()
+
+    @staticmethod
+    def _complete_content_range_size(response_headers) -> Optional[int]:
+        if not response_headers:
+            return None
+        content_range = response_headers.get("Content-Range")
+        if not content_range:
+            return None
+        match = re.match(r"^bytes (\d+)-(\d+)/(\d+)$", content_range.strip())
+        if not match:
+            return None
+        start, end, total = (int(part) for part in match.groups())
+        if start != 0 or end + 1 != total:
+            return None
+        return total
 
     async def _persist_stream(
         self,

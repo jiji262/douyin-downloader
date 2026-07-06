@@ -95,3 +95,39 @@ def test_parse_live_replay_reflow_share_url():
     assert parsed is not None
     assert parsed["type"] == "live_replay"
     assert parsed["episode_id"] == "7331203341890049058"
+
+
+def test_parse_live_replay_uses_replay_id_when_present():
+    parsed = URLParser.parse(
+        "https://webcast.amemv.com/douyin/webcast/reflow/episode/"
+        "7331203341890049058?replay_id=7339999999999999999"
+    )
+
+    assert parsed is not None
+    assert parsed["type"] == "live_replay"
+    assert parsed["episode_id"] == "7331203341890049058"
+    assert parsed["replay_id"] == "7339999999999999999"
+
+
+def test_parse_live_replay_rejects_spoofed_host():
+    assert URLParser.parse(
+        "https://evil.com/douyin/webcast/reflow/episode/7331203341890049058"
+    ) is None
+
+
+def test_parse_live_replay_rejects_unapproved_amemv_subdomain():
+    assert URLParser.parse(
+        "https://foo.amemv.com/douyin/webcast/reflow/episode/7331203341890049058"
+    ) is None
+
+
+def test_parse_live_replay_rejects_non_exact_paths():
+    assert URLParser.parse(
+        "https://webcast.amemv.com/foo/douyin/webcast/reflow/episode/7331203341890049058"
+    ) is None
+    assert URLParser.parse("https://www.douyin.com/foo/vsdetail/7331203341890049058") is None
+
+
+def test_parse_webcast_non_replay_path_is_unsupported():
+    assert URLParser.parse("https://webcast.amemv.com/video/7331203341890049058") is None
+    assert URLParser.parse("https://webcast.amemv.com/?modal_id=7331203341890049058") is None

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from auth import CookieManager
@@ -28,6 +30,13 @@ def _build_downloader(tmp_path):
     ), api_client
 
 
+def _manifest_records(tmp_path):
+    return [
+        json.loads(line)
+        for line in (tmp_path / "download_manifest.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+
 def test_select_playback_tracks_prefers_highest_video_and_audio():
     video, audio = LiveReplayDownloader._select_playback_tracks(
         [
@@ -54,7 +63,7 @@ async def test_live_replay_downloader_downloads_tracks_and_remuxes(tmp_path):
             "episode_extra_basic_info": {"room_start_time": 1706960719},
         }
 
-    async def fake_replay_info(episode_id, room_id):
+    async def fake_replay_info(episode_id, room_id, replay_id=None):
         assert episode_id == "ep-1"
         assert room_id == "room-1"
         return {
@@ -122,7 +131,7 @@ async def test_live_replay_downloader_fails_when_episode_missing(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_live_replay_downloader_cleans_temp_tracks_when_remux_fails(tmp_path):
+async def test_live_replay_downloader_preserves_tracks_when_remux_fails(tmp_path):
     downloader, api_client = _build_downloader(tmp_path)
 
     async def fake_episode(episode_id):
@@ -133,7 +142,7 @@ async def test_live_replay_downloader_cleans_temp_tracks_when_remux_fails(tmp_pa
             "episode_extra_basic_info": {"room_start_time": 1706960719},
         }
 
-    async def fake_replay_info(episode_id, room_id):
+    async def fake_replay_info(episode_id, room_id, replay_id=None):
         return {
             "episode_id_str": episode_id,
             "title": "直播回放标题",
@@ -161,9 +170,96 @@ async def test_live_replay_downloader_cleans_temp_tracks_when_remux_fails(tmp_pa
 
     result = await downloader.download({"episode_id": "ep-1"})
 
+    assert result.success == 1
+    assert result.failed == 0
+    assert [p.read_bytes() for p in tmp_path.rglob("*.video.mp4")] == [b"https://cdn/video.mp4"]
+    assert [p.read_bytes() for p in tmp_path.rglob("*.audio.mp4")] == [b"https://cdn/audio.mp4"]
+    assert len(list(tmp_path.rglob("*.mp4"))) == 2
+    assert _manifest_records(tmp_path)[-1]["remux_status"] == "remux_failed"
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_live_replay_downloader_fails_when_room_id_missing(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    async def fake_episode(episode_id):
+        return {"episode_id_str": episode_id}
+
+    api_client.get_live_replay_episode = fake_episode
+
+    result = await downloader.download({"episode_id": "ep-1"})
+
     assert result.failed == 1
-    assert list(tmp_path.rglob("*.video.mp4")) == []
+    assert result.success == 0
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_live_replay_downloader_fails_when_no_playable_video(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    async def fake_episode(episode_id):
+        return {"episode_id_str": episode_id, "attach_room_id_str": "room-1"}
+
+    async def fake_replay_info(episode_id, room_id, replay_id=None):
+        return {"episode_id_str": episode_id, "video_info": {"unfold_play_info": {"play_urls": []}}}
+
+    api_client.get_live_replay_episode = fake_episode
+    api_client.get_live_replay_info = fake_replay_info
+
+    result = await downloader.download({"episode_id": "ep-1"})
+
+    assert result.failed == 1
+    assert result.success == 0
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_live_replay_downloader_preserves_video_when_audio_download_fails(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    async def fake_episode(episode_id):
+        return {
+            "episode_id_str": episode_id,
+            "attach_room_id_str": "room-1",
+            "owner": {"nickname": "主播甲"},
+            "episode_extra_basic_info": {"room_start_time": 1706960719},
+        }
+
+    async def fake_replay_info(episode_id, room_id, replay_id=None):
+        return {
+            "episode_id_str": episode_id,
+            "title": "直播回放标题",
+            "video_info": {
+                "unfold_play_info": {
+                    "play_urls": [
+                        {"height": 720, "main": "https://cdn/video.mp4"},
+                        {"height": 0, "main": "https://cdn/audio.mp4"},
+                    ]
+                },
+            },
+        }
+
+    async def fake_download_track(url, target_path):
+        if "audio" in url:
+            return False
+        target_path.write_bytes(url.encode("utf-8"))
+        return True
+
+    api_client.get_live_replay_episode = fake_episode
+    api_client.get_live_replay_info = fake_replay_info
+    downloader._download_track = fake_download_track
+
+    result = await downloader.download({"episode_id": "ep-1"})
+
+    assert result.success == 1
+    assert result.failed == 0
+    assert [p.read_bytes() for p in tmp_path.rglob("*.video.mp4")] == [b"https://cdn/video.mp4"]
     assert list(tmp_path.rglob("*.audio.mp4")) == []
-    assert list(tmp_path.rglob("*.mp4")) == []
+    assert _manifest_records(tmp_path)[-1]["remux_status"] == "audio_download_failed"
 
     await api_client.close()
