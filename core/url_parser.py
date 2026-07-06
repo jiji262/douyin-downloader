@@ -1,5 +1,6 @@
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from utils.logger import setup_logger
 from utils.validators import parse_url_type
@@ -52,9 +53,11 @@ class URLParser:
                 result["room_id"] = room_id
 
         elif url_type == "live_replay":
-            episode_id = URLParser._extract_live_replay_episode_id(url)
+            episode_id, replay_id = URLParser._extract_live_replay_ids(url)
             if episode_id:
                 result["episode_id"] = episode_id
+            if replay_id:
+                result["replay_id"] = replay_id
 
         return result
 
@@ -114,17 +117,25 @@ class URLParser:
         return None
 
     @staticmethod
-    def _extract_live_replay_episode_id(url: str) -> Optional[str]:
+    def _extract_live_replay_ids(url: str) -> Tuple[Optional[str], Optional[str]]:
         # 直播回放链接形态：
         #   https://www.douyin.com/vsdetail/7331203341890049058
-        #   https://webcast.amemv.com/douyin/webcast/reflow/episode/733...
-        match = re.search(r"/vsdetail/(\d+)", url)
-        if match:
-            return match.group(1)
-        match = re.search(r"/webcast/reflow/episode/(\d+)", url)
-        if match:
-            return match.group(1)
-        match = re.search(r"[?&]replay_id=(\d+)", url)
-        if match:
-            return match.group(1)
-        return None
+        #   https://webcast.amemv.com/douyin/webcast/reflow/episode/733...?replay_id=734...
+        parsed = urlparse(url)
+        path = parsed.path
+        episode_id: Optional[str] = None
+        replay_id: Optional[str] = None
+
+        if path.startswith("/vsdetail/"):
+            match = re.match(r"^/vsdetail/(\d+)(?:/|$)", path)
+            if match:
+                episode_id = match.group(1)
+        elif path.startswith("/douyin/webcast/reflow/episode/"):
+            match = re.match(r"^/douyin/webcast/reflow/episode/(\d+)(?:/|$)", path)
+            if match:
+                episode_id = match.group(1)
+
+        replay_ids = parse_qs(parsed.query).get("replay_id", [])
+        if replay_ids and replay_ids[0].strip().isdigit():
+            replay_id = replay_ids[0].strip()
+        return episode_id, replay_id

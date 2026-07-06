@@ -481,3 +481,64 @@ async def test_download_file_size_mismatch_cleans_up(tmp_path):
     assert result is False
     assert not save_path.exists()
     assert not save_path.with_suffix(".mp4.tmp").exists()
+
+
+class _FakeContent:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    async def iter_chunked(self, _size):
+        for chunk in self._chunks:
+            yield chunk
+
+
+class _FakeResponse:
+    def __init__(self, status=206, chunks=(b"abc",), headers=None):
+        self.status = status
+        self.content = _FakeContent(chunks)
+        self.content_length = sum(len(chunk) for chunk in chunks)
+        self.headers = headers or {"Content-Type": "video/mp4", "Content-Range": "bytes 0-2/3"}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, response):
+        self.response = response
+
+    def get(self, *args, **kwargs):
+        return self.response
+
+
+@pytest.mark.asyncio
+async def test_download_file_accepts_complete_partial_content_206(tmp_path):
+    fm = FileManager(str(tmp_path))
+    target = tmp_path / "range.mp4"
+    session = _FakeSession(_FakeResponse(status=206, chunks=(b"ab", b"c")))
+
+    ok = await fm.download_file("https://cdn.example/range.mp4", target, session=session)
+
+    assert ok is True
+    assert target.read_bytes() == b"abc"
+
+
+@pytest.mark.asyncio
+async def test_download_file_rejects_incomplete_partial_content_206(tmp_path):
+    fm = FileManager(str(tmp_path))
+    target = tmp_path / "range.mp4"
+    session = _FakeSession(
+        _FakeResponse(
+            status=206,
+            chunks=(b"abc",),
+            headers={"Content-Type": "video/mp4", "Content-Range": "bytes 100-102/1000"},
+        )
+    )
+
+    ok = await fm.download_file("https://cdn.example/range.mp4", target, session=session)
+
+    assert ok is False
+    assert not target.exists()
