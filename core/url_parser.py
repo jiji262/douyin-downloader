@@ -51,6 +51,11 @@ class URLParser:
             if room_id:
                 result["room_id"] = room_id
 
+        elif url_type == "live_replay":
+            episode_id = URLParser._extract_live_replay_episode_id(url)
+            if episode_id:
+                result["episode_id"] = episode_id
+
         return result
 
     @staticmethod
@@ -104,6 +109,22 @@ class URLParser:
         if match:
             return match.group(1)
         match = re.search(r"live\.douyin\.com/(\d+)", url)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_live_replay_episode_id(url: str) -> Optional[str]:
+        # 直播回放链接形态：
+        #   https://www.douyin.com/vsdetail/7331203341890049058
+        #   https://webcast.amemv.com/douyin/webcast/reflow/episode/733...
+        match = re.search(r"/vsdetail/(\d+)", url)
+        if match:
+            return match.group(1)
+        match = re.search(r"/webcast/reflow/episode/(\d+)", url)
+        if match:
+            return match.group(1)
+        match = re.search(r"[?&]replay_id=(\d+)", url)
         if match:
             return match.group(1)
         return None

@@ -76,3 +76,22 @@ def test_parse_live_url():
     assert parsed is not None
     assert parsed["type"] == "live"
     assert parsed["room_id"] == "987654321"
+
+
+def test_parse_live_replay_vsdetail_url():
+    parsed = URLParser.parse("https://www.douyin.com/vsdetail/7331203341890049058")
+
+    assert parsed is not None
+    assert parsed["type"] == "live_replay"
+    assert parsed["episode_id"] == "7331203341890049058"
+
+
+def test_parse_live_replay_reflow_share_url():
+    parsed = URLParser.parse(
+        "https://webcast.amemv.com/douyin/webcast/reflow/episode/"
+        "7331203341890049058?replay_id=7331203341890049058"
+    )
+
+    assert parsed is not None
+    assert parsed["type"] == "live_replay"
+    assert parsed["episode_id"] == "7331203341890049058"

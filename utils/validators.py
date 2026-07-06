@@ -1,6 +1,6 @@
 import re
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 def validate_url(url: str) -> bool:
@@ -71,10 +71,19 @@ def parse_url_type(url: str) -> Optional[str]:
     host = (parsed.netloc or "").lower()
     path = parsed.path
 
+    # modal_id 参数表示在任意页面（用户主页、发现页、搜索页等）弹窗查看单个作品，
+    # 应优先识别为单作品下载，而非该页面本身的类型。
+    qs = parse_qs(parsed.query)
+    modal_ids = qs.get("modal_id", [])
+    if modal_ids and modal_ids[0].strip():
+        return "video"
+
     # live.douyin.com/{room_id} — 直播间专用子域，path 仅有一段数字。
     if host.startswith("live.douyin.com"):
         return "live"
 
+    if "/vsdetail/" in path or "/webcast/reflow/episode/" in path:
+        return "live_replay"
     if "/video/" in path:
         return "video"
     if "/user/" in path:
