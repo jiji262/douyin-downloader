@@ -712,6 +712,99 @@ def test_collect_image_urls_prefers_jpeg_over_webp_companion(tmp_path):
     asyncio.run(api_client.close())
 
 
+def test_collect_image_urls_prefers_highest_resolution_clean_source(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100007",
+        "image_post_info": {
+            "images": [
+                {
+                    "url_list": ["https://cdn.example.com/preview-720.jpg"],
+                    "width": 720,
+                    "height": 1280,
+                    "display_image": {
+                        "url_list": ["https://cdn.example.com/display-1080.jpg"],
+                        "width": 1080,
+                        "height": 1920,
+                    },
+                    "origin_image": {
+                        "url_list": ["https://cdn.example.com/origin-1440.jpg"],
+                        "width": 1440,
+                        "height": 2560,
+                    },
+                    "owner_watermark_image": {
+                        "url_list": ["https://cdn.example.com/highres-2160.jpg"],
+                        "width": 2160,
+                        "height": 3840,
+                    },
+                },
+            ]
+        },
+    }
+
+    candidates = downloader._collect_image_url_candidates(aweme_data)[0]
+
+    assert candidates == [
+        "https://cdn.example.com/origin-1440.jpg",
+        "https://cdn.example.com/display-1080.jpg",
+        "https://cdn.example.com/preview-720.jpg",
+        "https://cdn.example.com/highres-2160.jpg",
+    ]
+    assert downloader._collect_image_urls(aweme_data) == [
+        "https://cdn.example.com/origin-1440.jpg"
+    ]
+
+    asyncio.run(api_client.close())
+
+
+def test_collect_image_urls_ranks_watermark_free_list_by_resolution(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme_data = {
+        "aweme_id": "100008",
+        "image_post_info": {
+            "images": [
+                {
+                    "watermark_free_download_url_list": [
+                        "https://cdn.example.com/clean-free-720.jpg"
+                    ],
+                    "url_list": ["https://cdn.example.com/preview-720.jpg"],
+                    "width": 720,
+                    "height": 1280,
+                    "display_image": {
+                        "url_list": ["https://cdn.example.com/display-1080.jpg"],
+                        "width": 1080,
+                        "height": 1920,
+                    },
+                    "origin_image": {
+                        "url_list": ["https://cdn.example.com/origin-1440.jpg"],
+                        "width": 1440,
+                        "height": 2560,
+                    },
+                    "download_url": {
+                        "url_list": ["https://cdn.example.com/fallback-2160.jpg"],
+                        "width": 2160,
+                        "height": 3840,
+                    },
+                },
+            ]
+        },
+    }
+
+    candidates = downloader._collect_image_url_candidates(aweme_data)[0]
+
+    assert candidates == [
+        "https://cdn.example.com/origin-1440.jpg",
+        "https://cdn.example.com/display-1080.jpg",
+        "https://cdn.example.com/clean-free-720.jpg",
+        "https://cdn.example.com/preview-720.jpg",
+        "https://cdn.example.com/fallback-2160.jpg",
+    ]
+
+    asyncio.run(api_client.close())
+
+
 @pytest.mark.asyncio
 async def test_download_aweme_assets_gallery_succeeds_with_only_live_videos(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
