@@ -811,15 +811,15 @@ class BaseDownloader(ABC):
         for item in gallery_items:
             if not isinstance(item, dict):
                 continue
-            candidates = self._collect_media_urls(
-                item.get("watermark_free_download_url_list"),
-                item,
-                item.get("origin_image"),
-                item.get("display_image"),
-                item.get("download_url"),
-                item.get("download_addr"),
-                item.get("download_url_list"),
-                item.get("owner_watermark_image"),
+            candidates = self._collect_ranked_media_urls(
+                (item.get("watermark_free_download_url_list"), item, 0),
+                (item.get("origin_image"), item.get("origin_image"), 1),
+                (item.get("display_image"), item.get("display_image"), 2),
+                (item, item, 3),
+                (item.get("download_url"), item.get("download_url"), 4),
+                (item.get("download_addr"), item.get("download_addr"), 5),
+                (item.get("download_url_list"), item, 6),
+                (item.get("owner_watermark_image"), item.get("owner_watermark_image"), 7),
             )
             if candidates:
                 image_urls.append(candidates)
@@ -887,26 +887,61 @@ class BaseDownloader(ABC):
         return None
 
     @staticmethod
-    def _collect_media_urls(*sources: Any) -> List[str]:
+    def _collect_ranked_media_urls(*sources: Tuple[Any, Any, int]) -> List[str]:
+        entries: List[Tuple[Tuple[int, int, int, int], str]] = []
+        for source, metadata, source_rank in sources:
+            for candidate in BaseDownloader._extract_urls(source):
+                entries.append(
+                    (
+                        BaseDownloader._gallery_image_sort_key(candidate, metadata, source_rank),
+                        candidate,
+                    )
+                )
+
         urls: List[str] = []
         seen: set[str] = set()
-        for source in sources:
-            for candidate in sorted(
-                BaseDownloader._extract_urls(source),
-                key=BaseDownloader._media_url_priority,
-            ):
-                if candidate in seen:
-                    continue
-                seen.add(candidate)
-                urls.append(candidate)
+        for _key, candidate in sorted(entries, key=lambda entry: entry[0]):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            urls.append(candidate)
         return urls
 
     @staticmethod
-    def _media_url_priority(url: str) -> int:
-        normalized = url.lower()
+    def _gallery_image_sort_key(
+        url: str, metadata: Any, source_rank: int
+    ) -> Tuple[int, int, int, int]:
+        watermark_rank = (
+            1 if source_rank >= 4 or BaseDownloader._is_watermarked_media_url(url) else 0
+        )
+        pixels = BaseDownloader._image_resolution_score(metadata)
+        return (watermark_rank, -pixels, source_rank, BaseDownloader._image_format_rank(url))
+
+    @staticmethod
+    def _image_resolution_score(source: Any) -> int:
+        if not isinstance(source, dict):
+            return 0
+
+        width = BaseDownloader._positive_int(source.get("width") or source.get("w"))
+        height = BaseDownloader._positive_int(source.get("height") or source.get("h"))
+        if width and height:
+            return width * height
+        # Some response variants expose only one side; use it as a weak hint
+        # after exact pixel-area ranking, then fall back to source preference.
+        return width or height or 0
+
+    @staticmethod
+    def _positive_int(value: Any) -> int:
+        try:
+            number = int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return 0
+        return number if number > 0 else 0
+
+    @staticmethod
+    def _image_format_rank(url: str) -> int:
         path = (urlparse(url).path or "").lower()
-        score = 100 if BaseDownloader._is_watermarked_media_url(normalized) else 0
-        return score + (1 if ".webp" in path else 0)
+        return 1 if ".webp" in path else 0
 
     @staticmethod
     def _is_watermarked_media_url(url: str) -> bool:
