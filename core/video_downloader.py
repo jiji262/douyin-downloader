@@ -19,7 +19,8 @@ class VideoDownloader(BaseDownloader):
         self._progress_set_item_total(1, "单作品下载")
         self._progress_update_step("下载作品", "单作品资源下载中")
 
-        if not await self._should_download(aweme_id):
+        should_download = await self._should_download(aweme_id)
+        if not should_download and not self._comments_config():
             logger.info("Video %s already downloaded, skipping", aweme_id)
             result.skipped += 1
             self._progress_advance_item("skipped", str(aweme_id))
@@ -34,6 +35,17 @@ class VideoDownloader(BaseDownloader):
             self._progress_advance_item("failed", str(aweme_id))
             return result
 
+        if not should_download:
+            if await self._collect_comments_for_existing_video(aweme_data):
+                logger.info("Collected comments for already-downloaded video %s", aweme_id)
+                result.success += 1
+                self._progress_advance_item("success", str(aweme_id))
+            else:
+                logger.info("Video %s already downloaded, skipping", aweme_id)
+                result.skipped += 1
+                self._progress_advance_item("skipped", str(aweme_id))
+            return result
+
         success = await self._download_aweme(aweme_data)
         if success:
             result.success += 1
@@ -43,6 +55,11 @@ class VideoDownloader(BaseDownloader):
             self._progress_advance_item("failed", str(aweme_id))
 
         return result
+
+    async def _collect_comments_for_existing_video(self, aweme_data: Dict[str, Any]) -> bool:
+        author = aweme_data.get("author", {}) or {}
+        author_name = author.get("nickname", "unknown")
+        return await self._collect_comments_for_existing_aweme(aweme_data, author_name)
 
     async def _download_aweme(self, aweme_data: Dict[str, Any]) -> bool:
         author = aweme_data.get("author", {}) or {}

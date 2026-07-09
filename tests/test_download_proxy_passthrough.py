@@ -53,7 +53,7 @@ class _FakeDownloader:
 
 def _run_execute_download(monkeypatch, tmp_path, config_updates: Dict[str, Any]):
     from server import app as server_app
-    from server.app import _ServerDeps, _execute_download
+    from server.app import _execute_download, _ServerDeps
 
     deps = _ServerDeps(ConfigLoader(None))
     deps.config.update(path=str(tmp_path), **config_updates)

@@ -7,12 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from auth import CookieManager
+from cli.login_flow import can_interactive_login, interactive_relogin
 from cli.progress_display import ProgressDisplay
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
-from core import DouyinAPIClient, DownloaderFactory, URLParser
-from core import LoginRequiredError
-from cli.login_flow import can_interactive_login, interactive_relogin
+from core import DouyinAPIClient, DownloaderFactory, LoginRequiredError, URLParser
 from storage import Database, FileManager
 from utils.logger import set_console_log_level, setup_logger
 from utils.notifier import build_notifier
