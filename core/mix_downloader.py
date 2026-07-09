@@ -56,8 +56,15 @@ class MixDownloader(BaseDownloader):
                 return {"status": "failed", "aweme_id": None}
 
             if not await self._should_download(str(aweme_id)):
-                self._progress_advance_item("skipped", str(aweme_id))
-                return {"status": "skipped", "aweme_id": aweme_id}
+                saved = await self._collect_comments_for_existing_aweme(
+                    item,
+                    author_name,
+                    mode="mix",
+                    collection_dir=collection_dir,
+                )
+                status = "success" if saved else "skipped"
+                self._progress_advance_item(status, str(aweme_id))
+                return {"status": status, "aweme_id": aweme_id}
 
             success = await self._download_aweme_assets(
                 item, author_name, mode="mix", collection_dir=collection_dir

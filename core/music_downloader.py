@@ -48,8 +48,18 @@ class MusicDownloader(BaseDownloader):
         aweme = await self._get_first_music_aweme(str(music_id))
         if aweme and aweme.get("aweme_id"):
             if not await self._should_download(str(aweme.get("aweme_id"))):
-                result.skipped += 1
-                self._progress_advance_item("skipped", str(aweme.get("aweme_id")))
+                aweme_author = (aweme.get("author") or {}).get("nickname", "music")
+                saved = await self._collect_comments_for_existing_aweme(
+                    aweme,
+                    aweme_author,
+                    mode="music",
+                )
+                if saved:
+                    result.success += 1
+                    self._progress_advance_item("success", str(aweme.get("aweme_id")))
+                else:
+                    result.skipped += 1
+                    self._progress_advance_item("skipped", str(aweme.get("aweme_id")))
                 return result
 
             aweme_author = (aweme.get("author") or {}).get("nickname", "music")

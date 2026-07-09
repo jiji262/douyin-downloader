@@ -247,19 +247,17 @@ class BaseDownloader(ABC):
             return aweme_list[:limit]
         return aweme_list
 
-    async def _download_aweme_assets(
-        self,
-        aweme_data: Dict[str, Any],
-        author_name: str,
-        mode: Optional[str] = None,
-        *,
-        db_batch: Optional[List[Dict[str, Any]]] = None,
-        collection_dir: Optional[str] = None,
-    ) -> bool:
+    def _comments_config(self) -> Optional[Dict[str, Any]]:
+        comments_cfg = self.config.get("comments") or {}
+        if isinstance(comments_cfg, dict) and comments_cfg.get("enabled"):
+            return comments_cfg
+        return None
+
+    def _aweme_file_metadata(self, aweme_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         aweme_id = aweme_data.get("aweme_id")
         if not aweme_id:
             logger.error("Missing aweme_id in aweme data")
-            return False
+            return None
 
         desc = (aweme_data.get("desc", "no_title") or "").strip() or "no_title"
         publish_ts, publish_date = self._resolve_publish_time(aweme_data.get("create_time"))
@@ -270,43 +268,147 @@ class BaseDownloader(ABC):
                 aweme_id,
                 publish_date,
             )
-        media_type = self._detect_media_type(aweme_data)
+        return {
+            "aweme_id": aweme_id,
+            "desc": desc,
+            "publish_ts": publish_ts,
+            "publish_date": publish_date,
+            "media_type": self._detect_media_type(aweme_data),
+        }
+
+    def _render_aweme_file_names(
+        self,
+        aweme_data: Dict[str, Any],
+        metadata: Dict[str, Any],
+        author_name: str,
+        mode: Optional[str],
+    ) -> Dict[str, str]:
         template_context = build_aweme_context(
-            aweme_id=str(aweme_id),
-            title=desc,
+            aweme_id=str(metadata["aweme_id"]),
+            title=str(metadata["desc"]),
             author_name=author_name,
             author_sec_uid=extract_author_sec_uid(aweme_data),
-            publish_date=publish_date,
-            publish_ts=publish_ts,
-            media_type=media_type,
+            publish_date=str(metadata["publish_date"]),
+            publish_ts=metadata["publish_ts"],
+            media_type=str(metadata["media_type"]),
             mode=mode,
         )
-        filename_template = self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
-        folder_template = self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
-        file_stem = render_template(
-            filename_template,
-            template_context,
-            fallback=f"{publish_date}_{aweme_id}",
-        )
-        folder_name = render_template(
-            folder_template,
-            template_context,
-            fallback=f"{publish_date}_{aweme_id}",
-        )
+        fallback = f"{metadata['publish_date']}_{metadata['aweme_id']}"
+        return {
+            "file_stem": render_template(
+                self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE,
+                template_context,
+                fallback=fallback,
+            ),
+            "folder_name": render_template(
+                self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE,
+                template_context,
+                fallback=fallback,
+            ),
+        }
 
+    def _build_aweme_file_context(
+        self,
+        aweme_data: Dict[str, Any],
+        author_name: str,
+        mode: Optional[str] = None,
+        *,
+        collection_dir: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        metadata = self._aweme_file_metadata(aweme_data)
+        if metadata is None:
+            return None
+
+        names = self._render_aweme_file_names(aweme_data, metadata, author_name, mode)
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode=mode,
-            aweme_title=desc,
-            aweme_id=aweme_id,
+            aweme_title=metadata["desc"],
+            aweme_id=metadata["aweme_id"],
             folderstyle=self.config.get("folderstyle", True),
-            download_date=publish_date,
-            folder_name=folder_name,
+            download_date=metadata["publish_date"],
+            folder_name=names["folder_name"],
             author_sec_uid=extract_author_sec_uid(aweme_data),
             author_dir_style=self.config.get("author_dir") or "nickname",
             group_by_mode=self.config.get("group_by_mode", True),
             collection_dir=collection_dir,
         )
+        return {**metadata, "file_stem": names["file_stem"], "save_dir": save_dir}
+
+    async def _save_comments(
+        self,
+        aweme_id: str,
+        comments_path: Path,
+        comments_cfg: Dict[str, Any],
+    ) -> bool:
+        from core.comments_collector import CommentsCollector
+
+        collector = CommentsCollector(
+            self.api_client,
+            self.metadata_handler,
+            include_replies=bool(comments_cfg.get("include_replies", False)),
+            max_comments=int(comments_cfg.get("max_comments", 0) or 0),
+            page_size=int(comments_cfg.get("page_size", 20) or 20),
+        )
+        saved = await collector.collect_and_save(str(aweme_id), comments_path)
+        return saved is not None
+
+    async def _collect_comments_for_existing_aweme(
+        self,
+        aweme_data: Dict[str, Any],
+        author_name: str,
+        mode: Optional[str] = None,
+        *,
+        collection_dir: Optional[str] = None,
+    ) -> bool:
+        comments_cfg = self._comments_config()
+        if comments_cfg is None:
+            return False
+
+        file_context = self._build_aweme_file_context(
+            aweme_data,
+            author_name,
+            mode,
+            collection_dir=collection_dir,
+        )
+        if file_context is None:
+            return False
+
+        comments_path = file_context["save_dir"] / f"{file_context['file_stem']}_comments.json"
+        if comments_path.exists() and comments_path.stat().st_size > 0:
+            return False
+
+        return await self._save_comments(
+            str(file_context["aweme_id"]),
+            comments_path,
+            comments_cfg,
+        )
+
+    async def _download_aweme_assets(
+        self,
+        aweme_data: Dict[str, Any],
+        author_name: str,
+        mode: Optional[str] = None,
+        *,
+        db_batch: Optional[List[Dict[str, Any]]] = None,
+        collection_dir: Optional[str] = None,
+    ) -> bool:
+        file_context = self._build_aweme_file_context(
+            aweme_data,
+            author_name,
+            mode,
+            collection_dir=collection_dir,
+        )
+        if file_context is None:
+            return False
+
+        aweme_id = file_context["aweme_id"]
+        desc = file_context["desc"]
+        publish_ts = file_context["publish_ts"]
+        publish_date = file_context["publish_date"]
+        media_type = file_context["media_type"]
+        file_stem = file_context["file_stem"]
+        save_dir = file_context["save_dir"]
         downloaded_files: List[Path] = []
 
         session = await self.api_client.get_session()
@@ -430,20 +532,10 @@ class BaseDownloader(ABC):
             if await self.metadata_handler.save_metadata(aweme_data, json_path):
                 downloaded_files.append(json_path)
 
-        comments_cfg = self.config.get("comments") or {}
-        if isinstance(comments_cfg, dict) and comments_cfg.get("enabled"):
-            from core.comments_collector import CommentsCollector
-
-            collector = CommentsCollector(
-                self.api_client,
-                self.metadata_handler,
-                include_replies=bool(comments_cfg.get("include_replies", False)),
-                max_comments=int(comments_cfg.get("max_comments", 0) or 0),
-                page_size=int(comments_cfg.get("page_size", 20) or 20),
-            )
+        comments_cfg = self._comments_config()
+        if comments_cfg is not None:
             comments_path = save_dir / f"{file_stem}_comments.json"
-            saved = await collector.collect_and_save(aweme_id, comments_path)
-            if saved is not None:
+            if await self._save_comments(str(aweme_id), comments_path, comments_cfg):
                 downloaded_files.append(comments_path)
 
         author = aweme_data.get("author", {})
