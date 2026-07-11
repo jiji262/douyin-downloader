@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.ffmpeg import resolve_ffmpeg_path
 from utils.logger import setup_logger
 from utils.naming import (
     DEFAULT_FILE_TEMPLATE,
@@ -20,6 +20,9 @@ from utils.naming import (
 )
 
 logger = setup_logger("LiveReplayDownloader")
+LIVE_REPLAY_TIMEZONE = timezone(timedelta(hours=8))
+_REMUX_TIMEOUT_SECONDS = 600.0
+_PROCESS_REAP_TIMEOUT_SECONDS = 5.0
 
 
 class LiveReplayDownloader(BaseDownloader):
@@ -51,7 +54,9 @@ class LiveReplayDownloader(BaseDownloader):
             return result
 
         replay_id = str(parsed_url.get("replay_id") or "").strip() or None
-        replay = await self.api_client.get_live_replay_info(episode_id, room_id, replay_id=replay_id)
+        replay = await self.api_client.get_live_replay_info(
+            episode_id, room_id, replay_id=replay_id
+        )
         if not replay:
             logger.error("Live replay playable info not found: %s", episode_id)
             result.failed += 1
@@ -81,7 +86,9 @@ class LiveReplayDownloader(BaseDownloader):
         if audio_url:
             self._progress_update_step("下载回放音频", final_path.name)
             if not await self._download_track(audio_url, audio_path):
-                logger.warning("Live replay audio download failed; keeping video track: %s", episode_id)
+                logger.warning(
+                    "Live replay audio download failed; keeping video track: %s", episode_id
+                )
                 output_paths = [video_path]
                 remux_status = "audio_download_failed"
             else:
@@ -116,7 +123,9 @@ class LiveReplayDownloader(BaseDownloader):
         return [item for item in play_urls or [] if isinstance(item, dict)]
 
     @staticmethod
-    def _select_playback_tracks(play_urls: Iterable[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+    def _select_playback_tracks(
+        play_urls: Iterable[Dict[str, Any]],
+    ) -> Tuple[Optional[str], Optional[str]]:
         video_candidates = []
         audio_url: Optional[str] = None
         for item in play_urls:
@@ -187,9 +196,11 @@ class LiveReplayDownloader(BaseDownloader):
         extra = episode.get("episode_extra_basic_info")
         ts = extra.get("room_start_time") if isinstance(extra, dict) else None
         try:
-            return datetime.fromtimestamp(int(ts or 0)) if ts else datetime.now()
+            if ts:
+                return datetime.fromtimestamp(int(ts), tz=LIVE_REPLAY_TIMEZONE)
+            return datetime.now(LIVE_REPLAY_TIMEZONE)
         except (OSError, OverflowError, TypeError, ValueError):
-            return datetime.now()
+            return datetime.now(LIVE_REPLAY_TIMEZONE)
 
     async def _download_track(self, url: str, target_path: Path) -> bool:
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,11 +215,11 @@ class LiveReplayDownloader(BaseDownloader):
         )
 
     async def _remux_tracks(self, video_path: Path, audio_path: Path, output_path: Path) -> bool:
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = resolve_ffmpeg_path()
         if not ffmpeg:
             logger.error("ffmpeg not found; cannot merge live replay tracks")
             return False
-        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        tmp_path = output_path.with_suffix(f".tmp{output_path.suffix}")
         cmd = [
             ffmpeg,
             "-y",
@@ -220,21 +231,50 @@ class LiveReplayDownloader(BaseDownloader):
             "copy",
             str(tmp_path),
         ]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            logger.error("ffmpeg merge failed: %s", stderr.decode("utf-8", "ignore")[-500:])
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_REMUX_TIMEOUT_SECONDS
+            )
+            if proc.returncode != 0:
+                logger.error("ffmpeg merge failed: %s", stderr.decode("utf-8", "ignore")[-500:])
+                return False
+            os.replace(str(tmp_path), str(output_path))
+            return True
+        except asyncio.TimeoutError:
+            logger.error("ffmpeg merge timed out after %ss", int(_REMUX_TIMEOUT_SECONDS))
+            if proc is not None:
+                await self._kill_and_reap(proc)
             return False
-        os.replace(str(tmp_path), str(output_path))
-        return True
+        except asyncio.CancelledError:
+            if proc is not None:
+                await self._kill_and_reap(proc)
+            raise
+        except Exception as exc:
+            logger.error("ffmpeg merge failed: %s", exc)
+            if proc is not None:
+                await self._kill_and_reap(proc)
+            return False
+        finally:
+            self._cleanup_temp(tmp_path)
+
+    @staticmethod
+    async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        except Exception as exc:
+            logger.warning("Failed to kill ffmpeg pid=%s: %s", proc.pid, exc)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_PROCESS_REAP_TIMEOUT_SECONDS)
+        except Exception as exc:
+            logger.warning("Failed to reap ffmpeg pid=%s: %s", proc.pid, exc)
 
     @staticmethod
     def _cleanup_temp(*paths: Path) -> None:
@@ -288,7 +328,9 @@ class LiveReplayDownloader(BaseDownloader):
                 "mode": "live_replay",
                 "room_id": room_id,
                 "file_names": [path.name for path in output_paths],
-                "file_paths": [str(path.relative_to(self.file_manager.base_path)) for path in output_paths],
+                "file_paths": [
+                    str(path.relative_to(self.file_manager.base_path)) for path in output_paths
+                ],
                 "remux_status": remux_status,
                 "metadata": metadata_json,
             },

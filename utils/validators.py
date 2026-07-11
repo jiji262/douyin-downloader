@@ -2,6 +2,15 @@ import re
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
+_WINDOWS_RESERVED_STEMS = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
 
 def _host_matches(host: str, base: str) -> bool:
     return host == base or host.endswith("." + base)
@@ -14,9 +23,7 @@ def _is_douyin_web_host(host: str) -> bool:
 def _is_live_replay_path(host: str, path: str) -> bool:
     if _is_douyin_web_host(host):
         return path.startswith("/vsdetail/")
-    return host == "webcast.amemv.com" and path.startswith(
-        "/douyin/webcast/reflow/episode/"
-    )
+    return host == "webcast.amemv.com" and path.startswith("/douyin/webcast/reflow/episode/")
 
 
 def validate_url(url: str) -> bool:
@@ -41,6 +48,9 @@ def sanitize_filename(filename: str, max_length: int = 80) -> str:
 
     if len(filename) > max_length:
         filename = filename[:max_length].rstrip("._- ")
+
+    if filename.split(".", 1)[0].upper() in _WINDOWS_RESERVED_STEMS:
+        filename = f"_{filename}"[:max_length]
 
     return filename or "untitled"
 
