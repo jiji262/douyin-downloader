@@ -105,7 +105,9 @@ async def test_live_replay_downloader_downloads_tracks_and_remuxes(tmp_path):
         ("https://cdn/video.mp4", "2024-02-03_1945_直播回放标题_ep-1.video.mp4"),
         ("https://cdn/audio.mp4", "2024-02-03_1945_直播回放标题_ep-1.audio.mp4"),
     ]
-    outputs = [p for p in tmp_path.rglob("*.mp4") if not p.name.endswith((".video.mp4", ".audio.mp4"))]
+    outputs = [
+        p for p in tmp_path.rglob("*.mp4") if not p.name.endswith((".video.mp4", ".audio.mp4"))
+    ]
     assert len(outputs) == 1
     assert outputs[0].read_bytes() == b"https://cdn/video.mp4\nhttps://cdn/audio.mp4"
 

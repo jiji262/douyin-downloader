@@ -392,6 +392,8 @@ def test_extract_audio_never_uses_shell_true_for_arbitrary_filenames(
             video.write_bytes(b"\x00")
         except (OSError, ValueError):
             return  # uninteresting; not a regression target.
+        if not video.is_file():
+            return  # Windows device names (for example CON.mp4) are not files.
 
         out_dir = tmp / "out"
 
@@ -409,9 +411,7 @@ def test_extract_audio_never_uses_shell_true_for_arbitrary_filenames(
                 captured["args"] = args
                 captured["kwargs"] = kwargs
                 out_dir.mkdir(parents=True, exist_ok=True)
-                (out_dir / f"{video.stem}.mp3").write_bytes(
-                    b"\xff\xfb\x00mp3"
-                )
+                Path(args[-1]).write_bytes(b"\xff\xfb\x00mp3")
                 return fake_proc
 
             with patch(
