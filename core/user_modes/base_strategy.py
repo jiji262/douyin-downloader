@@ -228,6 +228,12 @@ class BaseUserModeStrategy(ABC):
             if not entry_id:
                 continue
 
+            # 对于合集（mix），提取其合集名称作为目录
+            col_dir = None
+            if id_field == "mix_id":
+                from core.mix_downloader import derive_mix_collection_dir
+                col_dir = derive_mix_collection_dir(item, entry_id)
+
             cursor = 0
             has_more = True
             while has_more:
@@ -255,6 +261,8 @@ class BaseUserModeStrategy(ABC):
                     if not aweme_id or aweme_id in seen_aweme:
                         continue
                     seen_aweme.add(aweme_id)
+                    if col_dir:
+                        extracted["_collection_dir"] = col_dir
                     expanded.append(extracted)
 
                 has_more = bool(page.get("has_more", False))
