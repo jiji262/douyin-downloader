@@ -238,8 +238,9 @@ class UserDownloader(BaseDownloader):
                 self._progress_advance_item(status, str(aweme_id or "unknown"))
                 return {"status": status, "aweme_id": aweme_id}
 
+            collection_dir = item.get("_collection_dir")
             success = await self._download_aweme_assets(
-                item, author_name, mode=mode, db_batch=db_batch
+                item, author_name, mode=mode, db_batch=db_batch, collection_dir=collection_dir
             )
             status = "success" if success else "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
