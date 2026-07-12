@@ -282,12 +282,13 @@ class BaseDownloader(ABC):
         metadata: Dict[str, Any],
         author_name: str,
         mode: Optional[str],
+        author_sec_uid: Optional[str] = None,
     ) -> Dict[str, str]:
         template_context = build_aweme_context(
             aweme_id=str(metadata["aweme_id"]),
             title=str(metadata["desc"]),
             author_name=author_name,
-            author_sec_uid=extract_author_sec_uid(aweme_data),
+            author_sec_uid=author_sec_uid or extract_author_sec_uid(aweme_data),
             publish_date=str(metadata["publish_date"]),
             publish_ts=metadata["publish_ts"],
             media_type=str(metadata["media_type"]),
@@ -313,13 +314,21 @@ class BaseDownloader(ABC):
         author_name: str,
         mode: Optional[str] = None,
         *,
+        author_sec_uid: Optional[str] = None,
         collection_dir: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         metadata = self._aweme_file_metadata(aweme_data)
         if metadata is None:
             return None
 
-        names = self._render_aweme_file_names(aweme_data, metadata, author_name, mode)
+        effective_sec_uid = author_sec_uid or extract_author_sec_uid(aweme_data)
+        names = self._render_aweme_file_names(
+            aweme_data,
+            metadata,
+            author_name,
+            mode,
+            author_sec_uid=effective_sec_uid,
+        )
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode=mode,
@@ -328,7 +337,7 @@ class BaseDownloader(ABC):
             folderstyle=self.config.get("folderstyle", True),
             download_date=metadata["publish_date"],
             folder_name=names["folder_name"],
-            author_sec_uid=extract_author_sec_uid(aweme_data),
+            author_sec_uid=effective_sec_uid,
             author_dir_style=self.config.get("author_dir") or "nickname",
             group_by_mode=self.config.get("group_by_mode", True),
             collection_dir=collection_dir,
@@ -359,6 +368,7 @@ class BaseDownloader(ABC):
         author_name: str,
         mode: Optional[str] = None,
         *,
+        author_sec_uid: Optional[str] = None,
         collection_dir: Optional[str] = None,
     ) -> bool:
         comments_cfg = self._comments_config()
@@ -369,6 +379,7 @@ class BaseDownloader(ABC):
             aweme_data,
             author_name,
             mode,
+            author_sec_uid=author_sec_uid,
             collection_dir=collection_dir,
         )
         if file_context is None:
@@ -391,12 +402,14 @@ class BaseDownloader(ABC):
         mode: Optional[str] = None,
         *,
         db_batch: Optional[List[Dict[str, Any]]] = None,
+        author_sec_uid: Optional[str] = None,
         collection_dir: Optional[str] = None,
     ) -> bool:
         file_context = self._build_aweme_file_context(
             aweme_data,
             author_name,
             mode,
+            author_sec_uid=author_sec_uid,
             collection_dir=collection_dir,
         )
         if file_context is None:

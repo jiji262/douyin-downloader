@@ -142,6 +142,41 @@ def test_user_downloader_processes_modes_and_deduplicates_across_modes(tmp_path,
     assert result.skipped == 0
 
 
+def test_user_downloader_keeps_target_author_identity_for_batch_paths(tmp_path, monkeypatch):
+    """A profile feed can contain co-authored items whose embedded author is
+    not the requested profile.  The directory nickname and sec_uid must still
+    come from the same target profile instead of forming a mixed identity.
+    """
+    downloader = _build_downloader(tmp_path, mode=["post"])
+    captured_author_sec_uids = []
+    captured_author_dirs = []
+    downloader.config._data["author_dir"] = "nickname_uid"
+
+    async def _always_true(*_args, **_kwargs):
+        return True
+
+    async def _capture(_item, _author, **kwargs):
+        _item["author"]["sec_uid"] = "foreign-sec-uid"
+        captured_author_sec_uids.append(kwargs.get("author_sec_uid"))
+        context = downloader._build_aweme_file_context(
+            _item,
+            _author,
+            kwargs.get("mode"),
+            author_sec_uid=kwargs.get("author_sec_uid"),
+        )
+        captured_author_dirs.append(context["save_dir"].parts[-3])
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _capture)
+
+    result = asyncio.run(downloader.download({"sec_uid": "target-sec-uid"}))
+
+    assert result.success == 2
+    assert captured_author_sec_uids == ["target-sec-uid", "target-sec-uid"]
+    assert captured_author_dirs == ["tester_target-sec-uid", "tester_target-sec-uid"]
+
+
 def test_user_downloader_supports_mix_and_music_modes(tmp_path, monkeypatch):
     downloader = _build_downloader(tmp_path, mode=["mix", "music"])
 
@@ -248,7 +283,9 @@ def test_user_downloader_post_mode_uses_batch_db_insert(tmp_path, monkeypatch):
     async def _always_true(*_args, **_kwargs):
         return True
 
-    async def _fake_download_aweme_assets(item, _author, *, mode=None, db_batch=None):
+    async def _fake_download_aweme_assets(
+        item, _author, *, mode=None, db_batch=None, author_sec_uid=None
+    ):
         if db_batch is not None:
             db_batch.append(
                 {

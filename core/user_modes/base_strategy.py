@@ -36,6 +36,9 @@ class BaseUserModeStrategy(ABC):
             mode=self.mode_name,
             items=items,
             author_name=author_name,
+            # Feed entries may be co-authored by another account. Keep the
+            # directory nickname and sec_uid sourced from the same profile.
+            author_sec_uid=user_info.get("sec_uid") or sec_uid,
             seen_aweme_ids=seen_aweme_ids,
         )
 
