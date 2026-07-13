@@ -45,12 +45,13 @@ def test_save_roundtrips_across_new_loader(tmp_path):
     config_path = tmp_path / "config.yml"
 
     first = ConfigLoader(str(config_path))
-    first.update(path=str(tmp_path / "downloads"), thread=7)
+    first.update(path=str(tmp_path / "downloads"), thread=7, video_quality="1080p")
     first.save()
 
     second = ConfigLoader(str(config_path))
     assert second.get("thread") == 7
     assert second.get("path") == str(tmp_path / "downloads")
+    assert second.get("video_quality") == "1080p"
 
 
 def test_save_preserves_unrelated_user_keys(tmp_path):
