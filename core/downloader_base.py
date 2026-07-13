@@ -773,15 +773,22 @@ class BaseDownloader(ABC):
         uri = play_addr.get("uri") or video.get("vid") or video.get("download_addr", {}).get("uri")
         if uri:
             # Douyin /aweme/v1/play/ accepts a limited set of ratio strings.
-            # Map "highest"/"lowest" to 1080p/540p respectively; pass through
-            # recognised <N>p values; fall back to 1080p for unknowns so the
-            # legacy default is preserved.
+            # Preserve the selected track's actual tier when its direct URLs
+            # cannot be used; otherwise fall back to the configured preference.
+            selected_entry = self._find_bit_rate_entry(video, play_addr)
+            short_edge, _ = self._resolution_metrics(selected_entry, play_addr)
+            selected_ratio = f"{short_edge}p"
+            normalised_quality = quality.strip().lower()
             ratio_map = {
                 "highest": "1080p",
                 "lowest": "540p",
             }
-            ratio = ratio_map.get(
-                quality, quality if quality in self._QUALITY_TARGET_WIDTH else "1080p"
+            fallback_ratio = ratio_map.get(
+                normalised_quality,
+                normalised_quality if normalised_quality in self._QUALITY_TARGET_WIDTH else "1080p",
+            )
+            ratio = (
+                selected_ratio if selected_ratio in self._QUALITY_TARGET_WIDTH else fallback_ratio
             )
             params = {
                 "video_id": uri,
@@ -799,8 +806,8 @@ class BaseDownloader(ABC):
 
         return None
 
-    # 视频画质选择支持的规格名称。用于 `_pick_play_addr_by_quality` 按
-    # 分辨率（width）匹配最接近的档位；匹配不到时自动降级到最高可用档。
+    # 视频画质选择支持的规格名称。值保留为横屏长边尺寸，用于兼容只有
+    # width 的旧响应；完整 width/height 响应会按短边匹配 1080p/720p 等档位。
     _QUALITY_TARGET_WIDTH: Dict[str, int] = {
         "1440p": 2560,
         "1080p": 1920,
@@ -809,6 +816,36 @@ class BaseDownloader(ABC):
         "480p": 854,
         "360p": 640,
     }
+
+    @staticmethod
+    def _find_bit_rate_entry(video: Dict[str, Any], play_addr: Dict[str, Any]) -> Dict[str, Any]:
+        entries = video.get("bit_rate") if isinstance(video, dict) else None
+        if not isinstance(entries, list):
+            return {}
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("play_addr") is play_addr:
+                return entry
+        return {}
+
+    @staticmethod
+    def _resolution_metrics(entry: Dict[str, Any], play_addr: Dict[str, Any]) -> Tuple[int, int]:
+        """Return ``(short_edge, pixels)`` for portrait and landscape tracks."""
+        try:
+            width = int(play_addr.get("width") or entry.get("width") or 0)
+            height = int(play_addr.get("height") or entry.get("height") or 0)
+        except (TypeError, ValueError):
+            return 0, 0
+        if width > 0 and height > 0:
+            return min(width, height), width * height
+        long_edge = max(width, height)
+        if long_edge <= 0:
+            return 0, 0
+        nearest = min(
+            BaseDownloader._QUALITY_TARGET_WIDTH.items(),
+            key=lambda item: abs(item[1] - long_edge),
+        )[0]
+        short_edge = int(nearest[:-1])
+        return short_edge, long_edge * short_edge
 
     @staticmethod
     def _pick_highest_quality_play_addr(video: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -826,19 +863,18 @@ class BaseDownloader(ABC):
         """从 video.bit_rate 多档率中按目标画质挑选 play_addr。
 
         抖音 API 的 ``video.bit_rate`` 是按质量排序的字典列表，每项含
-        ``bit_rate``（码率）与 ``play_addr``（内含 ``url_list`` 与 ``width``）。
+        ``bit_rate``（码率）与 ``play_addr``（内含 URL、width 与 height）。
 
-        - ``highest`` / 未知值 / 空：取 bit_rate 最大的档；同码率按 width 决胜。
+        - ``highest`` / 未知值 / 空：取分辨率最高的档；同分辨率按 bit_rate 决胜。
         - ``lowest``：取 bit_rate 最小的档；同码率按 width 小者优先。
-        - ``<N>p``（如 ``1080p``）：按 width 最接近目标值的档；完全没有 bit_rate
+        - ``<N>p``（如 ``1080p``）：按画面短边最接近目标值的档；完全没有 bit_rate
           数据时返回 ``None``，让调用方回退到 ``video.play_addr``。
         """
         bit_rates = video.get("bit_rate") if isinstance(video, dict) else None
         if not isinstance(bit_rates, list) or not bit_rates:
             return None
 
-        # Normalise + collect valid (bit_rate, width, play_addr) triples.
-        entries: List[Tuple[int, int, Dict[str, Any]]] = []
+        entries: List[Tuple[int, int, int, Dict[str, Any]]] = []
         for entry in bit_rates:
             if not isinstance(entry, dict):
                 continue
@@ -849,28 +885,27 @@ class BaseDownloader(ABC):
                 br = int(entry.get("bit_rate") or 0)
             except (TypeError, ValueError):
                 br = 0
-            width = int(play_addr.get("width") or entry.get("width") or 0)
-            entries.append((br, width, play_addr))
+            short_edge, pixels = BaseDownloader._resolution_metrics(entry, play_addr)
+            entries.append((br, short_edge, pixels, play_addr))
         if not entries:
             return None
 
         normalised = (quality or "highest").strip().lower()
 
         if normalised == "lowest":
-            # Lowest bit_rate; tie-break by smaller width.
-            entries.sort(key=lambda t: (t[0], t[1]))
-            return entries[0][2]
+            entries.sort(key=lambda t: (t[0], t[2]))
+            return entries[0][3]
 
-        target_width = BaseDownloader._QUALITY_TARGET_WIDTH.get(normalised)
-        if target_width is not None:
-            # Closest width to target; tie-break by higher bit_rate so we
+        if normalised in BaseDownloader._QUALITY_TARGET_WIDTH:
+            target_edge = int(normalised[:-1])
+            # Closest short edge to target; tie-break by higher bit_rate so we
             # don't accidentally pick a re-encoded low-bitrate copy.
-            entries.sort(key=lambda t: (abs(t[1] - target_width), -t[0]))
-            return entries[0][2]
+            entries.sort(key=lambda t: (abs(t[1] - target_edge), -t[0], -t[2]))
+            return entries[0][3]
 
-        # Default / "highest": highest bit_rate, tie-break by higher width.
-        entries.sort(key=lambda t: (-t[0], -t[1]))
-        return entries[0][2]
+        # Default / "highest": highest resolution, tie-break by bit rate.
+        entries.sort(key=lambda t: (-t[2], -t[0], -t[1]))
+        return entries[0][3]
 
     @staticmethod
     def _pick_preferred_play_addr(

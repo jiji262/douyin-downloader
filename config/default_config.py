@@ -45,6 +45,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "retry_times": 3,
     "rate_limit": 2,
     "proxy": "",
+    # 视频下载画质。可选值：
+    #   "highest"  - 最高可用档（默认，与历史行为一致）
+    #   "lowest"   - 最低可用档（省流量）
+    #   "1440p" / "1080p" / "720p" / "540p" / "480p" / "360p"
+    #              - 指定分辨率，匹配不到时自动降级到最接近的可用档
+    # 注：实际可用档位取决于原视频上传质量；完整尺寸按短边匹配，仅有 width 时兼容旧响应。
+    "video_quality": "highest",
     "database": True,
     "database_path": "dy_downloader.db",
     "progress": {

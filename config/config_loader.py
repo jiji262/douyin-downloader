@@ -170,6 +170,7 @@ class ConfigLoader:
         "folderstyle",
         "filename_template",
         "folder_template",
+        "video_quality",
         "comments",
         "live",
         "transcript",
