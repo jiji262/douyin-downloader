@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from abc import ABC, abstractmethod
@@ -23,6 +24,14 @@ from utils.naming import (
 )
 
 logger = setup_logger("BaseDownloader")
+
+# 进程级本地作品索引缓存（按下载根目录）。批量任务会为每个 job 新建
+# downloader 实例，没有缓存时每个 job 首次下载前都要 rglob 全库一遍。
+# 同一根目录的所有实例共享同一个集合对象，_mark_local_aweme_downloaded
+# 的增量更新对后续 job 立即可见。缓存伴随进程存活：会话期间在应用外
+# 手动删除的文件要到进程重启后才会被重新检测（与原先单 job 内的索引
+# 是同一权衡，只是范围从单 job 扩大到进程）。
+_LOCAL_AWEME_INDEX_CACHE: Dict[str, set[str]] = {}
 
 
 class ProgressReporter(Protocol):
@@ -190,6 +199,12 @@ class BaseDownloader(ABC):
 
     def _build_local_aweme_index(self):
         base_path = self.file_manager.base_path
+        cache_key = str(base_path.resolve())
+        cached = _LOCAL_AWEME_INDEX_CACHE.get(cache_key)
+        if cached is not None:
+            self._local_aweme_ids = cached
+            return
+
         aweme_ids: set[str] = set()
 
         if base_path.exists():
@@ -207,12 +222,20 @@ class BaseDownloader(ABC):
                     aweme_ids.add(match.group(1))
 
         self._local_aweme_ids = aweme_ids
+        _LOCAL_AWEME_INDEX_CACHE[cache_key] = aweme_ids
 
     def _mark_local_aweme_downloaded(self, aweme_id: str):
         if not aweme_id:
             return
 
         if self._local_aweme_ids is None:
+            # 绑定共享缓存集合后再标记。retry_executor 直接调用
+            # _download_aweme_assets（不经过 _should_download），此时索引
+            # 还未建；若落入实例私有集合，id 进不了进程级缓存，同进程的
+            # 后续 job 会把该作品当缺失重新下载。缓存命中时这里是纯字典
+            # 查找，零额外成本。
+            self._build_local_aweme_index()
+        if self._local_aweme_ids is None:  # pragma: no cover — 防御
             self._local_aweme_ids = set()
         self._local_aweme_ids.add(aweme_id)
 
@@ -426,6 +449,10 @@ class BaseDownloader(ABC):
 
         session = await self.api_client.get_session()
         video_path: Optional[Path] = None
+        # 可选资产（封面/音乐/头像）相互独立且不影响主媒体成败：先登记
+        # (保存路径, 未 await 的协程)，主媒体成功后统一并行下载，避免
+        # 串行等待每个附件（尤其是慢镜像）时占住全局下载并发槽。
+        optional_assets: List[Tuple[Path, Any]] = []
 
         if media_type == "video":
             video_info = self._build_no_watermark_url(aweme_data)
@@ -445,27 +472,35 @@ class BaseDownloader(ABC):
                 cover_source = aweme_data.get("video", {}).get("cover")
                 if self._extract_urls(cover_source):
                     cover_path = save_dir / f"{file_stem}_cover.jpg"
-                    if await self._download_first_available(
-                        cover_source,
-                        cover_path,
-                        session,
-                        headers=self._download_headers(),
-                        optional=True,
-                    ):
-                        downloaded_files.append(cover_path)
+                    optional_assets.append(
+                        (
+                            cover_path,
+                            self._download_first_available(
+                                cover_source,
+                                cover_path,
+                                session,
+                                headers=self._download_headers(),
+                                optional=True,
+                            ),
+                        )
+                    )
 
             if self.config.get("music"):
                 music_url = self._extract_first_url(aweme_data.get("music", {}).get("play_url"))
                 if music_url:
                     music_path = save_dir / f"{file_stem}_music.mp3"
-                    if await self._download_with_retry(
-                        music_url,
-                        music_path,
-                        session,
-                        headers=self._download_headers(),
-                        optional=True,
-                    ):
-                        downloaded_files.append(music_path)
+                    optional_assets.append(
+                        (
+                            music_path,
+                            self._download_with_retry(
+                                music_url,
+                                music_path,
+                                session,
+                                headers=self._download_headers(),
+                                optional=True,
+                            ),
+                        )
+                    )
 
         elif media_type == "gallery":
             image_url_candidates = self._collect_image_url_candidates(aweme_data)
@@ -531,14 +566,29 @@ class BaseDownloader(ABC):
             avatar_source = author.get("avatar_larger")
             if self._extract_urls(avatar_source):
                 avatar_path = save_dir / f"{file_stem}_avatar.jpg"
-                if await self._download_first_available(
-                    avatar_source,
-                    avatar_path,
-                    session,
-                    headers=self._download_headers(),
-                    optional=True,
-                ):
-                    downloaded_files.append(avatar_path)
+                optional_assets.append(
+                    (
+                        avatar_path,
+                        self._download_first_available(
+                            avatar_source,
+                            avatar_path,
+                            session,
+                            headers=self._download_headers(),
+                            optional=True,
+                        ),
+                    )
+                )
+
+        if optional_assets:
+            # 不变量：登记的协程（_download_first_available / _download_with_retry）
+            # 内部捕获所有 Exception 并返回 False，不会让 gather 抛出——
+            # 往这里登记新的协程时必须保持同样的不抛异常约定。
+            outcomes = await asyncio.gather(*(coro for _, coro in optional_assets))
+            for (asset_path, _), outcome in zip(optional_assets, outcomes):
+                if outcome:
+                    downloaded_files.append(
+                        outcome if isinstance(outcome, Path) else asset_path
+                    )
 
         if self.config.get("json"):
             json_path = save_dir / f"{file_stem}_data.json"
@@ -637,6 +687,7 @@ class BaseDownloader(ABC):
         optional: bool = False,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
+        retry: bool = True,
     ) -> bool | Path:
         async def _task():
             download_result = await self.file_manager.download_file(
@@ -653,7 +704,9 @@ class BaseDownloader(ABC):
             return download_result
 
         try:
-            return await self.retry_handler.execute_with_retry(_task)
+            if retry:
+                return await self.retry_handler.execute_with_retry(_task)
+            return await _task()
         except Exception as error:
             log_fn = logger.warning if optional else logger.error
             self._log_download_error(
@@ -678,8 +731,13 @@ class BaseDownloader(ABC):
         mirror occasionally returns 403 while a later one succeeds, so try each
         URL in turn and return on the first success instead of giving up after
         ``url_list[0]`` and silently dropping the asset.
+
+        存在多个镜像时，镜像列表本身就是重试机制：每个镜像只尝试一次，
+        避免在已知会持续 403 的死镜像上叠加多轮退避重试（单个封面最多
+        可拖慢 20+ 秒并占用下载并发槽）。仅单一 URL 时保留退避重试。
         """
         urls = self._extract_urls(source)
+        use_backoff = len(urls) == 1
         result: bool | Path = False
         for index, url in enumerate(urls):
             is_last = index == len(urls) - 1
@@ -691,6 +749,7 @@ class BaseDownloader(ABC):
                 # Keep earlier-mirror failures quiet; only the final attempt
                 # reflects the caller's chosen log level.
                 optional=optional or not is_last,
+                retry=use_backoff,
                 **kwargs,
             )
             if result:

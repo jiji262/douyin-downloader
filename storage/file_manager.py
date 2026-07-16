@@ -18,6 +18,10 @@ logger = setup_logger("FileManager")
 # 用户已有的目录。详见 ``_AUTHOR_DIR_STYLES`` 的 ``user_sec_uid``。
 _SEC_UID_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
+# 媒体下载的流式读取块大小。8KB 会让单流吞吐受限于 chunk 往返开销
+# （视频动辄几十 MB），256KB 在内存占用与吞吐之间取平衡。
+_DOWNLOAD_CHUNK_BYTES = 256 * 1024
+
 
 class FileManager:
     _IMAGE_CONTENT_TYPE_SUFFIXES = {
@@ -216,7 +220,7 @@ class FileManager:
             ) as response:
                 if response.status == 200:
                     return await self._persist_stream(
-                        response.content.iter_chunked(8192),
+                        response.content.iter_chunked(_DOWNLOAD_CHUNK_BYTES),
                         save_path,
                         response.content_length,
                         response.headers,
@@ -233,7 +237,7 @@ class FileManager:
                         )
                         return False
                     return await self._persist_stream(
-                        response.content.iter_chunked(8192),
+                        response.content.iter_chunked(_DOWNLOAD_CHUNK_BYTES),
                         save_path,
                         expected_size,
                         response.headers,
