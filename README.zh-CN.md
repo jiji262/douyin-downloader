@@ -8,22 +8,23 @@
 
 ## 桌面版（Douzy）
 
-基于同一套后端打造的桌面客户端——粘贴链接即刻开始，同步关注列表，可视化跟踪下载进度。
+基于同一套后端打造的桌面客户端，为抖音、TikTok、YouTube 提供独立工作台。粘贴链接即可开始下载，同步账号内容，可视化跟踪任务，并在本地档案中统一管理已下载作品。
+
+- **三平台工作台：** 抖音视频、图文、主页与合集；TikTok 视频、图集与主页；YouTube 视频、Shorts、频道与播放列表
+- **账号内容：** 同步抖音关注、收藏夹、收藏合集与喜欢列表
+- **可视化管理：** 多链接队列、任务状态与重试、本地下载档案、筛选与快速重新下载
 
 > **内测中：** 桌面版目前处于内测期，如需使用，请到 [Releases](https://github.com/jiji262/douyin-downloader/releases) 页面下载安装文件。
 
-<table>
-  <tr>
-    <td width="33%"><img src="./img/desktop/001.png" alt="下载 — 粘贴链接即刻开始" width="100%" /><br/><sub>下载 · 粘贴链接即刻开始</sub></td>
-    <td width="33%"><img src="./img/desktop/002.png" alt="关注同步" width="100%" /><br/><sub>关注 · 同步博主列表</sub></td>
-    <td width="33%"><img src="./img/desktop/003.png" alt="任务中心" width="100%" /><br/><sub>任务中心 · 逐任务状态</sub></td>
-  </tr>
-  <tr>
-    <td width="33%"><img src="./img/desktop/004.png" alt="作品档案与筛选" width="100%" /><br/><sub>作品档案 · SQLite 历史与筛选</sub></td>
-    <td width="33%"><img src="./img/desktop/005.png" alt="设置与命名模板" width="100%" /><br/><sub>设置 · 文件命名模板</sub></td>
-    <td width="33%"><img src="./img/desktop/006.png" alt="实时下载进度" width="100%" /><br/><sub>实时进度 · 逐任务事件日志</sub></td>
-  </tr>
-</table>
+| **抖音链接下载** | **TikTok 下载工作台** | **YouTube 工作台** |
+|:---:|:---:|:---:|
+| ![Douzy 抖音链接下载工作台](img/desktop/001.png) | ![Douzy TikTok 下载工作台](img/desktop/002.png) | ![Douzy YouTube 工作台](img/desktop/003.png) |
+| 粘贴视频、图文、主页或合集链接，一键开始下载。 | 无需登录即可下载公开视频、图集与主页内容。 | 扫描视频、Shorts、频道与播放列表，可配置视频、MP3 或字幕下载。 |
+| **关注管理** | **收藏与喜欢** | **任务中心** |
+| ![Douzy 关注管理](img/desktop/004.png) | ![Douzy 收藏与喜欢](img/desktop/005.png) | ![Douzy 任务中心](img/desktop/006.png) |
+| 同步博主、筛选新作品、添加备注，并直接下载。 | 浏览当前抖音账号的收藏视频、收藏合集与喜欢作品。 | 查看任务结果、重试失败项，并快速打开输出目录。 |
+
+_截图来自当前桌面端 `main` 构建；为保护隐私，界面内容使用演示数据。_
 
 ## 功能概览
 
