@@ -16,22 +16,23 @@ A practical Douyin downloader supporting videos, image-notes, collections, music
 
 ## Desktop App (Douzy)
 
-A desktop GUI built on the same backend — paste a link to start, sync your following list, and track downloads visually.
+A desktop GUI built on the same backend, with dedicated workspaces for Douyin, TikTok, and YouTube. Paste a link to start, sync account content, follow every task, and manage downloaded works in a local archive.
+
+- **Three platforms:** Douyin videos, galleries, profiles, and collections; TikTok videos, photos, and profiles; YouTube videos, Shorts, channels, and playlists
+- **Account content:** sync Douyin following, favorites collections, collected series, and likes
+- **Visual workflow:** multi-link queue, task status and retry controls, local download archive, filters, and quick re-download
 
 > **Beta:** The desktop app is currently in closed beta. To try it, download the build from the [Releases](https://github.com/jiji262/douyin-downloader/releases) page.
 
-<table>
-  <tr>
-    <td width="33%"><img src="./img/desktop/001.png" alt="Download — paste a link to start" width="100%" /><br/><sub>Download · paste a link to start</sub></td>
-    <td width="33%"><img src="./img/desktop/002.png" alt="Following sync" width="100%" /><br/><sub>Following · synced creator list</sub></td>
-    <td width="33%"><img src="./img/desktop/003.png" alt="Task Center" width="100%" /><br/><sub>Task Center · per-job status</sub></td>
-  </tr>
-  <tr>
-    <td width="33%"><img src="./img/desktop/004.png" alt="Archive with filters" width="100%" /><br/><sub>Archive · SQLite history & filters</sub></td>
-    <td width="33%"><img src="./img/desktop/005.png" alt="Settings and naming templates" width="100%" /><br/><sub>Settings · naming templates</sub></td>
-    <td width="33%"><img src="./img/desktop/006.png" alt="Live download progress" width="100%" /><br/><sub>Live progress · per-job event log</sub></td>
-  </tr>
-</table>
+| **Douyin link download** | **TikTok download workspace** | **YouTube workbench** |
+|:---:|:---:|:---:|
+| ![Douzy Douyin link download workspace](img/desktop/001.png) | ![Douzy TikTok download workspace](img/desktop/002.png) | ![Douzy YouTube workbench](img/desktop/003.png) |
+| Paste a video, gallery, profile, or collection link and start in one click. | Download public videos, photo posts, and profiles without signing in. | Scan videos, Shorts, channels, and playlists, then configure video, MP3, or subtitle downloads. |
+| **Following management** | **Favorites and likes** | **Task Center** |
+| ![Douzy following management](img/desktop/004.png) | ![Douzy favorites and likes](img/desktop/005.png) | ![Douzy Task Center](img/desktop/006.png) |
+| Sync creators, filter new works, add notes, and download directly from the list. | Browse collected videos, series, and liked works from the current Douyin account. | Track job results, retry failures, and open output folders. |
+
+_Screenshots were captured from the current desktop `main` build. Demonstration data is used for privacy._
 
 ## Feature Overview
 
