@@ -50,6 +50,10 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
   - `run.py` — CLI is a simple bootstrap; desktop has sidecar startup + data-dir migration.
   - `server/app.py`, `server/jobs.py` — CLI server is a simplified subset; desktop adds license, SSE, overrides, cancel.
   - `control/__init__.py` — CLI doesn't export `ProgressReporter` classes (desktop UI only).
+  - `core/retry_executor.py` — CLI retains an unwired legacy copy; the active desktop implementation depends on desktop-only platform routing and is not auto-synced.
+  - `utils/proxy.py` — desktop-only policy for following the OS proxy when the app proxy setting is blank; CLI keeps explicit-only proxy semantics.
+  - `storage/database.py` — desktop adds TikTok, Following, and My Content schema/helpers; only dependency-neutral database tests remain byte-identical.
+  - `tests/test_database_platform.py`, `tests/test_database_desktop_schema.py`, `tests/test_retry_executor.py` — desktop-only tests and not present here.
 
 ### Testing Requirements
 - Run: `python -m pytest tests/`

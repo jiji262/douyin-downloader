@@ -21,11 +21,9 @@ failure retry redesign. The entry point is :func:`retry_failed_awemes`, which:
    :class:`server.jobs.JobManager` can update ``job.success`` / ``failed``
    in place.
 
-The sibling CLI project does not use this module — it ships in the shared
-``core/`` tree per ``AGENTS.md`` and will be synced, but only the desktop
-sidecar currently wires a retry_executor. Keeping the helper here rather
-than inside ``server/`` avoids leaking HTTP concerns into the download
-strategies and keeps the sync story straightforward.
+The CLI does not wire this legacy module. The active implementation belongs to
+the desktop sidecar and is no longer auto-synced because its platform routing
+and effective-proxy policy are desktop-specific.
 """
 
 from __future__ import annotations

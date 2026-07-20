@@ -126,6 +126,45 @@ async def test_custom_filename_template_applies(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_custom_filename_template_includes_time_after_long_title(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False,
+        cover=False,
+        avatar=False,
+        json=False,
+        folderstyle=True,
+        filename_template="{date}_{title}_{id}_{time}",
+        folder_template="{date}_{title}_{id}_{time}",
+    )
+
+    saved = []
+
+    async def _fake_download(self, _url, save_path, _session, **_):
+        saved.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download.__get__(downloader, VideoDownloader)
+
+    async def _fake_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_session)
+
+    publish_ts = int(datetime(2024, 7, 4, 9, 15).timestamp())
+    aweme = _make_aweme(publish_ts, aweme_id="7419999999999999999")
+    aweme["desc"] = "很长的标题" * 20
+
+    assert await downloader._download_aweme_assets(aweme, author_name="爬山佬", mode="post") is True
+
+    save_path = saved[0]
+    assert save_path.name.endswith("_7419999999999999999_0915.mp4")
+    assert save_path.parent.name.endswith("_7419999999999999999_0915")
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_folderstyle_false_skips_subdirectory(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
     downloader.config.update(

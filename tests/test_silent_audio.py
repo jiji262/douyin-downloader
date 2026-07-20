@@ -4,6 +4,7 @@ The bytes are baked in at source-edit time via the recipe in
 ``core/silent_audio.py``'s docstring; these tests just guard against
 accidental corruption (truncation, base64 typos, encoding drift).
 """
+
 from __future__ import annotations
 
 from core.silent_audio import SILENT_1S_MP3_BYTES
@@ -30,6 +31,5 @@ def test_silent_mp3_size_within_expected_band() -> None:
     """A 1-second 32 kbps mono MP3 is ~4 KB. Guard against accidental
     truncation that would break the connectivity probe payload."""
     assert 1024 <= len(SILENT_1S_MP3_BYTES) <= 16 * 1024, (
-        f"unexpected size: {len(SILENT_1S_MP3_BYTES)} bytes "
-        "(expected 1-16 KB for 1s mono mp3)"
+        f"unexpected size: {len(SILENT_1S_MP3_BYTES)} bytes (expected 1-16 KB for 1s mono mp3)"
     )

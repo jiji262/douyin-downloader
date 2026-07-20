@@ -108,6 +108,40 @@ def test_render_template_sanitizes_illegal_chars():
     assert "2024-01-01" in out
 
 
+def test_render_template_preserves_suffix_vars_after_long_title():
+    long_title = "很长的标题" * 20
+    out = render_template(
+        "{date}_{title}_{id}_{time}",
+        {
+            "date": "2024-07-04",
+            "title": long_title,
+            "id": "7419999999999999999",
+            "time": "0915",
+        },
+    )
+    assert len(out) <= 80
+    assert out.endswith("_7419999999999999999_0915")
+
+
+def test_default_template_keeps_long_title_ids_unique():
+    long_title = "很长的标题" * 20
+    shared = {"date": "2024-07-04", "title": long_title}
+
+    first = render_template(
+        DEFAULT_FILE_TEMPLATE,
+        {**shared, "id": "7419999999999999991"},
+    )
+    second = render_template(
+        DEFAULT_FILE_TEMPLATE,
+        {**shared, "id": "7419999999999999992"},
+    )
+
+    assert first != second
+    assert first.endswith("_7419999999999999991")
+    assert second.endswith("_7419999999999999992")
+    assert "很长的标题" in first
+
+
 # ---------------------------------------------------------------------------
 # context builders
 # ---------------------------------------------------------------------------
