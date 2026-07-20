@@ -13,6 +13,7 @@ encoder produces meaningfully different output)::
         -i "anullsrc=r=16000:cl=mono" -t 1 -b:a 32k -f mp3 -y silent_1s.mp3
     base64 silent_1s.mp3 | tr -d '\\n'
 """
+
 import base64
 
 _SILENT_1S_MP3_B64 = (

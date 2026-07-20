@@ -10,6 +10,7 @@ covered by the integration smoke step in tasks.md task 20. Mocking
 ``asyncio.create_subprocess_exec`` lets us exercise every error branch
 deterministically and quickly.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -90,16 +91,12 @@ class _FakeProcess:
         self.killed = True
 
 
-def _patch_subprocess(
-    monkeypatch: pytest.MonkeyPatch, fake: _FakeProcess
-) -> MagicMock:
+def _patch_subprocess(monkeypatch: pytest.MonkeyPatch, fake: _FakeProcess) -> MagicMock:
     """Patch ``asyncio.create_subprocess_exec`` so the next call returns
     ``fake``. Returns the mock so the test can inspect call args."""
     mock = AsyncMock(return_value=fake)
     # Patch in *both* places in case the module aliases.
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", mock
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", mock)
     return mock
 
 
@@ -156,9 +153,7 @@ async def test_extract_audio_writes_mp3_when_ffmpeg_returns_zero(
         expected_out.write_bytes(b"\xff\xfb\x00fake-mp3-bytes")
         return fake
 
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", fake_create
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", fake_create)
 
     result = await extract_audio(video, out_dir, locator=mock_locator)
     assert result == expected_out
@@ -185,9 +180,7 @@ async def test_extract_audio_passes_correct_ffmpeg_args(
         expected_out.write_bytes(b"\xff\xfb\x00mp3")
         return fake
 
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", fake_create
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", fake_create)
 
     await extract_audio(video, out_dir, locator=mock_locator)
 
@@ -218,16 +211,12 @@ async def test_extract_audio_raises_nonzero_exit_with_stderr_tail(
     mock_locator: FfmpegLocator,
 ) -> None:
     video, out_dir = writable_tmp
-    fake = _FakeProcess(
-        returncode=1, stderr_payload=b"ffmpeg: invalid input\n"
-    )
+    fake = _FakeProcess(returncode=1, stderr_payload=b"ffmpeg: invalid input\n")
 
     async def fake_create(*args, **kwargs):
         return fake
 
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", fake_create
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", fake_create)
 
     with pytest.raises(FfmpegNonZeroExit) as excinfo:
         await extract_audio(video, out_dir, locator=mock_locator)
@@ -252,15 +241,11 @@ async def test_extract_audio_raises_empty_when_output_zero_bytes(
         (out_dir / f"{video.stem}.mp3").write_bytes(b"")
         return fake
 
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", fake_create
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", fake_create)
 
     with pytest.raises(AudioExtractEmpty) as excinfo:
         await extract_audio(video, out_dir, locator=mock_locator)
-    assert str(excinfo.value).startswith(
-        "audio_extract_failed: audio_extract_empty"
-    )
+    assert str(excinfo.value).startswith("audio_extract_failed: audio_extract_empty")
 
 
 async def test_extract_audio_raises_timeout_and_kills_process(
@@ -279,21 +264,15 @@ async def test_extract_audio_raises_timeout_and_kills_process(
         expected_out.write_bytes(b"partial")
         return fake
 
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", fake_create
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", fake_create)
 
     # Patch the timeout constant so the test resolves quickly.
-    monkeypatch.setattr(
-        "core.audio_extraction._FFMPEG_TIMEOUT_SECONDS", 0.05
-    )
+    monkeypatch.setattr("core.audio_extraction._FFMPEG_TIMEOUT_SECONDS", 0.05)
 
     with pytest.raises(FfmpegTimeout) as excinfo:
         await extract_audio(video, out_dir, locator=mock_locator)
 
-    assert str(excinfo.value).startswith(
-        "audio_extract_failed: audio_extract_timeout"
-    )
+    assert str(excinfo.value).startswith("audio_extract_failed: audio_extract_timeout")
     assert fake.killed is True
     # Half-written output should have been removed.
     assert not expected_out.exists()
@@ -339,9 +318,7 @@ async def test_extract_audio_stderr_ring_buffer_keeps_only_tail(
     async def fake_create(*args, **kwargs):
         return fake
 
-    monkeypatch.setattr(
-        "core.audio_extraction.asyncio.create_subprocess_exec", fake_create
-    )
+    monkeypatch.setattr("core.audio_extraction.asyncio.create_subprocess_exec", fake_create)
 
     with pytest.raises(FfmpegNonZeroExit) as excinfo:
         await extract_audio(video, out_dir, locator=mock_locator)
@@ -495,9 +472,7 @@ async def test_locator_diagnostic_returns_unavailable_on_imageio_failure(
     locator = FfmpegLocator()
 
     fake_imageio = MagicMock()
-    fake_imageio.get_ffmpeg_exe = MagicMock(
-        side_effect=RuntimeError("no binary on platform")
-    )
+    fake_imageio.get_ffmpeg_exe = MagicMock(side_effect=RuntimeError("no binary on platform"))
     # We can't easily monkeypatch a stdlib import line, so we monkeypatch
     # the function via sys.modules.
     import sys

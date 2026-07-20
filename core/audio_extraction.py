@@ -5,6 +5,7 @@ sidecar onefile；运行时不依赖系统 ``PATH`` 上的 ffmpeg。
 
 设计参考： ``.kiro/specs/transcript-audio-extract-and-ui/design.md``
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -143,10 +144,7 @@ class FfmpegLocator:
 
     async def _refresh_if_needed(self) -> None:
         now = time.monotonic()
-        if (
-            self._available is not None
-            and (now - self._cached_at) < _AVAILABILITY_TTL_SECONDS
-        ):
+        if self._available is not None and (now - self._cached_at) < _AVAILABILITY_TTL_SECONDS:
             return
         await self._probe()
         self._cached_at = time.monotonic()
@@ -155,6 +153,7 @@ class FfmpegLocator:
         # Step 1: resolve binary path
         try:
             import imageio_ffmpeg  # local import — keeps sidecar bootable
+
             # if the optional dep is missing in a dev env
             path = imageio_ffmpeg.get_ffmpeg_exe()
         except Exception as exc:  # imageio_ffmpeg raises RuntimeError on
@@ -163,9 +162,7 @@ class FfmpegLocator:
             self._version = None
             self._available = False
             self._last_error = f"get_ffmpeg_exe failed: {exc!r}"
-            logger.warning(
-                "imageio_ffmpeg.get_ffmpeg_exe() failed: %r", exc
-            )
+            logger.warning("imageio_ffmpeg.get_ffmpeg_exe() failed: %r", exc)
             return
 
         if not path or not os.path.exists(path):
@@ -211,16 +208,11 @@ class FfmpegLocator:
             self._version = None
             self._available = False
             self._last_error = (
-                f"ffmpeg -version exit={proc.returncode}, "
-                f"stdout_head={stdout[:64]!r}"
+                f"ffmpeg -version exit={proc.returncode}, stdout_head={stdout[:64]!r}"
             )
             return
 
-        first_line = (
-            stdout.split(b"\n", 1)[0]
-            .decode("utf-8", errors="replace")
-            .strip()
-        )
+        first_line = stdout.split(b"\n", 1)[0].decode("utf-8", errors="replace").strip()
         self._path = path
         self._version = first_line
         self._available = True
@@ -298,9 +290,7 @@ async def extract_audio(
     # Bounded stderr capture — bytes from the tail of the stream
     # (requirements R1.12). ``maxlen`` on a deque of int (bytes) costs O(1)
     # per append.
-    stderr_ring: collections.deque = collections.deque(
-        maxlen=_STDERR_RING_LIMIT_BYTES
-    )
+    stderr_ring: collections.deque = collections.deque(maxlen=_STDERR_RING_LIMIT_BYTES)
 
     async def _drain_stderr() -> None:
         assert proc.stderr is not None  # we set stderr=PIPE above
@@ -331,9 +321,7 @@ async def extract_audio(
         tail_bytes = bytes(stderr_ring)[-_STDERR_TAIL_BYTES:]
         tail = tail_bytes.decode("utf-8", errors="replace")
         _safe_unlink(output_path)
-        raise FfmpegNonZeroExit(
-            f"exit={proc.returncode}; stderr_tail={tail!r}"
-        )
+        raise FfmpegNonZeroExit(f"exit={proc.returncode}; stderr_tail={tail!r}")
 
     try:
         size = output_path.stat().st_size if output_path.exists() else 0
@@ -341,9 +329,7 @@ async def extract_audio(
         size = 0
     if size <= 0:
         _safe_unlink(output_path)
-        raise AudioExtractEmpty(
-            f"output missing or empty at {output_path}"
-        )
+        raise AudioExtractEmpty(f"output missing or empty at {output_path}")
 
     return output_path
 
@@ -363,9 +349,7 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
         await asyncio.wait_for(proc.wait(), timeout=5.0)
     except asyncio.TimeoutError:  # pragma: no cover - 5s should be plenty
-        logger.warning(
-            "ffmpeg pid=%s did not exit within 5s after kill", proc.pid
-        )
+        logger.warning("ffmpeg pid=%s did not exit within 5s after kill", proc.pid)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("ffmpeg pid=%s reap failed: %r", proc.pid, exc)
 

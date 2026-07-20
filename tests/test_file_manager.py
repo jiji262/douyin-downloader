@@ -194,9 +194,7 @@ def test_get_save_path_group_by_mode_false_keeps_leaf_folder(tmp_path):
 def test_get_save_path_group_by_mode_true_default_keeps_mode(tmp_path):
     """Default (omitted) keeps the mode folder — zero behaviour change."""
     fm = FileManager(str(tmp_path))
-    path = fm.get_save_path(
-        "某作者", mode="post", aweme_title="T", aweme_id="1", folderstyle=False
-    )
+    path = fm.get_save_path("某作者", mode="post", aweme_title="T", aweme_id="1", folderstyle=False)
     assert path.parts[-1] == "post"
     assert path.parts[-2] == "某作者"
 
@@ -226,9 +224,7 @@ def test_get_save_path_collection_dir_is_sanitized(tmp_path):
 
     fm = FileManager(str(tmp_path))
     raw = "a/b:c*d?"
-    path = fm.get_save_path(
-        "A", mode="mix", folderstyle=False, collection_dir=raw
-    )
+    path = fm.get_save_path("A", mode="mix", folderstyle=False, collection_dir=raw)
     # folderstyle off → the collection folder is the leaf.
     assert path.name == sanitize_filename(raw)
     assert "/" not in path.name
@@ -239,9 +235,7 @@ def test_get_save_path_collection_dir_empty_keeps_legacy_layout(tmp_path):
     change for every non-mix caller."""
     fm = FileManager(str(tmp_path))
     for empty in ("", None, "   "):
-        path = fm.get_save_path(
-            "A", mode="mix", folderstyle=False, collection_dir=empty
-        )
+        path = fm.get_save_path("A", mode="mix", folderstyle=False, collection_dir=empty)
         assert path.name == "mix"
         assert path.parent.name == "A"
 
