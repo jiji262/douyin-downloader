@@ -66,7 +66,13 @@ class LiveDownloader(BaseDownloader):
         self._progress_set_item_total(1, "直播录制")
         self._progress_update_step("获取直播间信息", f"room_id={room_id}")
 
-        info = await self.api_client.get_live_room_info(str(room_id))
+        request_kwargs: Dict[str, str] = {}
+        if parsed_url.get("room_id_kind") == "room_id":
+            request_kwargs = {
+                "room_id_kind": "room_id",
+                "sec_user_id": str(parsed_url.get("sec_user_id") or ""),
+            }
+        info = await self.api_client.get_live_room_info(str(room_id), **request_kwargs)
         if not info:
             logger.error("Live room not available or fetch failed: %s", room_id)
             result.failed += 1

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.user_mode_registry import UserModeRegistry
@@ -290,6 +290,10 @@ class UserDownloader(BaseDownloader):
         sec_uid: str,
         user_info: Dict[str, Any],
         aweme_list: List[Dict[str, Any]],
+        *,
+        item_filter: Optional[
+            Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
+        ] = None,
     ) -> None:
         browser_cfg = self.config.get("browser_fallback", {}) or {}
         if not browser_cfg.get("enabled", True):
@@ -297,9 +301,9 @@ class UserDownloader(BaseDownloader):
 
         number_limit = self.config.get("number", {}).get("post", 0)
         # 在分页受限场景下，user_info.aweme_count 常常不可靠（经常只返回 20）
-        # 因此仅在用户显式设置 number_limit 时才限制浏览器采集目标数量。
-        expected_count = int(number_limit or 0)
-        if expected_count and len(aweme_list) >= expected_count:
+        # 媒体筛选需要先拿到详情才能判断，不能用原始 ID 数提前截断。
+        expected_count = 0 if item_filter else int(number_limit or 0)
+        if self._post_recovery_limit_reached(aweme_list, number_limit, item_filter):
             return
 
         try:
@@ -346,7 +350,7 @@ class UserDownloader(BaseDownloader):
         reused_from_browser_items = 0
         total_missing = len(missing_ids)
         for index, aweme_id in enumerate(missing_ids, start=1):
-            if number_limit > 0 and len(aweme_list) >= number_limit:
+            if self._post_recovery_limit_reached(aweme_list, number_limit, item_filter):
                 break
 
             if index == 1 or index == total_missing or index % 5 == 0:
@@ -354,8 +358,19 @@ class UserDownloader(BaseDownloader):
 
             detail = browser_aweme_items.get(str(aweme_id))
             if not detail:
-                await self.rate_limiter.acquire()
-                detail = await self.api_client.get_video_detail(aweme_id, suppress_error=True)
+                try:
+                    await self.rate_limiter.acquire()
+                    detail = await self.api_client.get_video_detail(
+                        aweme_id, suppress_error=True
+                    )
+                except Exception as exc:
+                    detail_failed += 1
+                    logger.warning(
+                        "Browser fallback detail fetch failed for aweme_id=%s: %s",
+                        aweme_id,
+                        exc,
+                    )
+                    continue
                 if detail:
                     detail_success += 1
             else:
@@ -388,10 +403,23 @@ class UserDownloader(BaseDownloader):
             detail_success,
             detail_failed,
         )
-
         if detail_failed > 0:
             logger.warning(
                 "Browser fallback detail fetch failed: %s/%s",
                 detail_failed,
                 total_missing,
             )
+
+    @staticmethod
+    def _post_recovery_limit_reached(
+        items: List[Dict[str, Any]],
+        number_limit: Any,
+        item_filter: Optional[
+            Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]
+        ],
+    ) -> bool:
+        limit = int(number_limit or 0)
+        if limit <= 0:
+            return False
+        eligible_items = item_filter(items) if item_filter else items
+        return len(eligible_items) >= limit

@@ -119,6 +119,34 @@ async def test_live_downloader_skips_when_not_live(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_live_downloader_forwards_internal_room_id_metadata(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+    captured = {}
+
+    async def fake_get_live_room_info(room_id, **kwargs):
+        captured.update(room_id=room_id, **kwargs)
+        return {"room": {"status": 4, "stream_url": {}}, "user": {}}
+
+    api_client.get_live_room_info = fake_get_live_room_info
+
+    result = await downloader.download(
+        {
+            "room_id": "7664563379964595007",
+            "room_id_kind": "room_id",
+            "sec_user_id": "sec-test",
+        }
+    )
+
+    assert result.skipped == 1
+    assert captured == {
+        "room_id": "7664563379964595007",
+        "room_id_kind": "room_id",
+        "sec_user_id": "sec-test",
+    }
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_live_downloader_records_stream(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
 

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import types
 
@@ -18,6 +19,19 @@ def test_build_signed_path_fallbacks_to_xbogus_when_abogus_disabled():
     client._abogus_enabled = False
     signed_url, _ua = client.build_signed_path("/aweme/v1/web/aweme/detail/", {"a": 1})
     assert "X-Bogus=" in signed_url
+
+
+def test_build_signed_path_accepts_absolute_base_override():
+    client = DouyinAPIClient({"msToken": "token-1"})
+    client._abogus_enabled = False
+
+    signed_url, _ua = client.build_signed_path(
+        "/webcast/room/web/enter/",
+        {"web_rid": "42075947470"},
+        base_url="https://live.douyin.com",
+    )
+
+    assert signed_url.startswith("https://live.douyin.com/webcast/room/web/enter/?")
 
 
 def test_build_signed_path_prefers_abogus(monkeypatch):
@@ -204,7 +218,11 @@ async def test_live_replay_endpoints_use_episode_paths(monkeypatch):
                 "status_code": 0,
                 "data": {
                     "all_replay": [
-                        {"info_list": [{"episode_id_str": "ep-1", "replay_id": "rp-1", "title": "回放"}]}
+                        {
+                            "info_list": [
+                                {"episode_id_str": "ep-1", "replay_id": "rp-1", "title": "回放"}
+                            ]
+                        }
                     ]
                 },
             }
@@ -232,6 +250,107 @@ async def test_live_replay_endpoints_use_episode_paths(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_live_web_rid_uses_live_domain(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    captured = {}
+
+    async def _fake_request_json(path, params, **kwargs):
+        captured.update(path=path, params=dict(params), kwargs=kwargs)
+        return {
+            "data": {
+                "data": [{"id_str": "7664563379964595007", "status": 2}],
+                "user": {"nickname": "主播"},
+            }
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    info = await client.get_live_room_info("42075947470")
+
+    assert captured["path"] == "/webcast/room/web/enter/"
+    assert captured["kwargs"]["base_url"] == "https://live.douyin.com"
+    assert captured["kwargs"]["suppress_error"] is True
+    assert captured["kwargs"]["request_headers"]["Referer"] == "https://live.douyin.com/"
+    assert captured["params"]["web_rid"] == "42075947470"
+    assert captured["params"]["app_name"] == "douyin_web"
+    assert info["room"]["status"] == 2
+    assert info["user"]["nickname"] == "主播"
+
+
+@pytest.mark.asyncio
+async def test_live_internal_room_id_uses_reflow_endpoint(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    captured = {}
+
+    async def _fake_request_json(path, params, **kwargs):
+        captured.update(path=path, params=dict(params), kwargs=kwargs)
+        return {
+            "data": {
+                "room": {
+                    "id_str": "7664563379964595007",
+                    "status": 2,
+                    "owner": {"nickname": "主播"},
+                }
+            }
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    info = await client.get_live_room_info(
+        "7664563379964595007",
+        room_id_kind="room_id",
+        sec_user_id="sec-test",
+    )
+
+    assert captured["path"] == "/webcast/room/reflow/info/"
+    assert captured["kwargs"]["base_url"] == "https://webcast.amemv.com"
+    assert captured["params"]["room_id"] == "7664563379964595007"
+    assert captured["params"]["sec_user_id"] == "sec-test"
+    assert info["room"]["status"] == 2
+    assert info["user"]["nickname"] == "主播"
+
+
+def test_extract_live_room_from_react_flight_html():
+    room = {
+        "id_str": "7664563379964595007",
+        "status": 2,
+        "stream_url": {"flv_pull_url": {"FULL_HD1": "https://cdn/live.flv"}},
+        "owner": {"nickname": "主播"},
+    }
+    flight = "c:" + json.dumps({"state": {"room": room}}, ensure_ascii=False)
+    html = f"<script>self.__pace_f.push({json.dumps([1, flight])})</script>"
+
+    info = DouyinAPIClient._extract_live_room_from_html(html)
+
+    assert info is not None
+    assert info["room"] == room
+    assert info["user"] == {"nickname": "主播"}
+    assert info["raw"] == {"source": "live_page_ssr"}
+
+
+@pytest.mark.asyncio
+async def test_live_web_rid_falls_back_to_ssr_page(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    fallback = {
+        "room": {"id_str": "7664563379964595007", "status": 2, "stream_url": {}},
+        "user": {},
+        "raw": {"source": "live_page_ssr"},
+    }
+
+    async def _empty_request(*_args, **_kwargs):
+        return {}
+
+    async def _fake_page(web_rid):
+        assert web_rid == "42075947470"
+        return fallback
+
+    monkeypatch.setattr(client, "_request_json", _empty_request)
+    monkeypatch.setattr(client, "_fetch_live_room_from_page", _fake_page)
+
+    assert await client.get_live_room_info("42075947470") == fallback
+
+
+@pytest.mark.asyncio
 async def test_live_replay_info_accepts_response_variants(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
 
@@ -246,8 +365,12 @@ async def test_live_replay_info_accepts_response_variants(monkeypatch):
 
     monkeypatch.setattr(client, "_request_json", _fake_request_json)
 
-    assert (await client.get_live_replay_info("ep-1", "room-1", replay_id="rp-1"))["title"] == "flat"
-    assert (await client.get_live_replay_info("ep-2", "room-1", replay_id="rp-2"))["title"] == "list"
+    assert (await client.get_live_replay_info("ep-1", "room-1", replay_id="rp-1"))[
+        "title"
+    ] == "flat"
+    assert (await client.get_live_replay_info("ep-2", "room-1", replay_id="rp-2"))[
+        "title"
+    ] == "list"
     assert (await client.get_live_replay_info("ep-3", "room-1"))["title"] == "single"
 
 
@@ -281,9 +404,7 @@ async def test_live_replay_info_rejects_single_candidate_with_wrong_replay_id(mo
     async def _fake_request_json(path, params, suppress_error=False):
         return {
             "status_code": 0,
-            "data": {
-                "replay": {"episode_id_str": "ep-1", "replay_id": "wrong", "title": "wrong"}
-            },
+            "data": {"replay": {"episode_id_str": "ep-1", "replay_id": "wrong", "title": "wrong"}},
         }
 
     monkeypatch.setattr(client, "_request_json", _fake_request_json)

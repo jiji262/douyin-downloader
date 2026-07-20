@@ -48,9 +48,13 @@ class URLParser:
                 result["music_id"] = music_id
 
         elif url_type == "live":
-            room_id = URLParser._extract_room_id(url)
+            room_id, room_id_kind, sec_user_id = URLParser._extract_live_room(url)
             if room_id:
                 result["room_id"] = room_id
+                if room_id_kind == "room_id":
+                    result["room_id_kind"] = room_id_kind
+                if sec_user_id:
+                    result["sec_user_id"] = sec_user_id
 
         elif url_type == "live_replay":
             episode_id, replay_id = URLParser._extract_live_replay_ids(url)
@@ -108,13 +112,24 @@ class URLParser:
         # 直播链接形态：
         #   https://live.douyin.com/123456789
         #   https://www.douyin.com/follow/live/123456789
-        match = re.search(r"/live/(\d+)", url)
-        if match:
-            return match.group(1)
-        match = re.search(r"live\.douyin\.com/(\d+)", url)
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        pattern = r"/(\d+)/?" if host == "live.douyin.com" else r"/(?:follow/|share/)?live/(\d+)/?"
+        match = re.fullmatch(pattern, parsed.path)
         if match:
             return match.group(1)
         return None
+
+    @staticmethod
+    def _extract_live_room(url: str) -> Tuple[Optional[str], str, Optional[str]]:
+        parsed = urlparse(url)
+        if (parsed.hostname or "").lower() == "webcast.amemv.com":
+            match = re.fullmatch(r"/douyin/webcast/reflow/(\d+)/?", parsed.path)
+            if match:
+                sec_user_ids = parse_qs(parsed.query).get("sec_user_id", [])
+                sec_user_id = sec_user_ids[0].strip() if sec_user_ids else None
+                return match.group(1), "room_id", sec_user_id or None
+        return URLParser._extract_room_id(url), "web_rid", None
 
     @staticmethod
     def _extract_live_replay_ids(url: str) -> Tuple[Optional[str], Optional[str]]:
