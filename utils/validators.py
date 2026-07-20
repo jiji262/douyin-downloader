@@ -22,8 +22,16 @@ def _is_douyin_web_host(host: str) -> bool:
 
 def _is_live_replay_path(host: str, path: str) -> bool:
     if _is_douyin_web_host(host):
-        return path.startswith("/vsdetail/")
-    return host == "webcast.amemv.com" and path.startswith("/douyin/webcast/reflow/episode/")
+        return bool(re.fullmatch(r"/vsdetail/\d+/?", path))
+    return host == "webcast.amemv.com" and bool(
+        re.fullmatch(r"/douyin/webcast/reflow/episode/\d+/?", path)
+    )
+
+
+def _is_live_reflow_path(host: str, path: str) -> bool:
+    return host == "webcast.amemv.com" and bool(
+        re.fullmatch(r"/douyin/webcast/reflow/\d+/?", path)
+    )
 
 
 def validate_url(url: str) -> bool:
@@ -99,6 +107,8 @@ def parse_url_type(url: str) -> Optional[str]:
 
     if _is_live_replay_path(host, path):
         return "live_replay"
+    if _is_live_reflow_path(host, path):
+        return "live"
 
     if not _is_douyin_web_host(host):
         return None
@@ -110,9 +120,9 @@ def parse_url_type(url: str) -> Optional[str]:
     if modal_ids and modal_ids[0].strip():
         return "video"
 
-    # live.douyin.com/{room_id} — 直播间专用子域，path 仅有一段数字。
     if host == "live.douyin.com":
-        return "live"
+        return "live" if re.fullmatch(r"/\d+/?", path) else None
+
     if "/video/" in path:
         return "video"
     if "/user/" in path:
@@ -123,6 +133,6 @@ def parse_url_type(url: str) -> Optional[str]:
         return "collection"
     if "/music/" in path:
         return "music"
-    if "/live/" in path or "/follow/live/" in path:
+    if re.fullmatch(r"/(?:follow/|share/)?live/\d+/?", path):
         return "live"
     return None

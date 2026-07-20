@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -34,9 +36,7 @@ class LoginRequiredError(Exception):
         self.status_code = status_code
         self.status_msg = status_msg
         self.path = path
-        super().__init__(
-            f"login required (status_code={status_code}) at {path}: {status_msg}"
-        )
+        super().__init__(f"login required (status_code={status_code}) at {path}: {status_msg}")
 
 
 def _is_login_required(data: object) -> bool:
@@ -61,6 +61,8 @@ _USER_AGENT_POOL = [
 
 class DouyinAPIClient:
     BASE_URL = "https://www.douyin.com"
+    LIVE_WEB_BASE_URL = "https://live.douyin.com"
+    LIVE_REFLOW_BASE_URL = "https://webcast.amemv.com"
     _BROWSER_COOKIE_BLOCKLIST = {
         "sessionid",
         "sessionid_ss",
@@ -175,13 +177,19 @@ class DouyinAPIClient:
         signed_url, _xbogus, ua = self._signer.build(url)
         return signed_url, ua
 
-    def build_signed_path(self, path: str, params: Dict[str, Any]) -> Tuple[str, str]:
+    def build_signed_path(
+        self,
+        path: str,
+        params: Dict[str, Any],
+        *,
+        base_url: Optional[str] = None,
+    ) -> Tuple[str, str]:
         query = urlencode(params)
-        base_url = f"{self.BASE_URL}{path}"
-        ab_signed = self._build_abogus_url(base_url, query)
+        endpoint = f"{(base_url or self.BASE_URL).rstrip('/')}{path}"
+        ab_signed = self._build_abogus_url(endpoint, query)
         if ab_signed:
             return ab_signed
-        return self.sign_url(f"{base_url}?{query}")
+        return self.sign_url(f"{endpoint}?{query}")
 
     def _build_abogus_url(self, base_url: str, query: str) -> Optional[Tuple[str, str]]:
         if not self._abogus_enabled:
@@ -203,17 +211,22 @@ class DouyinAPIClient:
         *,
         suppress_error: bool = False,
         max_retries: int = 3,
+        base_url: Optional[str] = None,
+        request_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         await self._ensure_session()
         delays = [1, 2, 5]
         last_exc: Optional[Exception] = None
 
         for attempt in range(max_retries):
-            signed_url, ua = self.build_signed_path(path, params)
+            if base_url:
+                signed_url, ua = self.build_signed_path(path, params, base_url=base_url)
+            else:
+                signed_url, ua = self.build_signed_path(path, params)
             try:
                 async with self._session.get(
                     signed_url,
-                    headers={**self.headers, "User-Agent": ua},
+                    headers={**self.headers, **(request_headers or {}), "User-Agent": ua},
                     proxy=self.proxy or None,
                 ) as response:
                     if response.status == 200:
@@ -221,12 +234,16 @@ class DouyinAPIClient:
                         if not body:
                             # Empty 200 response is a common anti-bot signal
                             # from Douyin. Retry with a fresh signature.
+                            retry_status = (
+                                "will retry" if attempt < max_retries - 1 else "no retries remain"
+                            )
                             logger.warning(
                                 "Empty 200 response for %s (attempt %d/%d), "
-                                "likely anti-bot; will retry",
+                                "likely anti-bot; %s",
                                 path,
                                 attempt + 1,
                                 max_retries,
+                                retry_status,
                             )
                             last_exc = RuntimeError(f"Empty 200 response for {path} (anti-bot)")
                             if attempt < max_retries - 1:
@@ -585,58 +602,127 @@ class DouyinAPIClient:
         raw = await self._request_json("/aweme/v1/web/music/aweme/", params)
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
-    async def get_live_room_info(
-        self, room_id: str, *, sec_user_id: str = ""
-    ) -> Optional[Dict[str, Any]]:
-        """通过房间号（web_rid）拉取直播间信息。
-
-        返回包含 room_info + stream_url 的 dict；若房间不在直播中或接口失败返回 None。
-        """
+    async def _build_live_room_request(
+        self, room_id: str, sec_user_id: str, room_id_kind: str
+    ) -> Tuple[str, Dict[str, Any], str]:
         params = await self._default_query()
+        if room_id_kind == "room_id":
+            params.update(
+                {
+                    "room_id": room_id,
+                    "sec_user_id": sec_user_id,
+                    "type_id": "0",
+                    "live_id": "1",
+                    "app_id": "1128",
+                    "version_code": "99.99.99",
+                }
+            )
+            return "/webcast/room/reflow/info/", params, self.LIVE_REFLOW_BASE_URL
+
         params.update(
             {
                 "web_rid": room_id,
-                "room_id_str": room_id,
+                "app_name": "douyin_web",
+                "live_id": "1",
+                "device_platform": "web",
+                "language": "zh-CN",
                 "enter_source": "",
                 "is_need_double_stream": "false",
                 "cookie_enabled": "true",
             }
         )
-        if sec_user_id:
-            params["sec_user_id"] = sec_user_id
+        return "/webcast/room/web/enter/", params, self.LIVE_WEB_BASE_URL
 
-        raw = await self._request_json(
-            "/webcast/room/web/enter/",
-            params,
-            suppress_error=True,
-        )
-        if not raw:
+    @staticmethod
+    def _normalize_live_room_response(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+        if not isinstance(data, dict):
             return None
 
-        data_section = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-        if not isinstance(data_section, dict):
-            return None
-
-        room_list = data_section.get("data")
-        room = None
-        if isinstance(room_list, list) and room_list:
-            first = room_list[0]
-            if isinstance(first, dict):
-                room = first
-        elif isinstance(data_section.get("room"), dict):
-            room = data_section.get("room")
-        elif isinstance(raw.get("room"), dict):
+        room = data.get("room") if isinstance(data.get("room"), dict) else None
+        room_list = data.get("data")
+        if room is None and isinstance(room_list, list) and room_list:
+            room = room_list[0] if isinstance(room_list[0], dict) else None
+        if room is None and isinstance(raw.get("room"), dict):
             room = raw.get("room")
-
         if not isinstance(room, dict):
             return None
 
-        user = data_section.get("user") if isinstance(data_section, dict) else None
-        return {
-            "room": room,
-            "user": user if isinstance(user, dict) else {},
-            "raw": raw,
-        }
+        user = data.get("user") if isinstance(data.get("user"), dict) else room.get("owner")
+        return {"room": room, "user": user if isinstance(user, dict) else {}, "raw": raw}
+
+    @staticmethod
+    def _find_stream_room(value: Any) -> Optional[Dict[str, Any]]:
+        pending = [value]
+        while pending:
+            current = pending.pop()
+            if isinstance(current, dict):
+                if isinstance(current.get("stream_url"), dict):
+                    return current
+                pending.extend(current.values())
+            elif isinstance(current, list):
+                pending.extend(current)
+        return None
+
+    @staticmethod
+    def _extract_live_room_from_html(html: str) -> Optional[Dict[str, Any]]:
+        pattern = r"<script[^>]*>\s*(self\.__pace_f\.push\(.*?\))\s*</script>"
+        for call in re.findall(pattern, html, flags=re.DOTALL):
+            try:
+                args = json.loads(call[len("self.__pace_f.push(") : -1])
+                flight = args[1] if isinstance(args, list) and len(args) > 1 else None
+                if not isinstance(flight, str) or not flight.startswith("c:"):
+                    continue
+                room = DouyinAPIClient._find_stream_room(json.loads(flight[2:]))
+            except (IndexError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if room:
+                user = room.get("owner") if isinstance(room.get("owner"), dict) else {}
+                return {"room": room, "user": user, "raw": {"source": "live_page_ssr"}}
+        return None
+
+    async def _fetch_live_room_from_page(self, web_rid: str) -> Optional[Dict[str, Any]]:
+        await self._ensure_session()
+        url = f"{self.LIVE_WEB_BASE_URL}/{web_rid}"
+        headers = {**self.headers, "Referer": "https://live.douyin.com/"}
+        try:
+            async with self._session.get(url, headers=headers, proxy=self.proxy or None) as response:
+                if response.status != 200:
+                    logger.error("Live page request failed: web_rid=%s, status=%s", web_rid, response.status)
+                    return None
+                return self._extract_live_room_from_html(await response.text())
+        except Exception as exc:
+            logger.error("Live page fallback failed: web_rid=%s, error=%s", web_rid, exc)
+            return None
+
+    async def get_live_room_info(
+        self,
+        room_id: str,
+        *,
+        sec_user_id: str = "",
+        room_id_kind: str = "web_rid",
+    ) -> Optional[Dict[str, Any]]:
+        """按网页直播号或内部 room ID 拉取统一的直播间信息。"""
+        path, params, base_url = await self._build_live_room_request(
+            room_id, sec_user_id, room_id_kind
+        )
+
+        raw = await self._request_json(
+            path,
+            params,
+            suppress_error=room_id_kind != "room_id",
+            max_retries=1 if room_id_kind != "room_id" else 3,
+            base_url=base_url,
+            request_headers={
+                "Referer": "https://live.douyin.com/",
+                "Origin": "https://live.douyin.com",
+            },
+        )
+        info = self._normalize_live_room_response(raw) if raw else None
+        if info or room_id_kind == "room_id":
+            return info
+        logger.info("Live API unavailable for web_rid=%s; trying page SSR", room_id)
+        return await self._fetch_live_room_from_page(room_id)
 
     async def get_live_replay_episode(self, episode_id: str) -> Optional[Dict[str, Any]]:
         """获取直播回放入口信息，包含回放对应的 room_id。"""

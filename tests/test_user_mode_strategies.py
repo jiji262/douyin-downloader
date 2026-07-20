@@ -103,6 +103,107 @@ def test_like_strategy_increment_stops_at_first_downloaded_aweme():
     assert downloader.api_client.calls == [0]
 
 
+def test_user_mode_media_filter_applies_before_number_limit():
+    class _Downloader:
+        def __init__(self):
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"like": 2},
+                        "media_types": ["gallery"],
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+
+        def _limit_count(self, items, mode):
+            limit = self.config.get("number", {}).get(mode, 0)
+            return items[:limit] if limit > 0 else items
+
+        @staticmethod
+        def _detect_media_type(item):
+            return "gallery" if item.get("image_post_info") else "video"
+
+    strategy = LikeUserModeStrategy(_Downloader())
+    items = strategy.apply_filters(
+        [
+            _make_aweme("video-1"),
+            {**_make_aweme("gallery-1"), "image_post_info": {"images": [{}]}},
+            {**_make_aweme("gallery-2"), "image_post_info": {"images": [{}]}},
+        ]
+    )
+
+    assert [item["aweme_id"] for item in items] == ["gallery-1", "gallery-2"]
+
+
+def test_post_strategy_media_filter_count_continues_paging_after_raw_limit():
+    class _API:
+        def __init__(self):
+            self.calls = []
+
+        async def get_user_post(self, _sec_uid, max_cursor=0, count=20):
+            self.calls.append(max_cursor)
+            if max_cursor == 0:
+                return {
+                    "items": [
+                        _make_aweme("video-1"),
+                        {**_make_aweme("gallery-1"), "image_post_info": {"images": [{}]}},
+                    ],
+                    "has_more": True,
+                    "max_cursor": 1,
+                    "status_code": 0,
+                }
+            return {
+                "items": [{**_make_aweme("gallery-2"), "image_post_info": {"images": [{}]}}],
+                "has_more": False,
+                "max_cursor": max_cursor,
+                "status_code": 0,
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"post": 2},
+                        "increase": {"post": False},
+                        "media_types": ["gallery"],
+                        "browser_fallback": {"enabled": False},
+                    }.get(key, default)
+                },
+            )()
+            self._progress_update_step = lambda *_args, **_kwargs: None
+
+        def _filter_pinned_items(self, items):
+            return items
+
+        def _filter_by_time(self, items):
+            return items
+
+        def _limit_count(self, items, mode):
+            limit = self.config.get("number", {}).get(mode, 0)
+            return items[:limit] if limit > 0 else items
+
+        @staticmethod
+        def _detect_media_type(item):
+            return "gallery" if item.get("image_post_info") else "video"
+
+    downloader = _Downloader()
+    strategy = PostUserModeStrategy(downloader)
+
+    collected = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+    filtered = strategy.apply_filters(collected)
+
+    assert [item["aweme_id"] for item in filtered] == ["gallery-1", "gallery-2"]
+    assert downloader.api_client.calls == [0, 1]
+
+
 def test_post_strategy_calls_browser_recover_when_pagination_restricted():
     class _API:
         async def get_user_post(self, _sec_uid, max_cursor=0, count=20):

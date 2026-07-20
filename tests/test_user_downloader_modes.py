@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any, Dict, List
 
+import core.user_modes.post_strategy as post_strategy_module
 from control.queue_manager import QueueManager
 from core.user_downloader import UserDownloader
 from storage.file_manager import FileManager
@@ -338,3 +339,157 @@ def test_user_downloader_rejects_mixed_self_collect_and_regular_modes(tmp_path, 
     assert result.success == 0
     assert downloader.api_client.user_info_calls == []
     assert downloader.api_client.collect_calls == 0
+
+
+def test_post_strategy_recovers_when_full_page_stops_with_capped_profile_count(
+    tmp_path, monkeypatch
+):
+    downloader = _build_downloader(tmp_path, mode=["post"])
+
+    async def _full_page(_sec_uid, max_cursor=0, count=20):
+        return {
+            "items": [_make_aweme(str(index)) for index in range(count)],
+            "has_more": False,
+            "max_cursor": max_cursor,
+            "status_code": 0,
+        }
+
+    async def _recover(_sec_uid, _user_info, aweme_list):
+        aweme_list.append(_make_aweme("recovered"))
+
+    monkeypatch.setattr(downloader.api_client, "get_user_post", _full_page)
+    monkeypatch.setattr(downloader, "_recover_user_post_with_browser", _recover)
+    strategy = downloader._get_mode_strategy("post")
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"aweme_count": 20}))
+
+    assert len(items) == 21
+    assert items[-1]["aweme_id"] == "recovered"
+
+
+def test_post_strategy_times_out_stalled_page_and_recovers(tmp_path, monkeypatch):
+    downloader = _build_downloader(tmp_path, mode=["post"])
+    progress = []
+
+    async def _stalled_page(_sec_uid, max_cursor=0, count=20):
+        await asyncio.Event().wait()
+
+    async def _recover(_sec_uid, _user_info, aweme_list):
+        aweme_list.append(_make_aweme("recovered"))
+
+    monkeypatch.setattr(downloader.api_client, "get_user_post", _stalled_page)
+    monkeypatch.setattr(downloader, "_recover_user_post_with_browser", _recover)
+    monkeypatch.setattr(
+        downloader,
+        "_progress_update_step",
+        lambda step, detail="": progress.append((step, detail)),
+    )
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_TIMEOUT_SECONDS", 0.01)
+    strategy = downloader._get_mode_strategy("post")
+    items = asyncio.run(
+        asyncio.wait_for(
+            strategy.collect_items("sec_uid_x", {"aweme_count": 1}),
+            timeout=1.0,
+        )
+    )
+
+    assert [item["aweme_id"] for item in items] == ["recovered"]
+    assert any("超时" in detail for _step, detail in progress)
+
+
+def test_post_strategy_keeps_collected_items_when_recovery_detail_fails(
+    tmp_path, monkeypatch
+):
+    downloader = _build_downloader(tmp_path, mode=["post"])
+    downloader.config._data["browser_fallback"]["enabled"] = True
+
+    async def _paged(_sec_uid, max_cursor=0, count=20):
+        if max_cursor == 0:
+            return {
+                "items": [_make_aweme("existing")],
+                "has_more": True,
+                "max_cursor": 1,
+                "status_code": 0,
+            }
+        await asyncio.Event().wait()
+
+    async def _collect_browser_ids(*_args, **_kwargs):
+        return ["missing"]
+
+    async def _detail_fails(*_args, **_kwargs):
+        raise RuntimeError("login required")
+
+    monkeypatch.setattr(downloader.api_client, "get_user_post", _paged)
+    monkeypatch.setattr(
+        downloader.api_client,
+        "collect_user_post_ids_via_browser",
+        _collect_browser_ids,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        downloader.api_client,
+        "get_video_detail",
+        _detail_fails,
+        raising=False,
+    )
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_TIMEOUT_SECONDS", 0.01)
+
+    strategy = downloader._get_mode_strategy("post")
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"aweme_count": 2}))
+
+    assert [item["aweme_id"] for item in items] == ["existing"]
+
+
+def test_post_strategy_browser_recovery_counts_filtered_media(tmp_path, monkeypatch):
+    downloader = _build_downloader(tmp_path, mode=["post"])
+    downloader.config._data["number"]["post"] = 2
+    downloader.config._data["media_types"] = ["gallery"]
+    downloader.config._data["browser_fallback"]["enabled"] = True
+    browser_expected_counts = []
+
+    async def _full_video_page(_sec_uid, max_cursor=0, count=20):
+        return {
+            "items": [_make_aweme(f"video-{index}") for index in range(count)],
+            "has_more": False,
+            "max_cursor": max_cursor,
+            "status_code": 0,
+        }
+
+    async def _collect_browser_ids(
+        _sec_uid,
+        *,
+        expected_count,
+        headless,
+        max_scrolls,
+        idle_rounds,
+        wait_timeout_seconds,
+    ):
+        browser_expected_counts.append(expected_count)
+        return ["gallery-1", "gallery-2"]
+
+    gallery_items = {
+        aweme_id: {
+            **_make_aweme(aweme_id),
+            "image_post_info": {"images": [{"display_image": {"url_list": []}}]},
+        }
+        for aweme_id in ("gallery-1", "gallery-2")
+    }
+    monkeypatch.setattr(downloader.api_client, "get_user_post", _full_video_page)
+    monkeypatch.setattr(
+        downloader.api_client,
+        "collect_user_post_ids_via_browser",
+        _collect_browser_ids,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        downloader.api_client,
+        "pop_browser_post_aweme_items",
+        lambda: gallery_items,
+        raising=False,
+    )
+
+    strategy = downloader._get_mode_strategy("post")
+    items = asyncio.run(strategy.collect_items("sec_uid_x", {"aweme_count": 20}))
+    filtered = strategy.apply_filters(items)
+
+    assert browser_expected_counts == [0]
+    assert [item["aweme_id"] for item in filtered] == ["gallery-1", "gallery-2"]

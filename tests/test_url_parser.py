@@ -78,6 +78,39 @@ def test_parse_live_url():
     assert parsed["room_id"] == "987654321"
 
 
+def test_parse_live_url_modal_id_keeps_video_priority():
+    parsed = URLParser.parse(
+        "https://live.douyin.com/123456789?modal_id=7412345678901234567"
+    )
+
+    assert parsed is not None
+    assert parsed["type"] == "video"
+    assert parsed["aweme_id"] == "7412345678901234567"
+
+
+def test_parse_live_url_rejects_non_exact_paths():
+    for url in (
+        "https://live.douyin.com/",
+        "https://live.douyin.com/not-a-room",
+        "https://live.douyin.com/123456789/extra",
+        "https://live.douyin.com/123456789%2Fextra",
+    ):
+        assert URLParser.parse(url) is None, url
+
+
+def test_parse_live_reflow_share_url():
+    parsed = URLParser.parse(
+        "https://webcast.amemv.com/douyin/webcast/reflow/7664563379964595007"
+        "?sec_user_id=MS4wLjABAAAA-test"
+    )
+
+    assert parsed is not None
+    assert parsed["type"] == "live"
+    assert parsed["room_id"] == "7664563379964595007"
+    assert parsed["room_id_kind"] == "room_id"
+    assert parsed["sec_user_id"] == "MS4wLjABAAAA-test"
+
+
 def test_parse_live_replay_vsdetail_url():
     parsed = URLParser.parse("https://www.douyin.com/vsdetail/7331203341890049058")
 
@@ -110,24 +143,39 @@ def test_parse_live_replay_uses_replay_id_when_present():
 
 
 def test_parse_live_replay_rejects_spoofed_host():
-    assert URLParser.parse(
-        "https://evil.com/douyin/webcast/reflow/episode/7331203341890049058"
-    ) is None
+    assert (
+        URLParser.parse("https://evil.com/douyin/webcast/reflow/episode/7331203341890049058")
+        is None
+    )
 
 
 def test_parse_live_replay_rejects_unapproved_amemv_subdomain():
-    assert URLParser.parse(
-        "https://foo.amemv.com/douyin/webcast/reflow/episode/7331203341890049058"
-    ) is None
+    assert (
+        URLParser.parse("https://foo.amemv.com/douyin/webcast/reflow/episode/7331203341890049058")
+        is None
+    )
 
 
 def test_parse_live_replay_rejects_non_exact_paths():
-    assert URLParser.parse(
-        "https://webcast.amemv.com/foo/douyin/webcast/reflow/episode/7331203341890049058"
-    ) is None
+    assert (
+        URLParser.parse(
+            "https://webcast.amemv.com/foo/douyin/webcast/reflow/episode/7331203341890049058"
+        )
+        is None
+    )
     assert URLParser.parse("https://www.douyin.com/foo/vsdetail/7331203341890049058") is None
+    assert URLParser.parse("https://www.douyin.com/vsdetail/7331203341890049058/extra") is None
+    assert (
+        URLParser.parse(
+            "https://webcast.amemv.com/douyin/webcast/reflow/episode/"
+            "7331203341890049058/extra"
+        )
+        is None
+    )
 
 
 def test_parse_webcast_non_replay_path_is_unsupported():
     assert URLParser.parse("https://webcast.amemv.com/video/7331203341890049058") is None
     assert URLParser.parse("https://webcast.amemv.com/?modal_id=7331203341890049058") is None
+    assert URLParser.parse("https://webcast.amemv.com/douyin/webcast/reflow/not-a-room") is None
+    assert URLParser.parse("https://webcast.amemv.com/douyin/webcast/reflow/733/extra") is None
