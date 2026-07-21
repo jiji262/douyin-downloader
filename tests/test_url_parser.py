@@ -79,9 +79,7 @@ def test_parse_live_url():
 
 
 def test_parse_live_url_modal_id_keeps_video_priority():
-    parsed = URLParser.parse(
-        "https://live.douyin.com/123456789?modal_id=7412345678901234567"
-    )
+    parsed = URLParser.parse("https://live.douyin.com/123456789?modal_id=7412345678901234567")
 
     assert parsed is not None
     assert parsed["type"] == "video"
@@ -167,8 +165,7 @@ def test_parse_live_replay_rejects_non_exact_paths():
     assert URLParser.parse("https://www.douyin.com/vsdetail/7331203341890049058/extra") is None
     assert (
         URLParser.parse(
-            "https://webcast.amemv.com/douyin/webcast/reflow/episode/"
-            "7331203341890049058/extra"
+            "https://webcast.amemv.com/douyin/webcast/reflow/episode/7331203341890049058/extra"
         )
         is None
     )

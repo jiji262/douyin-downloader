@@ -396,9 +396,7 @@ def test_post_strategy_times_out_stalled_page_and_recovers(tmp_path, monkeypatch
     assert any("超时" in detail for _step, detail in progress)
 
 
-def test_post_strategy_keeps_collected_items_when_recovery_detail_fails(
-    tmp_path, monkeypatch
-):
+def test_post_strategy_keeps_collected_items_when_recovery_detail_fails(tmp_path, monkeypatch):
     downloader = _build_downloader(tmp_path, mode=["post"])
     downloader.config._data["browser_fallback"]["enabled"] = True
 

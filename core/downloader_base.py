@@ -586,9 +586,7 @@ class BaseDownloader(ABC):
             outcomes = await asyncio.gather(*(coro for _, coro in optional_assets))
             for (asset_path, _), outcome in zip(optional_assets, outcomes):
                 if outcome:
-                    downloaded_files.append(
-                        outcome if isinstance(outcome, Path) else asset_path
-                    )
+                    downloaded_files.append(outcome if isinstance(outcome, Path) else asset_path)
 
         if self.config.get("json"):
             json_path = save_dir / f"{file_stem}_data.json"
