@@ -29,9 +29,7 @@ def _is_live_replay_path(host: str, path: str) -> bool:
 
 
 def _is_live_reflow_path(host: str, path: str) -> bool:
-    return host == "webcast.amemv.com" and bool(
-        re.fullmatch(r"/douyin/webcast/reflow/\d+/?", path)
-    )
+    return host == "webcast.amemv.com" and bool(re.fullmatch(r"/douyin/webcast/reflow/\d+/?", path))
 
 
 def validate_url(url: str) -> bool:

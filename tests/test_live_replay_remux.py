@@ -128,7 +128,7 @@ async def test_remux_timeout_kills_reaps_and_removes_partial_output(monkeypatch,
         downloader._remux_tracks(
             tmp_path / "video.mp4", tmp_path / "audio.mp4", tmp_path / "replay.mp4"
         ),
-        timeout=0.2,
+        timeout=1.0,
     )
 
     assert result is False

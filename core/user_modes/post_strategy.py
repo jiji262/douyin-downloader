@@ -95,9 +95,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                     aweme_list = aweme_list[:number_limit]
                 return aweme_list, pagination_restricted
 
-    def _append_page_items(
-        self, page: Dict[str, Any], aweme_list: List[Dict[str, Any]]
-    ) -> int:
+    def _append_page_items(self, page: Dict[str, Any], aweme_list: List[Dict[str, Any]]) -> int:
         page_items = self.select_items(page)
         if not page_items:
             return 0
@@ -122,9 +120,8 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         if has_more:
             return limit_reached, False
 
-        ended_early = (
-            raw_page_count >= _POST_PAGE_SIZE
-            or self._profile_reports_more(user_info, raw_items_seen)
+        ended_early = raw_page_count >= _POST_PAGE_SIZE or self._profile_reports_more(
+            user_info, raw_items_seen
         )
         if ended_early and not limit_reached:
             logger.warning(
@@ -155,9 +152,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
             )
         return page_data
 
-    async def _fetch_post_page(
-        self, sec_uid: str, request_cursor: int
-    ) -> Optional[Dict[str, Any]]:
+    async def _fetch_post_page(self, sec_uid: str, request_cursor: int) -> Optional[Dict[str, Any]]:
         try:
             return await asyncio.wait_for(
                 self.downloader.api_client.get_user_post(
@@ -180,8 +175,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         restricted = page.get("status_code") == 0
         if restricted:
             logger.warning(
-                "User post page empty at cursor=%s (status_code=0); "
-                "will attempt browser fallback",
+                "User post page empty at cursor=%s (status_code=0); will attempt browser fallback",
                 request_cursor,
             )
         return restricted

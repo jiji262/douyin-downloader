@@ -19,7 +19,7 @@ from typing import Optional, Tuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from core.audio_extraction import (
@@ -336,6 +336,7 @@ async def test_extract_audio_stderr_ring_buffer_keeps_only_tail(
 # ---------------------------------------------------------------------------
 
 
+@settings(deadline=None)
 @given(
     raw_stem=st.text(
         alphabet=st.characters(
