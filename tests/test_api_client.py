@@ -447,6 +447,64 @@ async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_user_mix_normalizes_real_mix_infos_response(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    mix_infos = [
+        {
+            "mix_id": "7600000000000000001",
+            "mix_name": "合集 A",
+            "statis": {"updated_to_episode": 30},
+            "author": {"nickname": "作者 A", "sec_uid": "SEC_AUTHOR"},
+        }
+    ]
+
+    async def _fake_request_json(path, params, suppress_error=False):
+        return {
+            "cursor": 0,
+            "extra": {"fatal_item_ids": [], "logid": "log-1", "now": 1},
+            "has_more": 0,
+            "log_pb": {"impr_id": "impr-1"},
+            "min_cursor": 0,
+            "mix_infos": mix_infos,
+            "status_code": 0,
+            "status_msg": None,
+            "total": 1,
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert data["items"] == mix_infos
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response_items", "expected_items"),
+    [
+        ({"mix_list": [{"mix_id": "legacy"}]}, [{"mix_id": "legacy"}]),
+        (
+            {"mix_infos": [], "mix_list": [{"mix_id": "legacy"}]},
+            [],
+        ),
+    ],
+)
+async def test_get_user_mix_preserves_legacy_fallback_and_new_field_priority(
+    monkeypatch, response_items, expected_items
+):
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(path, params, suppress_error=False):
+        return {"status_code": 0, **response_items}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert data["items"] == expected_items
+
+
+@pytest.mark.asyncio
 async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
     called_requests = []

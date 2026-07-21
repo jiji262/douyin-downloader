@@ -451,7 +451,7 @@ class DouyinAPIClient:
     ) -> Dict[str, Any]:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
         raw = await self._request_json("/aweme/v1/web/mix/list/", params)
-        return self._normalize_paged_response(raw, item_keys=["mix_list"])
+        return self._normalize_paged_response(raw, item_keys=["mix_infos", "mix_list"])
 
     async def get_user_music(
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
