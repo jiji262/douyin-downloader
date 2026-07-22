@@ -309,7 +309,7 @@ class DouyinAPIClient:
     ) -> Dict[str, Any]:
         raw = raw_data if isinstance(raw_data, dict) else {}
         keys = item_keys or []
-        keys = ["items", *keys, "aweme_list", "mix_list", "music_list"]
+        keys = [*keys, "items", "aweme_list", "mix_list", "music_list"]
 
         items: List[Dict[str, Any]] = []
         for key in keys:

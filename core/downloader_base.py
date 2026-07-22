@@ -802,20 +802,22 @@ class BaseDownloader(ABC):
             is_watermarked = self._is_watermarked_media_url(candidate)
 
             if parsed.netloc.endswith("douyin.com"):
-                if "X-Bogus=" not in candidate:
-                    signed_url, ua = self.api_client.sign_url(candidate)
-                    headers = self._download_headers(user_agent=ua)
-                    if is_watermarked:
-                        watermarked_candidate = watermarked_candidate or (
-                            signed_url,
-                            headers,
-                        )
-                        continue
-                    return signed_url, headers
+                clean_url = candidate
+                if "X-Bogus=" in candidate:
+                    from urllib.parse import parse_qsl, urlencode, urlunparse
+                    parsed_cand = urlparse(candidate)
+                    qsl = [(k, v) for k, v in parse_qsl(parsed_cand.query) if k != "X-Bogus"]
+                    clean_url = urlunparse(parsed_cand._replace(query=urlencode(qsl)))
+
+                signed_url, ua = self.api_client.sign_url(clean_url)
+                headers = self._download_headers(user_agent=ua)
                 if is_watermarked:
-                    watermarked_candidate = watermarked_candidate or (candidate, headers)
+                    watermarked_candidate = watermarked_candidate or (
+                        signed_url,
+                        headers,
+                    )
                     continue
-                return candidate, headers
+                return signed_url, headers
 
             if is_watermarked:
                 watermarked_candidate = watermarked_candidate or (candidate, headers)
