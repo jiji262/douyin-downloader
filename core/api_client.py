@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -11,7 +13,7 @@ import aiohttp
 
 from auth import MsTokenManager
 from utils.cookie_utils import sanitize_cookies
-from utils.logger import setup_logger
+from utils.logger import safe_log_url, setup_logger
 from utils.xbogus import XBogus
 
 try:
@@ -44,7 +46,87 @@ def _is_login_required(data: object) -> bool:
         return False
     code = data.get("status_code")
     msg = str(data.get("status_msg") or "")
-    return code in _LOGIN_REQUIRED_STATUS_CODES or "请先登录" in msg
+    # Match by message, not by the bare status_code=8: `8` is a generic
+    # Douyin error code, but "用户未登录" is unambiguously "not logged in"
+    # (returned by /profile/self/ and other endpoints on an expired
+    # session). Message-matching avoids misreading an unrelated code-8.
+    return (
+        code in _LOGIN_REQUIRED_STATUS_CODES
+        or "请先登录" in msg
+        or "用户未登录" in msg
+    )
+
+
+def _summarize_api_response(data: object) -> Dict[str, Any]:
+    """Keep response-shape diagnostics without persisting item payloads."""
+
+    raw = data if isinstance(data, dict) else {}
+    item_key = "-"
+    item_count = 0
+    for key in ("aweme_list", "items", "followings", "mix_list", "music_list", "data"):
+        value = raw.get(key)
+        if isinstance(value, list):
+            item_key = key
+            item_count = len(value)
+            break
+
+    status_msg = " ".join(str(raw.get("status_msg") or "").split())[:200]
+    cursor = raw.get("max_cursor")
+    if cursor is None:
+        cursor = raw.get("cursor")
+    return {
+        "api_status": raw.get("status_code"),
+        "status_msg": status_msg,
+        "item_key": item_key,
+        "item_count": item_count,
+        "has_more": raw.get("has_more"),
+        "cursor": cursor,
+        "login_tip": bool((raw.get("not_login_module") or {}).get("guide_login_tip_exist"))
+        if isinstance(raw.get("not_login_module"), dict)
+        else False,
+        "verify_page": bool(raw.get("verify_ticket")),
+        "top_level_keys": ",".join(sorted(str(key) for key in raw)[:30]),
+    }
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, int((time.monotonic() - started) * 1000))
+
+
+def _safe_error_text(exc: Exception) -> str:
+    text = " ".join(str(exc).split())
+    text = re.sub(r"(https?://[^?\s]+)\?\S+", r"\1?[redacted-query]", text)
+    return text[:500]
+
+
+def _log_api_response(
+    path: str,
+    attempt: int,
+    max_retries: int,
+    body: bytes,
+    data: object,
+    started: float,
+) -> None:
+    summary = _summarize_api_response(data)
+    logger.info(
+        "Douyin API response: path=%s attempt=%d/%d http=200 duration_ms=%d bytes=%d "
+        "api_status=%s status_msg=%r item_key=%s item_count=%s has_more=%s cursor=%s "
+        "login_tip=%s verify_page=%s keys=%s",
+        path,
+        attempt + 1,
+        max_retries,
+        _elapsed_ms(started),
+        len(body),
+        summary["api_status"],
+        summary["status_msg"],
+        summary["item_key"],
+        summary["item_count"],
+        summary["has_more"],
+        summary["cursor"],
+        summary["login_tip"],
+        summary["verify_page"],
+        summary["top_level_keys"],
+    )
 
 
 _USER_AGENT_POOL = [
@@ -219,10 +301,23 @@ class DouyinAPIClient:
         last_exc: Optional[Exception] = None
 
         for attempt in range(max_retries):
+            started = time.monotonic()
             if base_url:
                 signed_url, ua = self.build_signed_path(path, params, base_url=base_url)
             else:
                 signed_url, ua = self.build_signed_path(path, params)
+            signer = "a_bogus" if "a_bogus=" in signed_url else "x_bogus"
+            logger.info(
+                "Douyin API request: path=%s attempt=%d/%d signer=%s proxy_enabled=%s "
+                "base=%s param_keys=%s",
+                path,
+                attempt + 1,
+                max_retries,
+                signer,
+                bool(self.proxy),
+                "custom" if base_url else "default",
+                ",".join(sorted(str(key) for key in params)),
+            )
             try:
                 async with self._session.get(
                     signed_url,
@@ -238,10 +333,12 @@ class DouyinAPIClient:
                                 "will retry" if attempt < max_retries - 1 else "no retries remain"
                             )
                             logger.warning(
-                                "Empty 200 response for %s (attempt %d/%d), likely anti-bot; %s",
+                                "Empty 200 response for %s (attempt %d/%d, duration_ms=%d), "
+                                "likely anti-bot; %s",
                                 path,
                                 attempt + 1,
                                 max_retries,
+                                _elapsed_ms(started),
                                 retry_status,
                             )
                             last_exc = RuntimeError(f"Empty 200 response for {path} (anti-bot)")
@@ -258,12 +355,14 @@ class DouyinAPIClient:
                                 data = _json.loads(body)
                             except Exception:
                                 logger.warning(
-                                    "Non-JSON 200 response for %s, length=%d",
+                                    "Non-JSON 200 response for %s, length=%d duration_ms=%d",
                                     path,
                                     len(body),
+                                    _elapsed_ms(started),
                                 )
                                 return {}
                         result = data if isinstance(data, dict) else {}
+                        _log_api_response(path, attempt, max_retries, body, result, started)
                         if _is_login_required(result):
                             raise LoginRequiredError(
                                 int(result.get("status_code") or 0),
@@ -272,32 +371,64 @@ class DouyinAPIClient:
                             )
                         return result
                     if response.status < 500 and response.status != 429:
-                        log_fn = logger.debug if suppress_error else logger.error
+                        log_fn = logger.info if suppress_error else logger.error
                         log_fn(
-                            "Request failed: path=%s, status=%s",
+                            "Douyin API HTTP failure: path=%s attempt=%d/%d status=%s "
+                            "duration_ms=%d suppress_error=%s",
                             path,
+                            attempt + 1,
+                            max_retries,
                             response.status,
+                            _elapsed_ms(started),
+                            suppress_error,
                         )
                         return {}
                     last_exc = RuntimeError(f"HTTP {response.status} for {path}")
+                    logger.warning(
+                        "Douyin API retryable HTTP failure: path=%s attempt=%d/%d status=%s "
+                        "duration_ms=%d",
+                        path,
+                        attempt + 1,
+                        max_retries,
+                        response.status,
+                        _elapsed_ms(started),
+                    )
             except LoginRequiredError:
                 raise
             except Exception as exc:
                 last_exc = exc
+                logger.warning(
+                    "Douyin API attempt failed: path=%s attempt=%d/%d duration_ms=%d "
+                    "error_type=%s error=%s",
+                    path,
+                    attempt + 1,
+                    max_retries,
+                    _elapsed_ms(started),
+                    type(exc).__name__,
+                    _safe_error_text(exc),
+                )
 
             if attempt < max_retries - 1:
                 delay = delays[min(attempt, len(delays) - 1)]
-                logger.debug(
-                    "Request retry %d/%d for %s in %ds",
+                logger.info(
+                    "Douyin API retry scheduled: path=%s completed_attempt=%d/%d delay_s=%d",
+                    path,
                     attempt + 1,
                     max_retries,
-                    path,
                     delay,
                 )
                 await asyncio.sleep(delay)
 
-        log_fn = logger.debug if suppress_error else logger.error
-        log_fn("Request failed after %d attempts: path=%s, error=%s", max_retries, path, last_exc)
+        log_fn = logger.info if suppress_error else logger.error
+        log_fn(
+            "Douyin API request exhausted: path=%s attempts=%d suppress_error=%s "
+            "error_type=%s error=%s",
+            path,
+            max_retries,
+            suppress_error,
+            type(last_exc).__name__ if last_exc else "-",
+            _safe_error_text(last_exc) if last_exc else "-",
+        )
         return {}
 
     @staticmethod
@@ -1006,8 +1137,8 @@ class DouyinAPIClient:
                     logger.warning(
                         "Short URL resolved with HTTP %s (treated as failure): %s -> %s",
                         response.status,
-                        short_url,
-                        final_url,
+                        safe_log_url(short_url),
+                        safe_log_url(final_url),
                     )
                     return None
                 return final_url
@@ -1015,11 +1146,11 @@ class DouyinAPIClient:
             logger.error(
                 "Timeout resolving short URL after %.1fs: %s",
                 timeout_seconds,
-                short_url,
+                safe_log_url(short_url),
             )
             return None
         except Exception as e:
-            logger.error("Failed to resolve short URL: %s, error: %s", short_url, e)
+            logger.error("Failed to resolve short URL: %s, error: %s", safe_log_url(short_url), e)
             return None
 
     async def collect_user_post_ids_via_browser(
@@ -1032,6 +1163,7 @@ class DouyinAPIClient:
         idle_rounds: int = 8,
         wait_timeout_seconds: int = 600,
     ) -> List[str]:
+        browser_started = time.monotonic()
         try:
             from playwright.async_api import async_playwright
         except Exception as exc:
@@ -1056,11 +1188,23 @@ class DouyinAPIClient:
                     ids.append(aweme_id)
 
         logger.warning(
-            "API翻页受限，启动浏览器兜底采集（可在弹出页面手动通过验证码/登录）：%s",
-            target_url,
+            "API翻页受限，启动浏览器兜底采集：target=%s expected_count=%s "
+            "headless=%s max_scrolls=%s idle_rounds=%s timeout_s=%s",
+            safe_log_url(target_url),
+            expected_count,
+            headless,
+            max_scrolls,
+            idle_rounds,
+            wait_timeout_seconds,
         )
 
         async with async_playwright() as playwright:
+            executable_path = str(getattr(playwright.chromium, "executable_path", "") or "")
+            logger.info(
+                "Browser fallback runtime: executable=%s exists=%s",
+                executable_path or "-",
+                bool(executable_path and os.path.exists(executable_path)),
+            )
             browser = await playwright.chromium.launch(
                 headless=headless,
                 args=[
@@ -1075,6 +1219,11 @@ class DouyinAPIClient:
                 viewport={"width": 1600, "height": 900},
             )
             cookies = self._browser_cookie_payload()
+            logger.info(
+                "Browser fallback context ready: cookie_count=%s cookie_names=%s",
+                len(cookies),
+                ",".join(sorted(str(cookie.get("name")) for cookie in cookies)) or "-",
+            )
             if cookies:
                 await context.add_cookies(cookies)
 
@@ -1129,6 +1278,11 @@ class DouyinAPIClient:
                     title = await page.title()
                 except Exception:
                     pass
+                logger.info(
+                    "Browser fallback page state: title=%r url=%s",
+                    title[:200],
+                    safe_log_url(getattr(page, "url", target_url)),
+                )
                 if "验证码" in title:
                     if headless:
                         logger.warning(
@@ -1214,11 +1368,14 @@ class DouyinAPIClient:
             "post_pages": post_api_page_hits,
         }
         logger.warning(
-            "浏览器兜底采集 aweme_id: merged=%s, from_post_api=%s, selected=%s, post_items=%s",
+            "浏览器兜底采集 aweme_id: duration_ms=%s merged=%s from_post_api=%s "
+            "selected=%s post_items=%s post_pages=%s",
+            _elapsed_ms(browser_started),
             len(ids),
             len(post_api_ids),
             len(selected_ids),
             len(post_api_aweme_items),
+            post_api_page_hits,
         )
         return selected_ids
 
