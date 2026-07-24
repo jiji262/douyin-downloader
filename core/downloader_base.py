@@ -83,6 +83,9 @@ class BaseDownloader(ABC):
         self.metadata_handler = MetadataHandler()
         self.transcript_manager = TranscriptManager(self.config, self.file_manager, self.database)
         self._local_aweme_ids: Optional[set[str]] = None
+        # 延迟到事件循环内创建（3.9 上 asyncio.Lock() 在无运行循环时创建
+        # 会绑定错误的 loop）。
+        self._local_index_build_lock: Optional[asyncio.Lock] = None
         self._aweme_id_pattern = re.compile(r"(?<!\d)(\d{15,20})(?!\d)")
         self._local_media_suffixes = {
             ".mp4",
@@ -165,6 +168,7 @@ class BaseDownloader(ABC):
         pass
 
     async def _should_download(self, aweme_id: str) -> bool:
+        await self._ensure_local_aweme_index()
         in_local = self._is_locally_downloaded(aweme_id)
         in_db = False
         if self.database:
@@ -185,6 +189,24 @@ class BaseDownloader(ABC):
             return False
 
         return True
+
+    async def _ensure_local_aweme_index(self) -> None:
+        """在工作线程中完成首次全库扫描建索引。
+
+        扫描是同步 rglob + stat 重活；直接跑在事件循环里会把整个 HTTP
+        服务冻住（大库/慢盘可达分钟级），桌面端看门狗会在连续两次
+        /health 失联后强杀后台服务、丢掉运行中的 job。加锁避免并发
+        worker 对同一根目录重复扫描。
+        """
+        if self._local_aweme_ids is not None:
+            return
+        lock = self._local_index_build_lock
+        if lock is None:
+            lock = self._local_index_build_lock = asyncio.Lock()
+        async with lock:
+            if self._local_aweme_ids is not None:
+                return
+            await asyncio.to_thread(self._build_local_aweme_index)
 
     def _is_locally_downloaded(self, aweme_id: str) -> bool:
         if not aweme_id:
@@ -428,6 +450,10 @@ class BaseDownloader(ABC):
         author_sec_uid: Optional[str] = None,
         collection_dir: Optional[str] = None,
     ) -> bool:
+        # retry_executor 直接调本方法（不经过 _should_download），先在
+        # 线程里把索引建好，避免成功后的 _mark_local_aweme_downloaded
+        # 在事件循环里触发同步全库扫描。
+        await self._ensure_local_aweme_index()
         file_context = self._build_aweme_file_context(
             aweme_data,
             author_name,

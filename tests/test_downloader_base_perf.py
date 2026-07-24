@@ -12,6 +12,8 @@
 """
 
 import asyncio
+import threading
+import time
 
 import pytest
 
@@ -222,6 +224,84 @@ async def test_mark_before_index_build_reaches_shared_cache(tmp_path):
 
     await api_a.close()
     await api_b.close()
+
+
+# ---------------------------------------------------------------------------
+# 2b. 本地索引扫描不得阻塞事件循环
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_should_download_builds_index_off_event_loop(tmp_path):
+    """首次建索引是同步 rglob + stat 重活；在大库/慢盘上会把事件循环
+    冻住几十秒，桌面端看门狗（连续两次 /health 失联）会直接强杀后台
+    服务、丢掉运行中的 job。判重必须把建索引放进工作线程。"""
+    downloader, api = _build_downloader(tmp_path)
+    scan_threads: list[threading.Thread] = []
+    original_build = downloader._build_local_aweme_index
+
+    def _tracking_build():
+        scan_threads.append(threading.current_thread())
+        original_build()
+
+    downloader._build_local_aweme_index = _tracking_build
+
+    assert await downloader._should_download("7346971177114611003") is True
+
+    assert scan_threads, "dedupe check must build the local index"
+    assert all(t is not threading.main_thread() for t in scan_threads)
+
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_download_assets_builds_index_off_event_loop(tmp_path):
+    """retry_executor 直接调 _download_aweme_assets（绕过 _should_download），
+    成功后的 _mark_local_aweme_downloaded 也会同步建索引——同样会冻住
+    事件循环，入口处必须先在线程里把索引建好。"""
+    downloader, api = _build_downloader(tmp_path)
+    scan_threads: list[threading.Thread] = []
+    original_build = downloader._build_local_aweme_index
+
+    def _tracking_build():
+        scan_threads.append(threading.current_thread())
+        original_build()
+
+    downloader._build_local_aweme_index = _tracking_build
+    # 文件上下文返回 None，让流程在建索引后立即退出，不触发真实下载。
+    downloader._build_aweme_file_context = lambda *args, **kwargs: None
+
+    assert await downloader._download_aweme_assets({"aweme_id": "1"}, "作者") is False
+
+    assert scan_threads, "asset path must pre-build the local index"
+    assert all(t is not threading.main_thread() for t in scan_threads)
+
+    await api.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_dedupe_checks_scan_once(tmp_path):
+    """download_batch 并发跑多个 _process_aweme；建索引挪进线程后出现
+    真正的并发窗口，必须靠锁保证同一实例全库只扫一次。"""
+    downloader, api = _build_downloader(tmp_path)
+    scan_count = 0
+    original_build = downloader._build_local_aweme_index
+
+    def _counting_build():
+        nonlocal scan_count
+        scan_count += 1
+        time.sleep(0.05)  # 放大并发窗口
+        original_build()
+
+    downloader._build_local_aweme_index = _counting_build
+
+    await asyncio.gather(
+        *(downloader._should_download(f"73469711771146110{i:02d}") for i in range(5))
+    )
+
+    assert scan_count == 1
+
+    await api.close()
 
 
 # ---------------------------------------------------------------------------
