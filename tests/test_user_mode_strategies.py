@@ -1,5 +1,6 @@
 import asyncio
 
+from core.user_modes import post_strategy as post_strategy_module
 from core.user_modes.collect_mix_strategy import CollectMixUserModeStrategy
 from core.user_modes.collect_strategy import CollectUserModeStrategy
 from core.user_modes.like_strategy import LikeUserModeStrategy
@@ -202,6 +203,53 @@ def test_post_strategy_media_filter_count_continues_paging_after_raw_limit():
 
     assert [item["aweme_id"] for item in filtered] == ["gallery-1", "gallery-2"]
     assert downloader.api_client.calls == [0, 1]
+
+
+def test_post_strategy_logs_each_page_response_summary(monkeypatch):
+    messages = []
+    monkeypatch.setattr(
+        post_strategy_module.logger,
+        "info",
+        lambda message, *args: messages.append(message % args),
+    )
+
+    class _API:
+        async def get_user_post(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [_make_aweme("one")],
+                "has_more": True,
+                "max_cursor": 99,
+                "status_code": 0,
+                "source": "api",
+                "risk_flags": {"login_tip": False, "verify_page": False},
+            }
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self._progress_update_step = lambda *_args, **_kwargs: None
+
+    strategy = PostUserModeStrategy(_Downloader())
+    page = asyncio.run(
+        strategy._request_post_page(
+            "private-sec-uid",
+            0,
+            page_number=1,
+            collected_count=0,
+        )
+    )
+
+    assert page is not None
+    joined = "\n".join(messages)
+    assert "User post page response:" in joined
+    assert "page=1" in joined
+    assert "request_cursor=0" in joined
+    assert "item_count=1" in joined
+    assert "has_more=True" in joined
+    assert "next_cursor=99" in joined
+    assert "source=api" in joined
+    assert "private-sec-uid" not in joined
 
 
 def test_post_strategy_calls_browser_recover_when_pagination_restricted():
