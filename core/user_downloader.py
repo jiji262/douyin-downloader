@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from core.downloader_base import BaseDownloader, DownloadResult
@@ -7,6 +8,22 @@ from core.user_mode_registry import UserModeRegistry
 from utils.logger import setup_logger
 
 logger = setup_logger("UserDownloader")
+
+
+def _user_info_summary(user_info: Dict[str, Any]) -> Dict[str, Any]:
+    safe_keys = (
+        "uid",
+        "sec_uid",
+        "short_id",
+        "unique_id",
+        "nickname",
+        "aweme_count",
+        "favoriting_count",
+        "follower_count",
+        "following_count",
+        "total_favorited",
+    )
+    return {key: user_info.get(key) for key in safe_keys if key in user_info}
 
 
 class UserDownloader(BaseDownloader):
@@ -18,62 +35,105 @@ class UserDownloader(BaseDownloader):
         self._mode_strategy_cache: Dict[str, Any] = {}
 
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
+        download_started = time.monotonic()
         result = DownloadResult()
-
         sec_uid = parsed_url.get("sec_uid")
         if not sec_uid:
-            # URL parser already validates this; treat as fatal instead of
-            # a silent empty result so the UI surfaces a real error rather
-            # than "已完成 0 项".
             raise RuntimeError("无法从链接中解析出用户 ID，请确认链接是否完整")
 
-        modes_config = self.config.get("mode", ["post"])
-        if isinstance(modes_config, str):
-            modes = [modes_config]
-        elif isinstance(modes_config, list):
-            modes = [str(mode).strip() for mode in modes_config if str(mode).strip()]
-        else:
-            modes = ["post"]
-
+        modes = self._configured_modes()
         if not self._validate_mode_scope(sec_uid, modes):
             return result
 
-        user_info = await self._resolve_user_info(sec_uid, modes)
-        if not user_info:
-            logger.error("Failed to get user info: %s", sec_uid)
-            # Raising here instead of returning an empty result means the
-            # job ends in `failed` state with a clear message. Returning
-            # {total:0,success:0,failed:0} made JobManager mark it as
-            # `success`, which rendered as "已完成 0 项" — a silent failure
-            # that's indistinguishable from "nothing happened" in the UI.
-            raise RuntimeError("获取用户信息失败，请检查 Cookie 是否有效或重新登录抖音")
-
-        # Cache author metadata on the hosting job so retry doesn't have
-        # to re-fetch user_info, and so JobRow can display the nickname.
+        logger.info(
+            "User download started: sec_uid=%s modes=%s number=%s increase=%s",
+            sec_uid,
+            modes,
+            self.config.get("number", {}),
+            self.config.get("increase", {}),
+        )
+        user_info = await self._resolve_user_info_logged(sec_uid, modes)
         self._progress_report_author(
             nickname=user_info.get("nickname"),
             sec_uid=user_info.get("sec_uid") or sec_uid,
         )
-
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
         seen_aweme_ids: Set[str] = set()
         for mode in modes:
-            strategy = self._get_mode_strategy(mode)
-            if strategy is None:
-                logger.warning("Unsupported user mode: %s", mode)
-                continue
+            mode_result = await self._download_mode_logged(mode, sec_uid, user_info, seen_aweme_ids)
+            if mode_result is not None:
+                self._merge_result(result, mode_result)
 
-            self._progress_update_step("下载模式", f"开始处理 {mode} 作品")
-            mode_result = await strategy.download_mode(
-                sec_uid, user_info, seen_aweme_ids=seen_aweme_ids
-            )
-            result.total += mode_result.total
-            result.success += mode_result.success
-            result.failed += mode_result.failed
-            result.skipped += mode_result.skipped
-
+        logger.info(
+            "User download finished: duration_ms=%s total=%s success=%s failed=%s skipped=%s",
+            int((time.monotonic() - download_started) * 1000),
+            result.total,
+            result.success,
+            result.failed,
+            result.skipped,
+        )
         return result
+
+    def _configured_modes(self) -> List[str]:
+        modes_config = self.config.get("mode", ["post"])
+        if isinstance(modes_config, str):
+            return [modes_config]
+        if isinstance(modes_config, list):
+            return [str(mode).strip() for mode in modes_config if str(mode).strip()]
+        return ["post"]
+
+    async def _resolve_user_info_logged(self, sec_uid: str, modes: List[str]) -> Dict[str, Any]:
+        started = time.monotonic()
+        user_info = await self._resolve_user_info(sec_uid, modes)
+        if not user_info:
+            logger.error(
+                "Failed to get user info: sec_uid=%s duration_ms=%s",
+                sec_uid,
+                int((time.monotonic() - started) * 1000),
+            )
+            raise RuntimeError("获取用户信息失败，请检查 Cookie 是否有效或重新登录抖音")
+        logger.info(
+            "User info resolved: duration_ms=%s summary=%s",
+            int((time.monotonic() - started) * 1000),
+            _user_info_summary(user_info),
+        )
+        return user_info
+
+    async def _download_mode_logged(
+        self,
+        mode: str,
+        sec_uid: str,
+        user_info: Dict[str, Any],
+        seen_aweme_ids: Set[str],
+    ) -> Optional[DownloadResult]:
+        strategy = self._get_mode_strategy(mode)
+        if strategy is None:
+            logger.warning("Unsupported user mode: %s", mode)
+            return None
+        self._progress_update_step("下载模式", f"开始处理 {mode} 作品")
+        started = time.monotonic()
+        logger.info("User mode started: mode=%s strategy=%s", mode, type(strategy).__name__)
+        result = await strategy.download_mode(sec_uid, user_info, seen_aweme_ids=seen_aweme_ids)
+        logger.info(
+            "User mode finished: mode=%s duration_ms=%s total=%s success=%s "
+            "failed=%s skipped=%s unique_seen=%s",
+            mode,
+            int((time.monotonic() - started) * 1000),
+            result.total,
+            result.success,
+            result.failed,
+            result.skipped,
+            len(seen_aweme_ids),
+        )
+        return result
+
+    @staticmethod
+    def _merge_result(target: DownloadResult, source: DownloadResult) -> None:
+        target.total += source.total
+        target.success += source.success
+        target.failed += source.failed
+        target.skipped += source.skipped
 
     def _validate_mode_scope(self, sec_uid: str, modes: List[str]) -> bool:
         normalized_modes = {str(mode or "").strip() for mode in modes}
@@ -295,6 +355,7 @@ class UserDownloader(BaseDownloader):
     ) -> None:
         browser_cfg = self.config.get("browser_fallback", {}) or {}
         if not browser_cfg.get("enabled", True):
+            logger.info("Browser fallback skipped: disabled by config")
             return
 
         number_limit = self.config.get("number", {}).get("post", 0)
@@ -302,8 +363,24 @@ class UserDownloader(BaseDownloader):
         # 媒体筛选需要先拿到详情才能判断，不能用原始 ID 数提前截断。
         expected_count = 0 if item_filter else int(number_limit or 0)
         if self._post_recovery_limit_reached(aweme_list, number_limit, item_filter):
+            logger.info(
+                "Browser fallback skipped: number limit reached existing=%s limit=%s",
+                len(aweme_list),
+                number_limit,
+            )
             return
 
+        fallback_started = time.monotonic()
+        logger.info(
+            "Browser fallback started: existing=%s expected_count=%s headless=%s "
+            "max_scrolls=%s idle_rounds=%s timeout_s=%s",
+            len(aweme_list),
+            expected_count,
+            bool(browser_cfg.get("headless", False)),
+            int(browser_cfg.get("max_scrolls", 240) or 240),
+            int(browser_cfg.get("idle_rounds", 8) or 8),
+            int(browser_cfg.get("wait_timeout_seconds", 600) or 600),
+        )
         try:
             browser_aweme_ids = await self.api_client.collect_user_post_ids_via_browser(
                 sec_uid,
@@ -313,8 +390,11 @@ class UserDownloader(BaseDownloader):
                 idle_rounds=int(browser_cfg.get("idle_rounds", 8) or 8),
                 wait_timeout_seconds=int(browser_cfg.get("wait_timeout_seconds", 600) or 600),
             )
-        except Exception as exc:
-            logger.error("Browser fallback failed: %s", exc)
+        except Exception:
+            logger.exception(
+                "Browser fallback failed: duration_ms=%s",
+                int((time.monotonic() - fallback_started) * 1000),
+            )
             return
 
         browser_aweme_items: Dict[str, Dict[str, Any]] = {}
@@ -331,12 +411,23 @@ class UserDownloader(BaseDownloader):
                 logger.debug("Fetch browser post stats skipped: %s", exc)
 
         if not browser_aweme_ids:
-            logger.warning("Browser fallback returned no aweme_id")
+            logger.warning(
+                "Browser fallback returned no aweme_id: duration_ms=%s stats=%s",
+                int((time.monotonic() - fallback_started) * 1000),
+                browser_post_stats,
+            )
             return
 
         existing_ids = {str(item.get("aweme_id")) for item in aweme_list if item.get("aweme_id")}
         missing_ids = [aweme_id for aweme_id in browser_aweme_ids if aweme_id not in existing_ids]
         if not missing_ids:
+            logger.info(
+                "Browser fallback found no missing items: browser_ids=%s existing=%s "
+                "duration_ms=%s",
+                len(browser_aweme_ids),
+                len(existing_ids),
+                int((time.monotonic() - fallback_started) * 1000),
+            )
             return
 
         logger.warning(
@@ -390,7 +481,9 @@ class UserDownloader(BaseDownloader):
             f"回补完成，复用 {reused_from_browser_items}，补拉成功 {detail_success}，失败 {detail_failed}",
         )
         logger.warning(
-            "Browser fallback summary: merged_ids=%s selected_ids=%s post_items=%s post_pages=%s reused=%s detail_success=%s detail_failed=%s",
+            "Browser fallback summary: duration_ms=%s merged_ids=%s selected_ids=%s "
+            "post_items=%s post_pages=%s reused=%s detail_success=%s detail_failed=%s",
+            int((time.monotonic() - fallback_started) * 1000),
             browser_post_stats.get("merged_ids", 0),
             browser_post_stats.get("selected_ids", len(browser_aweme_ids)),
             browser_post_stats.get("post_items", len(browser_aweme_items)),

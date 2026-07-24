@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.user_modes.base_strategy import BaseUserModeStrategy
@@ -11,6 +12,31 @@ logger = setup_logger("PostUserModeStrategy")
 _POST_PAGE_TIMEOUT_SECONDS = 45.0
 _POST_PAGE_SIZE = 20
 _PostPageResult = Tuple[List[Dict[str, Any]], bool]
+
+
+def _log_page_response(
+    page_data: Dict[str, Any],
+    *,
+    page_number: int,
+    request_cursor: int,
+    started: float,
+) -> None:
+    page_items = page_data.get("items") or page_data.get("aweme_list") or []
+    risk_flags = page_data.get("risk_flags")
+    logger.info(
+        "User post page response: page=%s request_cursor=%s duration_ms=%s "
+        "item_count=%s status_code=%s has_more=%s next_cursor=%s source=%s "
+        "risk_flags=%s",
+        page_number,
+        request_cursor,
+        int((time.monotonic() - started) * 1000),
+        len(page_items) if isinstance(page_items, list) else 0,
+        page_data.get("status_code"),
+        page_data.get("has_more"),
+        page_data.get("max_cursor"),
+        page_data.get("source", "unknown"),
+        risk_flags if isinstance(risk_flags, dict) else {},
+    )
 
 
 class PostUserModeStrategy(BaseUserModeStrategy):
@@ -139,10 +165,18 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         page_number: int,
         collected_count: int,
     ) -> Optional[Dict[str, Any]]:
+        started = time.monotonic()
         await self.downloader.rate_limiter.acquire()
         self.downloader._progress_update_step(
             "拉取作品列表",
             f"请求第 {page_number} 页，已抓取 {collected_count} 条",
+        )
+        logger.info(
+            "User post page request: page=%s request_cursor=%s collected=%s page_size=%s",
+            page_number,
+            request_cursor,
+            collected_count,
+            _POST_PAGE_SIZE,
         )
         page_data = await self._fetch_post_page(sec_uid, request_cursor)
         if page_data is None:
@@ -150,6 +184,20 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                 "拉取作品列表",
                 f"第 {page_number} 页请求超时，准备浏览器回补",
             )
+            logger.warning(
+                "User post page response missing: page=%s request_cursor=%s duration_ms=%s",
+                page_number,
+                request_cursor,
+                int((time.monotonic() - started) * 1000),
+            )
+            return None
+
+        _log_page_response(
+            page_data,
+            page_number=page_number,
+            request_cursor=request_cursor,
+            started=started,
+        )
         return page_data
 
     async def _fetch_post_page(self, sec_uid: str, request_cursor: int) -> Optional[Dict[str, Any]]:
