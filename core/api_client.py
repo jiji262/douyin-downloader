@@ -50,11 +50,7 @@ def _is_login_required(data: object) -> bool:
     # Douyin error code, but "用户未登录" is unambiguously "not logged in"
     # (returned by /profile/self/ and other endpoints on an expired
     # session). Message-matching avoids misreading an unrelated code-8.
-    return (
-        code in _LOGIN_REQUIRED_STATUS_CODES
-        or "请先登录" in msg
-        or "用户未登录" in msg
-    )
+    return code in _LOGIN_REQUIRED_STATUS_CODES or "请先登录" in msg or "用户未登录" in msg
 
 
 def _summarize_api_response(data: object) -> Dict[str, Any]:
