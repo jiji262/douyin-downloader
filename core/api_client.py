@@ -877,6 +877,21 @@ class DouyinAPIClient:
             }
         )
         raw = await self._request_json("/aweme/v1/web/comment/list/reply/", params)
+        # ``_request_json`` returns an empty mapping after anti-bot responses
+        # (for example an empty HTTP 200 body).  Do not let the collector
+        # interpret that as a valid empty reply page: preserve a non-zero
+        # status so it records ``reply_api_failed`` and reports partial data.
+        if not raw:
+            return {
+                "items": [],
+                "aweme_list": [],
+                "has_more": False,
+                "max_cursor": cursor,
+                "status_code": -1,
+                "source": "api",
+                "risk_flags": {"login_tip": False, "verify_page": False},
+                "raw": {},
+            }
         return self._normalize_paged_response(raw, item_keys=["comments"])
 
     async def resolve_short_url(

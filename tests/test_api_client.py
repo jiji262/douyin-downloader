@@ -71,6 +71,29 @@ async def test_get_aweme_comment_replies_preserves_verify_flag(monkeypatch):
     assert page["risk_flags"]["verify_page"] is True
 
 
+@pytest.mark.asyncio
+async def test_get_aweme_comment_replies_marks_empty_anti_bot_response_failed(
+    monkeypatch,
+):
+    client = DouyinAPIClient({})
+
+    async def fake_request(*args, **kwargs):
+        del args, kwargs
+        return {}
+
+    monkeypatch.setattr(client, "_request_json", fake_request)
+    page = await client.get_aweme_comment_replies(
+        aweme_id="video-1",
+        comment_id="comment-1",
+        cursor=7,
+        count=20,
+    )
+
+    assert page["items"] == []
+    assert page["max_cursor"] == 7
+    assert page["status_code"] == -1
+
+
 def test_default_query_uses_existing_ms_token():
     client = DouyinAPIClient({"msToken": "token-1"})
     params = asyncio.run(client._default_query())
