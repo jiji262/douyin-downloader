@@ -277,3 +277,129 @@ async def test_collector_deduplicates_reply_ids_and_honors_limits(tmp_path):
     assert payload is not None
     assert [item["cid"] for item in payload["comments"]] == ["root-1", "reply-1", "reply-2"]
     assert payload["replies_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_browser_fallback_enforces_parent_limit_dedup_and_parent_allowlist(
+    tmp_path,
+):
+    class _ReplyFailure(RuntimeError):
+        error_code = "reply_response_invalid"
+
+    api = _ReplyAPIClient(reply_error=_ReplyFailure("empty"))
+
+    async def _fallback(*_args):
+        replies = [
+            {
+                "cid": f"reply-{index}",
+                "parent_comment_id": "root-1",
+            }
+            for index in range(25)
+        ]
+        replies.extend(
+            [
+                {"cid": "reply-0", "parent_comment_id": "root-1"},
+                {"cid": "outside-1", "parent_comment_id": "not-failed"},
+            ]
+        )
+        return {"replies": replies}
+
+    collector = CommentsCollector(
+        api,
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+        reply_browser_fallback=_fallback,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    replies = [
+        item for item in payload["comments"] if item["parent_comment_id"]
+    ]
+    assert len(replies) == 20
+    assert {item["parent_comment_id"] for item in replies} == {"root-1"}
+    assert len({item["cid"] for item in replies}) == 20
+    assert payload["replies_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_browser_fallback_honors_content_limit_after_api_replies(tmp_path):
+    class _MixedReplyAPI:
+        async def get_aweme_comments(
+            self, aweme_id, *, cursor, count, include_replies
+        ):
+            return {
+                "items": [
+                    {
+                        "cid": "api-root",
+                        "reply_comment_total": 10,
+                    },
+                    *[
+                        {
+                            "cid": f"failed-root-{index}",
+                            "reply_comment_total": 20,
+                        }
+                        for index in range(11)
+                    ],
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_aweme_comment_replies(
+            self, *, aweme_id, comment_id, cursor, count
+        ):
+            if comment_id == "api-root":
+                return {
+                    "items": [
+                        {
+                            "cid": f"api-reply-{index}",
+                            "parent_comment_id": "api-root",
+                        }
+                        for index in range(10)
+                    ],
+                    "has_more": False,
+                    "max_cursor": 0,
+                }
+            error = RuntimeError("empty")
+            error.error_code = "reply_response_invalid"
+            raise error
+
+    async def _fallback(*_args):
+        return {
+            "replies": [
+                {
+                    "cid": f"browser-reply-{parent}-{index}",
+                    "parent_comment_id": f"failed-root-{parent}",
+                }
+                for parent in range(11)
+                for index in range(20)
+            ]
+        }
+
+    collector = CommentsCollector(
+        _MixedReplyAPI(),
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+        reply_browser_fallback=_fallback,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    replies = [
+        item for item in payload["comments"] if item["parent_comment_id"]
+    ]
+    assert len(replies) == 200
+    parent_counts = {}
+    for reply in replies:
+        parent_id = reply["parent_comment_id"]
+        parent_counts[parent_id] = parent_counts.get(parent_id, 0) + 1
+    assert all(count <= 20 for count in parent_counts.values())
+    assert len({item["cid"] for item in replies}) == 200
+    assert payload["replies_truncated"] is True

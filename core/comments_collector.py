@@ -278,24 +278,62 @@ class CommentsCollector:
         browser_replies = result.get("replies") or result.get("comments") or []
         if not isinstance(browser_replies, list):
             browser_replies = []
+        failed_parent_ids = {
+            str(item.get("comment_id") or "").strip()
+            for item in failed
+            if isinstance(item, dict) and item.get("comment_id")
+        }
+        sole_failed_parent = (
+            next(iter(failed_parent_ids)) if len(failed_parent_ids) == 1 else ""
+        )
+        existing_reply_ids = {
+            _comment_id(item)
+            for item in comments
+            if str(item.get("parent_comment_id") or "").strip() and _comment_id(item)
+        }
+        reply_counts_by_parent: Dict[str, int] = {}
+        for item in comments:
+            parent_id = str(item.get("parent_comment_id") or "").strip()
+            if parent_id:
+                reply_counts_by_parent[parent_id] = (
+                    reply_counts_by_parent.get(parent_id, 0) + 1
+                )
+        content_remaining = max(
+            0, self.max_replies_per_content - content_reply_count
+        )
         added = 0
+        succeeded_parents: set[str] = set()
         for reply in browser_replies:
-            if not isinstance(reply, dict) or added >= self.max_replies_per_content:
+            if not isinstance(reply, dict):
+                continue
+            if added >= content_remaining:
+                metrics["replies_truncated"] = True
                 break
             parent_id = str(reply.get("parent_comment_id") or "").strip()
-            if not parent_id and len(failed) == 1:
-                parent_id = str(failed[0]["comment_id"])
-            normalized = _normalize_comment(reply, parent_comment_id=parent_id)
-            key = _comment_id(normalized)
-            if not key or any(_comment_id(item) == key for item in comments):
+            if not parent_id:
+                parent_id = sole_failed_parent
+            if parent_id not in failed_parent_ids:
                 continue
+            key = _comment_id(reply)
+            if not key or key in existing_reply_ids:
+                continue
+            if (
+                reply_counts_by_parent.get(parent_id, 0)
+                >= self.max_replies_per_comment
+            ):
+                metrics["replies_truncated"] = True
+                continue
+            normalized = _normalize_comment(reply, parent_comment_id=parent_id)
             comments.append(normalized)
+            existing_reply_ids.add(key)
+            reply_counts_by_parent[parent_id] = (
+                reply_counts_by_parent.get(parent_id, 0) + 1
+            )
+            succeeded_parents.add(parent_id)
             added += 1
         content_reply_count += added
         if added:
-            metrics["reply_browser_fallback_succeeded"] += len(
-                {str(item.get("comment_id")) for item in failed if item.get("comment_id")}
-            )
+            metrics["reply_browser_fallback_succeeded"] += len(succeeded_parents)
 
         result_failures = result.get("failures") or []
         if not isinstance(result_failures, list):

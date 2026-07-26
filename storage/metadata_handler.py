@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
@@ -12,27 +13,42 @@ from utils.logger import setup_logger
 logger = setup_logger("MetadataHandler")
 
 
+def _reserve_temp_path(save_path: Path) -> Path:
+    descriptor, name = tempfile.mkstemp(
+        dir=str(save_path.parent),
+        prefix=f".{save_path.name}.",
+        suffix=".tmp",
+    )
+    os.close(descriptor)
+    return Path(name)
+
+
 class MetadataHandler:
     def __init__(self):
         self._manifest_lock = asyncio.Lock()
+        self._metadata_replace_lock = asyncio.Lock()
 
     async def save_metadata(self, data: Dict[str, Any], save_path: Path) -> bool:
-        tmp_path = save_path.with_suffix(save_path.suffix + ".tmp")
+        tmp_path = None
         try:
             save_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = await asyncio.to_thread(_reserve_temp_path, save_path)
             async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
                 await f.write(json.dumps(data, ensure_ascii=False, indent=2))
                 await f.flush()
-            os.replace(tmp_path, save_path)
+            async with self._metadata_replace_lock:
+                await asyncio.to_thread(os.replace, tmp_path, save_path)
+            tmp_path = None
             return True
         except Exception as e:
             logger.error("Failed to save metadata: %s, error: %s", save_path, e)
             return False
         finally:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            if tmp_path is not None:
+                try:
+                    await asyncio.to_thread(tmp_path.unlink, missing_ok=True)
+                except OSError:
+                    pass
 
     async def append_download_manifest(self, base_path: Path, record: Dict[str, Any]) -> bool:
         manifest_path = base_path / "download_manifest.jsonl"
