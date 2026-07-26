@@ -4,7 +4,7 @@ import types
 
 import pytest
 
-from core.api_client import DouyinAPIClient
+from core.api_client import DouyinAPIClient, ReplyAPIError
 
 
 def test_default_query_uses_existing_ms_token():
@@ -521,3 +521,75 @@ async def test_get_video_detail_returns_on_first_success():
     assert detail is not None
     assert detail["aweme_id"] == "456"
     assert call_count == 1  # no retry needed
+
+
+@pytest.mark.asyncio
+async def test_reply_endpoint_accepts_valid_comments_page(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(path, _params, **_kwargs):
+        assert path == "/aweme/v1/web/comment/list/reply/"
+        return {
+            "status_code": 0,
+            "comments": [{"cid": "reply-1", "text": "reply"}],
+            "has_more": 0,
+            "cursor": 0,
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    page = await client.get_aweme_comment_replies(
+        aweme_id="aweme-1", comment_id="comment-1"
+    )
+
+    assert page["items"] == [{"cid": "reply-1", "text": "reply"}]
+    assert page["response_valid"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raw", "error_code"),
+    [
+        ({}, "reply_response_invalid"),
+        ({"status_code": 0}, "reply_response_invalid"),
+        ({"status_code": 500, "comments": []}, "reply_api_failed"),
+        (
+            {"status_code": 2483, "status_msg": "login required", "comments": []},
+            "reply_login_required",
+        ),
+        (
+            {"status_code": 0, "verify_ticket": "ticket", "comments": []},
+            "reply_verification_required",
+        ),
+    ],
+)
+async def test_reply_endpoint_rejects_invalid_or_risky_pages(
+    monkeypatch, raw, error_code
+):
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(_path, _params, **_kwargs):
+        return raw
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    with pytest.raises(ReplyAPIError) as exc_info:
+        await client.get_aweme_comment_replies(
+            aweme_id="aweme-1", comment_id="comment-1"
+        )
+    assert exc_info.value.error_code == error_code
+
+
+@pytest.mark.asyncio
+async def test_reply_endpoint_maps_timeout(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(_path, _params, **_kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    with pytest.raises(ReplyAPIError) as exc_info:
+        await client.get_aweme_comment_replies(
+            aweme_id="aweme-1", comment_id="comment-1"
+        )
+    assert exc_info.value.error_code == "reply_timeout"
