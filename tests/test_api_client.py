@@ -1,10 +1,74 @@
 import asyncio
 import sys
 import types
+from unittest.mock import AsyncMock
 
 import pytest
 
 from core.api_client import DouyinAPIClient
+
+
+@pytest.mark.asyncio
+async def test_get_aweme_comment_replies_uses_reply_endpoint_and_cursor(monkeypatch):
+    client = DouyinAPIClient({})
+    captured = {}
+
+    async def fake_default_query():
+        return {"aid": "6383"}
+
+    async def fake_request(path, params):
+        captured["path"] = path
+        captured["params"] = dict(params)
+        return {
+            "status_code": 0,
+            "comments": [{"cid": "reply-1"}],
+            "has_more": 1,
+            "cursor": 20,
+        }
+
+    monkeypatch.setattr(client, "_default_query", fake_default_query)
+    monkeypatch.setattr(client, "_request_json", fake_request)
+
+    page = await client.get_aweme_comment_replies(
+        aweme_id="video-1",
+        comment_id="root-1",
+        cursor=10,
+        count=20,
+    )
+
+    assert captured["path"] == "/aweme/v1/web/comment/list/reply/"
+    assert captured["params"]["item_id"] == "video-1"
+    assert captured["params"]["comment_id"] == "root-1"
+    assert captured["params"]["cursor"] == 10
+    assert captured["params"]["count"] == 20
+    assert page["items"] == [{"cid": "reply-1"}]
+    assert page["has_more"] is True
+    assert page["max_cursor"] == 20
+
+
+@pytest.mark.asyncio
+async def test_get_aweme_comment_replies_preserves_verify_flag(monkeypatch):
+    client = DouyinAPIClient({})
+    monkeypatch.setattr(client, "_default_query", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        AsyncMock(
+            return_value={
+                "status_code": 0,
+                "comments": [],
+                "has_more": 0,
+                "verify_ticket": "present",
+            }
+        ),
+    )
+
+    page = await client.get_aweme_comment_replies(
+        aweme_id="video-1",
+        comment_id="root-1",
+    )
+
+    assert page["risk_flags"]["verify_page"] is True
 
 
 def test_default_query_uses_existing_ms_token():

@@ -841,6 +841,7 @@ class DouyinAPIClient:
         Returns:
             归一化后的分页响应 dict，items 为评论列表。
         """
+        del include_replies
         params = await self._default_query()
         params.update(
             {
@@ -855,24 +856,7 @@ class DouyinAPIClient:
             }
         )
         raw = await self._request_json("/aweme/v1/web/comment/list/", params)
-        normalized = self._normalize_paged_response(raw, item_keys=["comments"])
-
-        if include_replies:
-            comments = normalized.get("items") or []
-            for comment in comments:
-                if not isinstance(comment, dict):
-                    continue
-                comment_id = comment.get("cid") or comment.get("comment_id")
-                if not comment_id or int(comment.get("reply_comment_total") or 0) <= 0:
-                    continue
-                try:
-                    reply_page = await self.get_aweme_comment_replies(
-                        aweme_id=aweme_id, comment_id=str(comment_id), count=count
-                    )
-                    comment["_replies"] = reply_page.get("items") or []
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Fetch reply for comment %s failed: %s", comment_id, exc)
-        return normalized
+        return self._normalize_paged_response(raw, item_keys=["comments"])
 
     async def get_aweme_comment_replies(
         self,
