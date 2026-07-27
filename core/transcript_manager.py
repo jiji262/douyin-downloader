@@ -351,7 +351,10 @@ class TranscriptManager:
                 filename=filename,
                 content_type=content_type,
             )
-            timeout = aiohttp.ClientTimeout(total=600)
+            # connect 必须单独设限：自定义 base_url/死代理指向黑洞端点时，
+            # 纯 total 会让每个视频在 worker 槽里挂满 10 分钟。总超时保留
+            # 600s 且不设读间隙限制——转写服务端合法处理可达分钟级。
+            timeout = aiohttp.ClientTimeout(total=600, connect=15)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     api_url,

@@ -547,7 +547,12 @@ class BaseDownloader(ABC):
 
             for index, candidates in enumerate(image_url_candidates, start=1):
                 download_result: bool | Path = False
-                for image_url in candidates:
+                # 与 _download_first_available 同原则：多镜像时镜像列表本身
+                # 就是重试机制（每镜像单次尝试），单镜像才保留退避重试——
+                # 否则死镜像 × 每镜像 4 次退避嵌套，一张图最坏能拖数分钟。
+                use_backoff = len(candidates) == 1
+                for url_index, image_url in enumerate(candidates):
+                    is_last = url_index == len(candidates) - 1
                     suffix = self._infer_image_extension(image_url)
                     image_path = save_dir / f"{file_stem}_{index}{suffix}"
                     download_result = await self._download_with_retry(
@@ -557,6 +562,8 @@ class BaseDownloader(ABC):
                         headers=self._download_headers(),
                         prefer_response_content_type=True,
                         return_saved_path=True,
+                        optional=not is_last,
+                        retry=use_backoff,
                     )
                     if download_result:
                         downloaded_files.append(
@@ -868,13 +875,11 @@ class BaseDownloader(ABC):
         url_candidates = [c for c in (play_addr.get("url_list") or []) if c]
         url_candidates.sort(key=lambda u: 0 if "watermark=0" in u else 1)
 
-        direct_candidate, play_candidate, watermarked_candidate = self._partition_video_candidates(
+        direct_candidates, play_candidate, watermarked_candidate = self._partition_video_candidates(
             url_candidates
         )
 
-        candidates: List[Tuple[str, Dict[str, str]]] = []
-        if direct_candidate:
-            candidates.append(direct_candidate)
+        candidates: List[Tuple[str, Dict[str, str]]] = list(direct_candidates)
         if play_candidate:
             candidates.append(self._sign_play_candidate(play_candidate))
         if candidates:
@@ -890,16 +895,19 @@ class BaseDownloader(ABC):
     def _partition_video_candidates(
         self, url_candidates: List[str]
     ) -> Tuple[
-        Optional[Tuple[str, Dict[str, str]]],
+        List[Tuple[str, Dict[str, str]]],
         Optional[str],
         Optional[Tuple[str, Dict[str, str]]],
     ]:
-        """把 url_list 分拣为（首个净版直连, 首个净版 play 端点, 首个带水印）。
+        """把 url_list 分拣为（全部净版直连镜像, 首个净版 play 端点, 首个带水印）。
 
-        三类均取首个出现者（first-seen-wins），与旧实现保持一致；play 端点
-        返回原始 URL，签名推迟到真正选用时（:meth:`_sign_play_candidate`）。
+        直连镜像常有 2-3 个不同主机（v3/v9 等），全部保留并维持 url_list
+        原序——只取第一个会在镜像 1 挂掉时跳过健康的镜像 2、直接进 play
+        端点的 PCDN 抽签。play 端点多条等价（同一端点），取首个即可，签名
+        推迟到真正选用时（:meth:`_sign_play_candidate`）；带水印取首个作
+        最后兜底。
         """
-        direct: Optional[Tuple[str, Dict[str, str]]] = None
+        direct: List[Tuple[str, Dict[str, str]]] = []
         play: Optional[str] = None
         watermarked: Optional[Tuple[str, Dict[str, str]]] = None
 
@@ -917,7 +925,7 @@ class BaseDownloader(ABC):
             if is_watermarked:
                 watermarked = watermarked or (candidate, self._download_headers())
             else:
-                direct = direct or (candidate, self._download_headers())
+                direct.append((candidate, self._download_headers()))
 
         return direct, play, watermarked
 
