@@ -481,16 +481,13 @@ class BaseDownloader(ABC):
         optional_assets: List[Tuple[Path, Any]] = []
 
         if media_type == "video":
-            video_info = self._build_no_watermark_url(aweme_data)
-            if not video_info:
+            video_candidates = self._build_video_url_candidates(aweme_data)
+            if not video_candidates:
                 logger.error("No playable video URL found for aweme %s", aweme_id)
                 return False
 
-            video_url, video_headers = video_info
             video_path = save_dir / f"{file_stem}.mp4"
-            if not await self._download_with_retry(
-                video_url, video_path, session, headers=video_headers
-            ):
+            if not await self._download_video_with_fallback(video_candidates, video_path, session):
                 return False
             downloaded_files.append(video_path)
 
@@ -739,6 +736,41 @@ class BaseDownloader(ABC):
             )
             return False
 
+    async def _download_video_with_fallback(
+        self,
+        candidates: List[Tuple[str, Dict[str, str]]],
+        save_path: Path,
+        session,
+    ) -> bool:
+        """在候选地址间降级下载视频：每轮按序各尝试一次，整轮失败再退避重试。
+
+        play 端点的失败多为 302 落点抽签不走运（PCDN 死节点），重试同一
+        URL 有意义；直连地址失败（403/过期）则应换下一候选。按轮扫 +
+        RetryHandler 退避兼顾两种失败模式，单候选时行为与旧退避重试一致。
+        """
+        if not candidates:
+            return False
+
+        async def _attempt_round() -> bool:
+            for url, headers in candidates:
+                if await self._download_with_retry(
+                    url,
+                    save_path,
+                    session,
+                    headers=headers,
+                    optional=True,
+                    retry=False,
+                ):
+                    return True
+            raise RuntimeError(
+                f"All {len(candidates)} video url candidate(s) failed for {save_path.name}"
+            )
+
+        try:
+            return await self.retry_handler.execute_with_retry(_attempt_round)
+        except Exception:
+            return False
+
     async def _download_first_available(
         self,
         source: Any,
@@ -813,81 +845,124 @@ class BaseDownloader(ABC):
     def _build_no_watermark_url(
         self, aweme_data: Dict[str, Any]
     ) -> Optional[Tuple[str, Dict[str, str]]]:
+        """Best single video URL (kept for existing callers/tests);
+        see :meth:`_build_video_url_candidates` for the preference order."""
+        candidates = self._build_video_url_candidates(aweme_data)
+        return candidates[0] if candidates else None
+
+    def _build_video_url_candidates(
+        self, aweme_data: Dict[str, Any]
+    ) -> List[Tuple[str, Dict[str, str]]]:
+        """按优先级返回可依次尝试的视频下载地址（url + 请求头）。
+
+        直连 CDN（douyinvod.com 等）优先于 ``/aweme/v1/play/`` 签名端点：
+        play 端点 302 后可能落到打不通的 PCDN 节点（``*.qtaeixd.com`` 高位
+        端口），直连域名走标准 CDN（commit 099aae5 声明的意图，此前被循环
+        内对 douyin.com 候选的提前 return 打破）。play 端点保留为降级候选，
+        供直连失败时兜底。没有净版候选时按旧逻辑回退：uri 构造签名地址 →
+        带水印地址。
+        """
         video = aweme_data.get("video", {})
         quality = str(self.config.get("video_quality") or "highest")
         play_addr = self._pick_preferred_play_addr(video, quality) or {}
         url_candidates = [c for c in (play_addr.get("url_list") or []) if c]
         url_candidates.sort(key=lambda u: 0 if "watermark=0" in u else 1)
 
-        fallback_candidate: Optional[Tuple[str, Dict[str, str]]] = None
-        watermarked_candidate: Optional[Tuple[str, Dict[str, str]]] = None
+        direct_candidate, play_candidate, watermarked_candidate = self._partition_video_candidates(
+            url_candidates
+        )
+
+        candidates: List[Tuple[str, Dict[str, str]]] = []
+        if direct_candidate:
+            candidates.append(direct_candidate)
+        if play_candidate:
+            candidates.append(self._sign_play_candidate(play_candidate))
+        if candidates:
+            return candidates
+
+        constructed = self._build_signed_play_url(video, play_addr, quality)
+        if constructed:
+            return [constructed]
+        if watermarked_candidate:
+            return [watermarked_candidate]
+        return []
+
+    def _partition_video_candidates(
+        self, url_candidates: List[str]
+    ) -> Tuple[
+        Optional[Tuple[str, Dict[str, str]]],
+        Optional[str],
+        Optional[Tuple[str, Dict[str, str]]],
+    ]:
+        """把 url_list 分拣为（首个净版直连, 首个净版 play 端点, 首个带水印）。
+
+        三类均取首个出现者（first-seen-wins），与旧实现保持一致；play 端点
+        返回原始 URL，签名推迟到真正选用时（:meth:`_sign_play_candidate`）。
+        """
+        direct: Optional[Tuple[str, Dict[str, str]]] = None
+        play: Optional[str] = None
+        watermarked: Optional[Tuple[str, Dict[str, str]]] = None
 
         for candidate in url_candidates:
-            parsed = urlparse(candidate)
-            headers = self._download_headers()
             is_watermarked = self._is_watermarked_media_url(candidate)
 
-            if parsed.netloc.endswith("douyin.com"):
-                if "X-Bogus=" not in candidate:
-                    signed_url, ua = self.api_client.sign_url(candidate)
-                    headers = self._download_headers(user_agent=ua)
-                    if is_watermarked:
-                        watermarked_candidate = watermarked_candidate or (
-                            signed_url,
-                            headers,
-                        )
-                        continue
-                    return signed_url, headers
+            if urlparse(candidate).netloc.endswith("douyin.com"):
                 if is_watermarked:
-                    watermarked_candidate = watermarked_candidate or (candidate, headers)
+                    if watermarked is None:
+                        watermarked = self._sign_play_candidate(candidate)
                     continue
-                return candidate, headers
+                play = play or candidate
+                continue
 
             if is_watermarked:
-                watermarked_candidate = watermarked_candidate or (candidate, headers)
+                watermarked = watermarked or (candidate, self._download_headers())
             else:
-                fallback_candidate = fallback_candidate or (candidate, headers)
+                direct = direct or (candidate, self._download_headers())
 
-        # Prefer direct CDN URLs (e.g. douyinvod.com) over the /aweme/v1/play/
-        # signed endpoint: the latter redirects to a URL that returns 403 Forbidden.
-        if fallback_candidate:
-            return fallback_candidate
+        return direct, play, watermarked
 
-        uri = play_addr.get("uri") or video.get("vid") or video.get("download_addr", {}).get("uri")
-        if uri:
-            # Douyin /aweme/v1/play/ accepts a limited set of ratio strings.
-            # Preserve the selected track's actual tier when its direct URLs
-            # cannot be used; otherwise fall back to the configured preference.
-            selected_entry = self._find_bit_rate_entry(video, play_addr)
-            short_edge, _ = self._resolution_metrics(selected_entry, play_addr)
-            selected_ratio = f"{short_edge}p"
-            normalised_quality = quality.strip().lower()
-            ratio_map = {
-                "highest": "1080p",
-                "lowest": "540p",
-            }
-            fallback_ratio = ratio_map.get(
-                normalised_quality,
-                normalised_quality if normalised_quality in self._QUALITY_TARGET_WIDTH else "1080p",
-            )
-            ratio = (
-                selected_ratio if selected_ratio in self._QUALITY_TARGET_WIDTH else fallback_ratio
-            )
-            params = {
-                "video_id": uri,
-                "ratio": ratio,
-                "line": "0",
-                "is_play_url": "1",
-                "watermark": "0",
-                "source": "PackSourceEnum_PUBLISH",
-            }
-            signed_url, ua = self.api_client.build_signed_path("/aweme/v1/play/", params)
+    def _sign_play_candidate(self, candidate: str) -> Tuple[str, Dict[str, str]]:
+        """Sign a douyin.com play URL when it lacks X-Bogus; pass through otherwise."""
+        if "X-Bogus=" not in candidate:
+            signed_url, ua = self.api_client.sign_url(candidate)
             return signed_url, self._download_headers(user_agent=ua)
+        return candidate, self._download_headers()
 
-        if watermarked_candidate:
-            return watermarked_candidate
-
-        return None
+    def _build_signed_play_url(
+        self,
+        video: Dict[str, Any],
+        play_addr: Dict[str, Any],
+        quality: str,
+    ) -> Optional[Tuple[str, Dict[str, str]]]:
+        uri = play_addr.get("uri") or video.get("vid") or video.get("download_addr", {}).get("uri")
+        if not uri:
+            return None
+        # Douyin /aweme/v1/play/ accepts a limited set of ratio strings.
+        # Preserve the selected track's actual tier when its direct URLs
+        # cannot be used; otherwise fall back to the configured preference.
+        selected_entry = self._find_bit_rate_entry(video, play_addr)
+        short_edge, _ = self._resolution_metrics(selected_entry, play_addr)
+        selected_ratio = f"{short_edge}p"
+        normalised_quality = quality.strip().lower()
+        ratio_map = {
+            "highest": "1080p",
+            "lowest": "540p",
+        }
+        fallback_ratio = ratio_map.get(
+            normalised_quality,
+            normalised_quality if normalised_quality in self._QUALITY_TARGET_WIDTH else "1080p",
+        )
+        ratio = selected_ratio if selected_ratio in self._QUALITY_TARGET_WIDTH else fallback_ratio
+        params = {
+            "video_id": uri,
+            "ratio": ratio,
+            "line": "0",
+            "is_play_url": "1",
+            "watermark": "0",
+            "source": "PackSourceEnum_PUBLISH",
+        }
+        signed_url, ua = self.api_client.build_signed_path("/aweme/v1/play/", params)
+        return signed_url, self._download_headers(user_agent=ua)
 
     # 视频画质选择支持的规格名称。值保留为横屏长边尺寸，用于兼容只有
     # width 的旧响应；完整 width/height 响应会按短边匹配 1080p/720p 等档位。

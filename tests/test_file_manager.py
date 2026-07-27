@@ -450,6 +450,47 @@ async def test_download_file_no_httpx_fallback_on_404(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_download_file_sets_granular_timeouts(tmp_path):
+    """/aweme/v1/play/ 302 后可能落到打不通的 PCDN 节点（高位端口 SYN 黑洞），
+    没有 connect 细分超时时握手会把 total=300s 全部耗光（线上日志实测两次
+    重试间隔正好 300s），批量任务队尾因此长时间停滞。"""
+    fm = FileManager(str(tmp_path))
+    session = _aiohttp_session_returning_status(404)
+
+    await fm.download_file("https://example.com/v.mp4", tmp_path / "v.mp4", session=session)
+
+    timeout = session.get.call_args.kwargs["timeout"]
+    assert timeout.total == 300
+    assert timeout.connect == 15
+    assert timeout.sock_read == 60
+
+
+@pytest.mark.asyncio
+async def test_httpx_fallback_sets_granular_timeouts(tmp_path, monkeypatch):
+    """httpx 403 兜底路径与 aiohttp 主路径保持同样的连接/读间隙上限。"""
+    fm = FileManager(str(tmp_path))
+    captured = {}
+    calls = []
+    response = _FakeHttpxResponse(200, b"x", {"Content-Type": "image/jpeg", "Content-Length": "1"})
+
+    def _fake_client(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeHttpxClient(response, calls)
+
+    monkeypatch.setattr("storage.file_manager.httpx.AsyncClient", _fake_client)
+
+    await fm.download_file(
+        "https://p3-pc-sign.douyinpic.com/x.jpg",
+        tmp_path / "x.jpg",
+        session=_aiohttp_session_returning_status(403),
+    )
+
+    timeout = captured["timeout"]
+    assert timeout.connect == 15
+    assert timeout.read == 60
+
+
+@pytest.mark.asyncio
 async def test_download_file_size_mismatch_cleans_up(tmp_path):
     fm = FileManager(str(tmp_path))
     save_path = tmp_path / "video.mp4"
