@@ -117,9 +117,7 @@ async def test_video_downloader_downloads_note_video_fallback(tmp_path, monkeypa
             "aweme_type": 68,
             "desc": "note 视频作品",
             "video": {
-                "play_addr_h264": {
-                    "url_list": ["https://v3-web.douyinvod.com/note-h264.mp4"]
-                }
+                "play_addr_h264": {"url_list": ["https://v3-web.douyinvod.com/note-h264.mp4"]}
             },
         }
 
@@ -211,9 +209,7 @@ async def test_build_no_watermark_url_avoids_playwm_when_uri_can_be_signed(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(
-    tmp_path, monkeypatch
-):
+async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
 
     signed_url = "https://www.douyin.com/aweme/v1/play/?video_id=clean&watermark=0"
@@ -228,9 +224,7 @@ async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(
     aweme = {
         "aweme_id": "1",
         "video": {
-            "play_addr_h264": {
-                "url_list": ["https://v3-web.douyinvod.com/direct-h264.mp4"]
-            },
+            "play_addr_h264": {"url_list": ["https://v3-web.douyinvod.com/direct-h264.mp4"]},
             "play_addr": {
                 "uri": "clean",
                 "url_list": ["https://v3-web.douyinvod.com/playwm/abc.mp4?watermark=1"],
@@ -242,6 +236,125 @@ async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(
 
     assert url == signed_url
     assert headers["User-Agent"] == "UnitTestAgent/2.1"
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_build_no_watermark_url_prefers_direct_cdn_over_inlist_play(tmp_path):
+    """url_list 同时含直连 CDN 与已签名 /aweme/v1/play/ 时必须选直连：
+    play 端点 302 后可能落到打不通的 PCDN 节点（*.qtaeixd.com 高位端口），
+    直连域名走标准 CDN。此前循环内对 douyin.com 候选提前 return，
+    打破了 commit 099aae5 声明的直连优先。"""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    aweme = {
+        "aweme_id": "1",
+        "video": {
+            "play_addr": {
+                "uri": "clean",
+                "url_list": [
+                    "https://www.douyin.com/aweme/v1/play/?video_id=clean&file_id=f"
+                    "&sign=s&is_play_url=1&X-Bogus=abc",
+                    "https://v3-web.douyinvod.com/direct.mp4",
+                ],
+            }
+        },
+    }
+
+    url, _headers = downloader._build_no_watermark_url(aweme)
+
+    assert url == "https://v3-web.douyinvod.com/direct.mp4"
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_build_video_url_candidates_keeps_play_as_fallback(tmp_path):
+    """直连 CDN 之外要保留 play 端点作为降级候选，直连失败时还有救。"""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    play_url = (
+        "https://www.douyin.com/aweme/v1/play/?video_id=clean&file_id=f"
+        "&sign=s&is_play_url=1&X-Bogus=abc"
+    )
+    aweme = {
+        "aweme_id": "1",
+        "video": {
+            "play_addr": {
+                "uri": "clean",
+                "url_list": [play_url, "https://v3-web.douyinvod.com/direct.mp4"],
+            }
+        },
+    }
+
+    candidates = downloader._build_video_url_candidates(aweme)
+
+    assert [url for url, _ in candidates] == [
+        "https://v3-web.douyinvod.com/direct.mp4",
+        play_url,
+    ]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_download_falls_back_to_play_url_when_direct_fails(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    attempts = []
+
+    async def _fake_download_with_retry(self, url, save_path, _session, **kwargs):
+        attempts.append(url)
+        # 轮扫内必须禁用单 URL 退避重试（否则嵌套重试会把死节点等待
+        # 放大回本修复要消除的量级），失败降噪走 optional。
+        assert kwargs.get("retry") is False
+        assert kwargs.get("optional") is True
+        return url.startswith("https://www.douyin.com/aweme/v1/play/")
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    candidates = [
+        ("https://v3-web.douyinvod.com/direct.mp4", {}),
+        ("https://www.douyin.com/aweme/v1/play/?video_id=x&X-Bogus=b", {}),
+    ]
+
+    ok = await downloader._download_video_with_fallback(candidates, tmp_path / "v.mp4", object())
+
+    assert ok is True
+    assert attempts == [candidates[0][0], candidates[1][0]]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_download_fallback_retries_rounds_then_fails(tmp_path, monkeypatch):
+    """整轮候选都失败时按 RetryHandler 退避重跑整轮，穷尽后返回 False。"""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    async def _no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr("control.retry_handler.asyncio.sleep", _no_sleep)
+
+    attempts = []
+
+    async def _fake_download_with_retry(self, url, save_path, _session, **_kwargs):
+        attempts.append(url)
+        return False
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    candidates = [
+        ("https://v3-web.douyinvod.com/direct.mp4", {}),
+        ("https://www.douyin.com/aweme/v1/play/?video_id=x&X-Bogus=b", {}),
+    ]
+
+    ok = await downloader._download_video_with_fallback(candidates, tmp_path / "v.mp4", object())
+
+    # fixture 的 RetryHandler(max_retries=1) → 2 轮 × 2 个候选
+    assert ok is False
+    assert len(attempts) == 4
 
     await api_client.close()
 
@@ -441,9 +554,7 @@ async def test_download_aweme_assets_cover_falls_back_across_mirrors(tmp_path, m
         # First mirror hard-fails (simulates 403); a later mirror succeeds.
         return "mirror-fail" not in url
 
-    downloader._download_with_retry = _fake_download_with_retry.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
 
     aweme_data = {
         "aweme_id": "7600224486650121599",
@@ -751,9 +862,7 @@ def test_collect_image_urls_prefers_highest_resolution_clean_source(tmp_path):
         "https://cdn.example.com/preview-720.jpg",
         "https://cdn.example.com/highres-2160.jpg",
     ]
-    assert downloader._collect_image_urls(aweme_data) == [
-        "https://cdn.example.com/origin-1440.jpg"
-    ]
+    assert downloader._collect_image_urls(aweme_data) == ["https://cdn.example.com/origin-1440.jpg"]
 
     asyncio.run(api_client.close())
 

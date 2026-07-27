@@ -22,6 +22,14 @@ _SEC_UID_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 # （视频动辄几十 MB），256KB 在内存占用与吞吐之间取平衡。
 _DOWNLOAD_CHUNK_BYTES = 256 * 1024
 
+# 媒体下载超时：总时长上限 300s 之外，连接（DNS/TCP/TLS）与读间隙必须
+# 单独设限——/aweme/v1/play/ 302 后可能落到打不通的 PCDN 节点（*.qtaeixd.com
+# 之类高位端口，SYN/握手黑洞），没有 connect 上限时握手会把 total 300s
+# 全部耗光（线上日志实测两次重试间隔正好 300s），批量任务队尾因此停滞。
+_DOWNLOAD_TOTAL_TIMEOUT_S = 300
+_DOWNLOAD_CONNECT_TIMEOUT_S = 15
+_DOWNLOAD_READ_STALL_TIMEOUT_S = 60
+
 
 class FileManager:
     _IMAGE_CONTENT_TYPE_SUFFIXES = {
@@ -214,7 +222,11 @@ class FileManager:
         try:
             async with session.get(
                 url,
-                timeout=aiohttp.ClientTimeout(total=300),
+                timeout=aiohttp.ClientTimeout(
+                    total=_DOWNLOAD_TOTAL_TIMEOUT_S,
+                    connect=_DOWNLOAD_CONNECT_TIMEOUT_S,
+                    sock_read=_DOWNLOAD_READ_STALL_TIMEOUT_S,
+                ),
                 headers=headers,
                 proxy=proxy or None,
             ) as response:
@@ -335,7 +347,13 @@ class FileManager:
         redirect-following and streaming-to-disk behaviour."""
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(300.0),
+                # httpx 没有 aiohttp 那样的整体 wall-clock 上限：位置参数只作为
+                # write/pool 的默认值，connect/read 为逐操作超时。
+                timeout=httpx.Timeout(
+                    _DOWNLOAD_TOTAL_TIMEOUT_S,
+                    connect=_DOWNLOAD_CONNECT_TIMEOUT_S,
+                    read=_DOWNLOAD_READ_STALL_TIMEOUT_S,
+                ),
                 proxy=proxy or None,
                 follow_redirects=True,
             ) as client:
