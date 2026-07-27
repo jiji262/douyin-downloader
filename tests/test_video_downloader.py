@@ -241,6 +241,64 @@ async def test_build_no_watermark_url_prefers_signed_uri_when_variant_exists(tmp
 
 
 @pytest.mark.asyncio
+async def test_gallery_mirrors_are_single_attempt_each(tmp_path, monkeypatch):
+    """图集镜像沿用 _download_first_available 的原则：多镜像时镜像列表本身
+    就是重试机制（每镜像单次尝试、早期失败降噪），单镜像才保留退避重试。
+    否则死镜像 × 每镜像 4 次退避嵌套，一张图最坏能拖 3-7 分钟。"""
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    aweme_id = "7646971177114611827"
+
+    async def _fake_should_download(self, _aweme_id):
+        return True
+
+    async def _fake_get_video_detail(_aweme_id: str):
+        return {
+            "aweme_id": aweme_id,
+            "aweme_type": 68,
+            "desc": "图集作品",
+            "images": [
+                {
+                    "url_list": [
+                        "https://p3-sign.douyinpic.com/a-mirror1.jpeg",
+                        "https://p9-sign.douyinpic.com/a-mirror2.jpeg",
+                    ]
+                },
+                {"url_list": ["https://p3-sign.douyinpic.com/b-single.jpeg"]},
+            ],
+        }
+
+    async def _fake_get_session():
+        return object()
+
+    calls = []
+
+    async def _fake_download_with_retry(self, url, save_path, _session, **kwargs):
+        calls.append((url, kwargs))
+        return "a-mirror1" not in url  # 首个镜像失败，其余成功
+
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
+    monkeypatch.setattr(api_client, "get_video_detail", _fake_get_video_detail)
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    result = await downloader.download({"type": "gallery", "aweme_id": aweme_id})
+
+    assert result.success == 1
+    by_url = {url: kwargs for url, kwargs in calls}
+    kwargs_multi_1 = by_url["https://p3-sign.douyinpic.com/a-mirror1.jpeg"]
+    assert kwargs_multi_1.get("retry") is False
+    assert kwargs_multi_1.get("optional") is True  # 非末位镜像失败降噪
+    kwargs_multi_2 = by_url["https://p9-sign.douyinpic.com/a-mirror2.jpeg"]
+    assert kwargs_multi_2.get("retry") is False
+    kwargs_single = by_url["https://p3-sign.douyinpic.com/b-single.jpeg"]
+    assert kwargs_single.get("retry", True) is True  # 单镜像保留退避
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_build_no_watermark_url_prefers_direct_cdn_over_inlist_play(tmp_path):
     """url_list 同时含直连 CDN 与已签名 /aweme/v1/play/ 时必须选直连：
     play 端点 302 后可能落到打不通的 PCDN 节点（*.qtaeixd.com 高位端口），
@@ -292,6 +350,42 @@ async def test_build_video_url_candidates_keeps_play_as_fallback(tmp_path):
 
     assert [url for url, _ in candidates] == [
         "https://v3-web.douyinvod.com/direct.mp4",
+        play_url,
+    ]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_build_video_url_candidates_includes_all_direct_mirrors(tmp_path):
+    """url_list 常带 2-3 个直连镜像（v3/v9 等不同主机）；只取第一个会在
+    镜像 1 挂掉时直接进 play 端点的 PCDN 抽签，健康的镜像 2 反而被丢弃。
+    全部净版直连镜像都要进候选，按 url_list 原序排在 play 端点之前。"""
+    downloader, api_client = _build_downloader(tmp_path)
+
+    play_url = (
+        "https://www.douyin.com/aweme/v1/play/?video_id=clean&file_id=f"
+        "&sign=s&is_play_url=1&X-Bogus=abc"
+    )
+    aweme = {
+        "aweme_id": "1",
+        "video": {
+            "play_addr": {
+                "uri": "clean",
+                "url_list": [
+                    "https://v3-web.douyinvod.com/direct.mp4",
+                    "https://v9-web.douyinvod.com/direct.mp4",
+                    play_url,
+                ],
+            }
+        },
+    }
+
+    candidates = downloader._build_video_url_candidates(aweme)
+
+    assert [url for url, _ in candidates] == [
+        "https://v3-web.douyinvod.com/direct.mp4",
+        "https://v9-web.douyinvod.com/direct.mp4",
         play_url,
     ]
 

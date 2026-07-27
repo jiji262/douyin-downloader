@@ -452,6 +452,69 @@ async def test_process_video_does_not_log_api_key_plaintext(
     assert sentinel_key not in full_log
 
 
+async def test_call_openai_transcription_sets_connect_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """上传会话必须带 connect 细分超时：自定义 base_url/死代理指向黑洞端点
+    时，纯 total=600 会让每个视频在 worker 槽里最坏挂满 10 分钟（与批量
+    下载 PCDN 卡死同类）。总超时保留 600s，且不设读间隙限制——转写服务端
+    合法处理可达分钟级。"""
+    manager, _db, download_root = _build_manager(
+        tmp_path, api_key_env_value="sk-timeout-probe", monkeypatch=monkeypatch
+    )
+    video = _make_video(download_root)
+
+    async def passthrough_extract(video_path, out_dir, **kwargs):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        mp3 = out_dir / f"{video_path.stem}.mp3"
+        mp3.write_bytes(b"\x00")
+        return mp3
+
+    monkeypatch.setattr(tm_mod, "extract_audio", passthrough_extract)
+
+    captured: Dict[str, Any] = {}
+
+    class FakeResp:
+        status = 401
+
+        async def text(self):
+            return "denied"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class FakePostCtx:
+        async def __aenter__(self):
+            return FakeResp()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class FakeSession:
+        def __init__(self, *a, **k):
+            captured.update(k)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            return FakePostCtx()
+
+    monkeypatch.setattr("aiohttp.ClientSession", FakeSession)
+
+    await manager.process_video(video, aweme_id="aw_timeout_probe")
+
+    timeout = captured["timeout"]
+    assert timeout.total == 600
+    assert timeout.connect == 15
+
+
 async def test_call_openai_transcription_redacts_api_key_in_error_body(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
