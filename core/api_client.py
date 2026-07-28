@@ -261,22 +261,30 @@ class DouyinAPIClient:
         params: Dict[str, Any],
         *,
         base_url: Optional[str] = None,
+        request_data: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, str]:
         query = urlencode(params)
         endpoint = f"{(base_url or self.BASE_URL).rstrip('/')}{path}"
-        ab_signed = self._build_abogus_url(endpoint, query)
+        ab_signed = self._build_abogus_url(endpoint, query, request_data=request_data)
         if ab_signed:
             return ab_signed
         return self.sign_url(f"{endpoint}?{query}")
 
-    def _build_abogus_url(self, base_url: str, query: str) -> Optional[Tuple[str, str]]:
+    def _build_abogus_url(
+        self,
+        base_url: str,
+        query: str,
+        *,
+        request_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Tuple[str, str]]:
         if not self._abogus_enabled:
             return None
 
         try:
             browser_fp = BrowserFingerprintGenerator.generate_fingerprint("Chrome")
             signer = ABogus(fp=browser_fp, user_agent=self.headers["User-Agent"])
-            params_with_ab, _ab, ua, _body = signer.generate_abogus(query, "")
+            body = urlencode(request_data or {})
+            params_with_ab, _ab, ua, _body = signer.generate_abogus(query, body)
             return f"{base_url}?{params_with_ab}", ua
         except Exception as exc:
             logger.warning("Failed to generate a_bogus, fallback to X-Bogus: %s", exc)
@@ -291,22 +299,30 @@ class DouyinAPIClient:
         max_retries: int = 3,
         base_url: Optional[str] = None,
         request_headers: Optional[Dict[str, str]] = None,
+        method: str = "GET",
+        data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         await self._ensure_session()
+        method = method.upper()
+        if method not in {"GET", "POST"}:
+            raise ValueError(f"unsupported request method: {method}")
         delays = [1, 2, 5]
         last_exc: Optional[Exception] = None
 
         for attempt in range(max_retries):
             started = time.monotonic()
+            signing_kwargs: Dict[str, Any] = {}
             if base_url:
-                signed_url, ua = self.build_signed_path(path, params, base_url=base_url)
-            else:
-                signed_url, ua = self.build_signed_path(path, params)
+                signing_kwargs["base_url"] = base_url
+            if method == "POST":
+                signing_kwargs["request_data"] = data
+            signed_url, ua = self.build_signed_path(path, params, **signing_kwargs)
             signer = "a_bogus" if "a_bogus=" in signed_url else "x_bogus"
             logger.info(
-                "Douyin API request: path=%s attempt=%d/%d signer=%s proxy_enabled=%s "
-                "base=%s param_keys=%s",
+                "Douyin API request: path=%s method=%s attempt=%d/%d signer=%s "
+                "proxy_enabled=%s base=%s param_keys=%s",
                 path,
+                method,
                 attempt + 1,
                 max_retries,
                 signer,
@@ -314,12 +330,16 @@ class DouyinAPIClient:
                 "custom" if base_url else "default",
                 ",".join(sorted(str(key) for key in params)),
             )
+            headers = {**self.headers, **(request_headers or {}), "User-Agent": ua}
+            request = self._session.post if method == "POST" else self._session.get
+            request_kwargs: Dict[str, Any] = {
+                "headers": headers,
+                "proxy": self.proxy or None,
+            }
+            if method == "POST":
+                request_kwargs["data"] = data or {}
             try:
-                async with self._session.get(
-                    signed_url,
-                    headers={**self.headers, **(request_headers or {}), "User-Agent": ua},
-                    proxy=self.proxy or None,
-                ) as response:
+                async with request(signed_url, **request_kwargs) as response:
                     if response.status == 200:
                         body = await response.read()
                         if not body:
@@ -640,6 +660,40 @@ class DouyinAPIClient:
             }
         )
         return params
+
+    async def get_user_collection(
+        self, sec_uid: str = "self", max_cursor: int = 0, count: int = 20
+    ) -> Dict[str, Any]:
+        """Fetch one page of the logged-in account's collected awemes.
+
+        This is the account-level/default collection feed. It is distinct
+        from ``get_user_collects`` (custom folder metadata) and from
+        ``get_user_like`` (liked awemes). Douyin currently exposes it as a
+        form-encoded POST whose cursor lives in the request body.
+        """
+        if sec_uid and sec_uid != "self":
+            logger.warning("Account collection currently requires self sec_uid, got=%s", sec_uid)
+            return self._normalize_paged_response({}, item_keys=["aweme_list"], source="api")
+
+        params = await self._default_query()
+        params.update(
+            {
+                "publish_video_strategy_type": "2",
+                "version_code": "170400",
+                "version_name": "17.4.0",
+            }
+        )
+        raw = await self._request_json(
+            "/aweme/v1/web/aweme/listcollection/",
+            params,
+            method="POST",
+            data={"count": count, "cursor": max_cursor},
+            request_headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": "https://www.douyin.com/user/self?showTab=favorite_collection",
+            },
+        )
+        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def get_user_collects(
         self, sec_uid: str, max_cursor: int = 0, count: int = 10

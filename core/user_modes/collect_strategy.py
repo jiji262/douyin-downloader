@@ -76,13 +76,12 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
         return expanded
 
     async def _collect_all_folders(self, sec_uid: str) -> List[Dict[str, Any]]:
-        """Original behaviour: enumerate every folder on the account and
-        paginate each one. Kept as a separate method so the filter branch
-        in :meth:`collect_items` doesn't accidentally invoke
-        :meth:`api_client.get_user_collects`.
-        """
+        """Collect the account-level feed plus every custom folder."""
         fetch_collect_aweme = getattr(self.downloader.api_client, "get_collect_aweme", None)
         fetch_collects = getattr(self.downloader.api_client, self.api_method_name, None)
+        fetch_account_collection = getattr(
+            self.downloader.api_client, "get_user_collection", None
+        )
         if not callable(fetch_collects):
             logger.warning("API client missing %s", self.api_method_name)
             return []
@@ -90,10 +89,27 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
             logger.warning("API client missing get_collect_aweme")
             return []
 
-        raw_collects = await self._collect_paged_entries(fetch_collects, sec_uid)
         expanded: List[Dict[str, Any]] = []
         seen_aweme: set[str] = set()
 
+        # The default/account-level collection is a separate endpoint from
+        # custom folders. Older API doubles may not implement it, so keep the
+        # custom-folder path backward-compatible while real clients include it.
+        if callable(fetch_account_collection):
+            account_items = await self._collect_paged_entries(
+                fetch_account_collection, "self"
+            )
+            for item in account_items:
+                aweme = self._extract_aweme_from_item(item)
+                if not aweme:
+                    continue
+                aweme_id = str(aweme.get("aweme_id") or "")
+                if not aweme_id or aweme_id in seen_aweme:
+                    continue
+                seen_aweme.add(aweme_id)
+                expanded.append(aweme)
+
+        raw_collects = await self._collect_paged_entries(fetch_collects, sec_uid)
         for collect_item in raw_collects:
             collects_id = self._extract_collects_id(collect_item)
             if not collects_id:

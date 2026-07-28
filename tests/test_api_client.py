@@ -35,6 +35,8 @@ def test_build_signed_path_accepts_absolute_base_override():
 
 
 def test_build_signed_path_prefers_abogus(monkeypatch):
+    captured = {}
+
     class _FakeFp:
         @staticmethod
         def generate_fingerprint(_browser):
@@ -46,6 +48,7 @@ def test_build_signed_path_prefers_abogus(monkeypatch):
             self.user_agent = user_agent
 
         def generate_abogus(self, params, body=""):
+            captured.update(params=params, body=body)
             return (f"{params}&a_bogus=fake_ab", "fake_ab", self.user_agent, body)
 
     import core.api_client as api_module
@@ -56,8 +59,11 @@ def test_build_signed_path_prefers_abogus(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
     client._abogus_enabled = True
 
-    signed_url, _ua = client.build_signed_path("/aweme/v1/web/aweme/detail/", {"a": 1})
+    signed_url, _ua = client.build_signed_path(
+        "/aweme/v1/web/aweme/detail/", {"a": 1}, request_data={"cursor": 3, "count": 20}
+    )
     assert "a_bogus=fake_ab" in signed_url
+    assert captured["body"] == "cursor=3&count=20"
 
 
 def test_browser_fallback_caps_warmup_wait(monkeypatch):
@@ -509,8 +515,15 @@ async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatc
     client = DouyinAPIClient({"msToken": "token-1"})
     called_requests = []
 
-    async def _fake_request_json(path, params, suppress_error=False):
-        called_requests.append((path, dict(params)))
+    async def _fake_request_json(path, params, suppress_error=False, **kwargs):
+        called_requests.append((path, dict(params), kwargs))
+        if path == "/aweme/v1/web/aweme/listcollection/":
+            return {
+                "status_code": 0,
+                "aweme_list": [{"aweme_id": "account-aweme-1"}],
+                "has_more": 1,
+                "cursor": 7,
+            }
         if path == "/aweme/v1/web/collects/list/":
             return {
                 "status_code": 0,
@@ -536,20 +549,39 @@ async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatc
 
     monkeypatch.setattr(client, "_request_json", _fake_request_json)
 
+    account_collection_data = await client.get_user_collection(
+        "self", max_cursor=3, count=20
+    )
     collects_data = await client.get_user_collects("self", max_cursor=0, count=10)
     collect_aweme_data = await client.get_collect_aweme("collect-1", max_cursor=0, count=10)
     collect_mix_data = await client.get_user_collect_mix("self", max_cursor=0, count=12)
 
-    assert [path for path, _params in called_requests] == [
+    assert [path for path, _params, _kwargs in called_requests] == [
+        "/aweme/v1/web/aweme/listcollection/",
         "/aweme/v1/web/collects/list/",
         "/aweme/v1/web/collects/video/list/",
         "/aweme/v1/web/mix/listcollection/",
     ]
-    assert called_requests[0][1]["count"] == 10
-    assert called_requests[0][1]["version_code"] == "170400"
-    assert called_requests[1][1]["collects_id"] == "collect-1"
+    account_path, account_params, account_kwargs = called_requests[0]
+    assert account_path == "/aweme/v1/web/aweme/listcollection/"
+    assert account_params["publish_video_strategy_type"] == "2"
+    assert account_params["version_code"] == "170400"
+    assert account_kwargs["method"] == "POST"
+    assert account_kwargs["data"] == {"count": 20, "cursor": 3}
+    assert account_kwargs["request_headers"]["Content-Type"] == (
+        "application/x-www-form-urlencoded"
+    )
+    assert account_kwargs["request_headers"]["Referer"].endswith(
+        "showTab=favorite_collection"
+    )
     assert called_requests[1][1]["count"] == 10
-    assert called_requests[2][1]["count"] == 12
+    assert called_requests[1][1]["version_code"] == "170400"
+    assert called_requests[2][1]["collects_id"] == "collect-1"
+    assert called_requests[2][1]["count"] == 10
+    assert called_requests[3][1]["count"] == 12
+    assert account_collection_data["items"] == [{"aweme_id": "account-aweme-1"}]
+    assert account_collection_data["has_more"] is True
+    assert account_collection_data["max_cursor"] == 7
     assert collects_data["items"] == [{"collects_id_str": "collect-1"}]
     assert collects_data["has_more"] is True
     assert collects_data["max_cursor"] == 9
