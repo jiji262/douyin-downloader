@@ -55,6 +55,27 @@ def test_get_save_path_author_dir_nickname_default(tmp_path):
     assert "MS4wLjABAAAA_abc" not in str(path)
 
 
+def test_get_author_dir_matches_save_path_author_root(tmp_path):
+    fm = FileManager(str(tmp_path))
+    author_dir = fm.get_author_dir(
+        "测试作者",
+        author_sec_uid="sec_uid_x",
+        author_dir_style="nickname_uid",
+    )
+    save_path = fm.get_save_path(
+        "测试作者",
+        mode="post",
+        aweme_title="T",
+        aweme_id="1",
+        author_sec_uid="sec_uid_x",
+        author_dir_style="nickname_uid",
+    )
+
+    assert author_dir == tmp_path / "测试作者_sec_uid_x"
+    assert author_dir.exists()
+    assert author_dir in save_path.parents
+
+
 def test_get_save_path_author_dir_sec_uid(tmp_path):
     """``sec_uid`` style puts the sec_uid at the author level."""
     fm = FileManager(str(tmp_path))

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import random
 import re
+import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -25,6 +28,8 @@ except Exception:  # pragma: no cover - optional dependency
 logger = setup_logger("APIClient")
 
 _LOGIN_REQUIRED_STATUS_CODES = {2483}
+_HOMEPAGE_SCREENSHOT_BRIDGE_ENV = "DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE"
+_HOMEPAGE_SCREENSHOT_MESSAGE_PREFIX = "DOUYIN_HOMEPAGE_SCREENSHOT_REQUEST "
 
 
 class LoginRequiredError(Exception):
@@ -1202,6 +1207,108 @@ class DouyinAPIClient:
         except Exception as e:
             logger.error("Failed to resolve short URL: %s, error: %s", safe_log_url(short_url), e)
             return None
+
+    async def save_user_homepage_screenshot(
+        self,
+        sec_uid: str,
+        save_path: Path,
+        *,
+        viewport_width: int = 1600,
+        viewport_height: int = 900,
+        timeout_seconds: int = 30,
+    ) -> bool:
+        """Save one creator-homepage viewport without affecting downloads."""
+        if os.environ.get(_HOMEPAGE_SCREENSHOT_BRIDGE_ENV) == "electron":
+            return self._emit_homepage_screenshot_request(sec_uid, save_path)
+
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:
+            logger.warning("Playwright not available, homepage screenshot skipped: %s", exc)
+            return False
+
+        target = Path(save_path)
+        tmp_path = target.with_name(f".{target.name}.tmp")
+        target_url = f"{self.BASE_URL}/user/{sec_uid}"
+        timeout_ms = max(5, int(timeout_seconds)) * 1000
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            async with async_playwright() as playwright:
+                launch_options: Dict[str, Any] = {
+                    "headless": True,
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                    ],
+                }
+                proxy = str(self.proxy or "").strip()
+                if proxy:
+                    if proxy.startswith("socks5h://"):
+                        proxy = "socks5://" + proxy[len("socks5h://") :]
+                    launch_options["proxy"] = {"server": proxy}
+
+                browser = await playwright.chromium.launch(**launch_options)
+                try:
+                    context = await browser.new_context(
+                        user_agent=self.headers.get("User-Agent", ""),
+                        locale="zh-CN",
+                        viewport={"width": viewport_width, "height": viewport_height},
+                    )
+                    try:
+                        cookies = self._browser_cookie_payload()
+                        if cookies:
+                            await context.add_cookies(cookies)
+                        page = await context.new_page()
+                        await page.goto(
+                            target_url,
+                            wait_until="domcontentloaded",
+                            timeout=timeout_ms,
+                        )
+                        title = await page.title()
+                        if "验证码" in title:
+                            logger.warning(
+                                "Homepage screenshot skipped because verification is required"
+                            )
+                            return False
+                        await page.wait_for_timeout(1500)
+                        await page.screenshot(path=str(tmp_path), type="png", full_page=False)
+                        await asyncio.to_thread(os.replace, tmp_path, target)
+                    finally:
+                        await context.close()
+                finally:
+                    await browser.close()
+        except Exception as exc:
+            logger.warning(
+                "Failed to save homepage screenshot for %s: %s",
+                sec_uid,
+                _safe_error_text(exc),
+            )
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
+
+        logger.info("Homepage screenshot saved: %s", target)
+        return True
+
+    @staticmethod
+    def _emit_homepage_screenshot_request(sec_uid: str, save_path: Path) -> bool:
+        try:
+            payload = json.dumps(
+                {"version": 1, "sec_uid": str(sec_uid), "save_path": str(save_path)},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+            sys.stdout.write(f"{_HOMEPAGE_SCREENSHOT_MESSAGE_PREFIX}{encoded}\n")
+            sys.stdout.flush()
+            return True
+        except Exception as exc:
+            logger.warning("Failed to request Electron homepage screenshot: %s", exc)
+            return False
 
     async def collect_user_post_ids_via_browser(
         self,

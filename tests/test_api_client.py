@@ -1,7 +1,9 @@
 import asyncio
+import base64
 import json
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -64,6 +66,94 @@ def test_build_signed_path_prefers_abogus(monkeypatch):
     )
     assert "a_bogus=fake_ab" in signed_url
     assert captured["body"] == "cursor=3&count=20"
+
+
+def test_homepage_screenshot_bridge_emits_encoded_request(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE", "electron")
+    client = DouyinAPIClient({"msToken": "token-1"})
+    target = (tmp_path / "作者" / "主页截图.png").resolve()
+
+    saved = asyncio.run(client.save_user_homepage_screenshot("sec_uid_x", target))
+
+    assert saved is True
+    line = capsys.readouterr().out.strip()
+    prefix = "DOUYIN_HOMEPAGE_SCREENSHOT_REQUEST "
+    assert line.startswith(prefix)
+    encoded = line[len(prefix) :]
+    encoded += "=" * (-len(encoded) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+    assert payload == {"version": 1, "sec_uid": "sec_uid_x", "save_path": str(target)}
+
+
+def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch):
+    captured = {}
+
+    class _FakePage:
+        async def goto(self, url, **kwargs):
+            captured["url"] = url
+            captured["goto"] = kwargs
+
+        async def title(self):
+            return "作者主页"
+
+        async def wait_for_timeout(self, timeout_ms):
+            captured["wait_ms"] = timeout_ms
+
+        async def screenshot(self, **kwargs):
+            captured["screenshot"] = kwargs
+            Path(kwargs["path"]).write_bytes(b"png")
+
+    class _FakeContext:
+        async def add_cookies(self, cookies):
+            captured["cookies"] = cookies
+
+        async def new_page(self):
+            return _FakePage()
+
+        async def close(self):
+            captured["context_closed"] = True
+
+    class _FakeBrowser:
+        async def new_context(self, **kwargs):
+            captured["context"] = kwargs
+            return _FakeContext()
+
+        async def close(self):
+            captured["browser_closed"] = True
+
+    class _FakeChromium:
+        async def launch(self, **kwargs):
+            captured["launch"] = kwargs
+            return _FakeBrowser()
+
+    class _FakePlaywright:
+        chromium = _FakeChromium()
+
+    class _FakeManager:
+        async def __aenter__(self):
+            return _FakePlaywright()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    fake_playwright_pkg = types.ModuleType("playwright")
+    fake_async_api = types.ModuleType("playwright.async_api")
+    fake_async_api.async_playwright = lambda: _FakeManager()
+    monkeypatch.setitem(sys.modules, "playwright", fake_playwright_pkg)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", fake_async_api)
+    monkeypatch.delenv("DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE", raising=False)
+
+    client = DouyinAPIClient({"msToken": "token-1", "sessionid_ss": "cookie"})
+    target = tmp_path / "主页截图.png"
+    saved = asyncio.run(client.save_user_homepage_screenshot("sec_uid_x", target))
+
+    assert saved is True
+    assert target.read_bytes() == b"png"
+    assert captured["context"]["viewport"] == {"width": 1600, "height": 900}
+    assert captured["screenshot"]["full_page"] is False
+    assert captured["screenshot"]["type"] == "png"
+    assert captured["context_closed"] is True
+    assert captured["browser_closed"] is True
 
 
 def test_browser_fallback_caps_warmup_wait(monkeypatch):
@@ -549,9 +639,7 @@ async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatc
 
     monkeypatch.setattr(client, "_request_json", _fake_request_json)
 
-    account_collection_data = await client.get_user_collection(
-        "self", max_cursor=3, count=20
-    )
+    account_collection_data = await client.get_user_collection("self", max_cursor=3, count=20)
     collects_data = await client.get_user_collects("self", max_cursor=0, count=10)
     collect_aweme_data = await client.get_collect_aweme("collect-1", max_cursor=0, count=10)
     collect_mix_data = await client.get_user_collect_mix("self", max_cursor=0, count=12)
@@ -571,9 +659,7 @@ async def test_collect_endpoints_use_expected_paths_and_normalization(monkeypatc
     assert account_kwargs["request_headers"]["Content-Type"] == (
         "application/x-www-form-urlencoded"
     )
-    assert account_kwargs["request_headers"]["Referer"].endswith(
-        "showTab=favorite_collection"
-    )
+    assert account_kwargs["request_headers"]["Referer"].endswith("showTab=favorite_collection")
     assert called_requests[1][1]["count"] == 10
     assert called_requests[1][1]["version_code"] == "170400"
     assert called_requests[2][1]["collects_id"] == "collect-1"

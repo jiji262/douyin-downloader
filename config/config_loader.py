@@ -165,6 +165,7 @@ class ConfigLoader:
         "avatar",
         "json",
         "download_pinned",
+        "homepage_screenshot",
         "proxy",
         "retry_times",
         "folderstyle",
