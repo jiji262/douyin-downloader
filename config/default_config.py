@@ -24,6 +24,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     #   False - 不分模式层，文件直接落在作者目录下（复刻 legacy 布局，无 POST 文件夹）
     "group_by_mode": True,
     "download_pinned": False,
+    # 下载博主作品时，是否在作者根目录覆盖保存一张主页首屏截图。
+    "homepage_screenshot": False,
     "mode": ["post"],
     "number": {
         "post": 0,

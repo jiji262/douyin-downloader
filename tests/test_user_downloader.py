@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Dict, List
 
 from control.queue_manager import QueueManager
+from core.downloader_base import DownloadResult
 from core.user_downloader import UserDownloader
 from storage.file_manager import FileManager
 
@@ -60,6 +61,14 @@ class _FakeAPIClient:
         self.browser_call_kwargs: List[Dict[str, Any]] = []
         self.browser_post_items: Dict[str, Dict[str, Any]] = {}
         self.browser_post_stats: Dict[str, int] = {}
+        self.homepage_screenshot_calls: List[tuple[str, Any]] = []
+
+    async def get_user_info(self, sec_uid: str):
+        return {"uid": "uid-1", "sec_uid": sec_uid, "nickname": "tester"}
+
+    async def save_user_homepage_screenshot(self, sec_uid: str, save_path):
+        self.homepage_screenshot_calls.append((sec_uid, save_path))
+        return True
 
     async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, _count: int = 20):
         self.user_post_calls.append(max_cursor)
@@ -100,12 +109,16 @@ def _build_downloader(
     browser_enabled: bool,
     progress_reporter=None,
     number_post: int = 0,
+    homepage_screenshot: bool = False,
+    author_dir: str = "nickname",
 ) -> UserDownloader:
     config_data = {
         "number": {"post": number_post},
         "increase": {"post": False},
         "mode": ["post"],
         "thread": 2,
+        "homepage_screenshot": homepage_screenshot,
+        "author_dir": author_dir,
         "browser_fallback": {
             "enabled": browser_enabled,
             "headless": True,
@@ -322,3 +335,94 @@ def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):
     assert statuses.count("success") == 1
     assert statuses.count("skipped") == 1
     assert statuses.count("failed") == 1
+
+
+def test_homepage_screenshot_disabled_does_not_call_api(tmp_path, monkeypatch):
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(tmp_path, api_client, browser_enabled=False)
+
+    async def _mode_result(*_args, **_kwargs):
+        result = DownloadResult()
+        result.total = 1
+        result.success = 1
+        return result
+
+    monkeypatch.setattr(downloader, "_download_mode_logged", _mode_result)
+
+    result = asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
+
+    assert result.success == 1
+    assert api_client.homepage_screenshot_calls == []
+
+
+def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        homepage_screenshot=True,
+        author_dir="nickname_uid",
+    )
+
+    async def _mode_result(*_args, **_kwargs):
+        return DownloadResult()
+
+    monkeypatch.setattr(downloader, "_download_mode_logged", _mode_result)
+
+    asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
+
+    assert len(api_client.homepage_screenshot_calls) == 1
+    screenshot_sec_uid, screenshot_path = api_client.homepage_screenshot_calls[0]
+    assert screenshot_sec_uid == "sec_uid_x"
+    assert screenshot_path == (
+        tmp_path / "Downloaded" / "tester_sec_uid_x" / "主页截图.png"
+    ).resolve()
+
+
+def test_homepage_screenshot_failure_does_not_fail_download(tmp_path, monkeypatch):
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        homepage_screenshot=True,
+    )
+
+    async def _screenshot_failure(*_args, **_kwargs):
+        raise RuntimeError("browser unavailable")
+
+    async def _mode_result(*_args, **_kwargs):
+        result = DownloadResult()
+        result.total = 2
+        result.success = 2
+        return result
+
+    monkeypatch.setattr(api_client, "save_user_homepage_screenshot", _screenshot_failure)
+    monkeypatch.setattr(downloader, "_download_mode_logged", _mode_result)
+
+    result = asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
+
+    assert result.total == 2
+    assert result.success == 2
+    assert result.failed == 0
+
+
+def test_homepage_screenshot_skips_collect_context(tmp_path):
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        homepage_screenshot=True,
+    )
+
+    asyncio.run(
+        downloader._save_homepage_screenshot(
+            "sec_uid_x",
+            {"sec_uid": "sec_uid_x", "nickname": "tester"},
+            ["collect"],
+        )
+    )
+
+    assert api_client.homepage_screenshot_calls == []

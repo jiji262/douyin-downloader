@@ -48,6 +48,23 @@ class FileManager:
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
+    def get_author_dir(
+        self,
+        author_name: str,
+        *,
+        author_sec_uid: Optional[str] = None,
+        author_dir_style: str = "nickname",
+    ) -> Path:
+        """Return (and create) the configured author-level directory."""
+        safe_author = self._compose_author_dir(
+            author_name,
+            author_sec_uid,
+            author_dir_style,
+        )
+        author_dir = self.base_path / safe_author
+        author_dir.mkdir(parents=True, exist_ok=True)
+        return author_dir
+
     def get_save_path(
         self,
         author_name: str,
@@ -88,12 +105,16 @@ class FileManager:
         (``base/<author>/mix/<collection>/<leaf>``). It is sanitized here;
         empty / whitespace-only values insert nothing (legacy layout).
         """
-        safe_author = self._compose_author_dir(author_name, author_sec_uid, author_dir_style)
+        author_dir = self.get_author_dir(
+            author_name,
+            author_sec_uid=author_sec_uid,
+            author_dir_style=author_dir_style,
+        )
 
         if mode and group_by_mode:
-            save_dir = self.base_path / safe_author / mode
+            save_dir = author_dir / mode
         else:
-            save_dir = self.base_path / safe_author
+            save_dir = author_dir
 
         # Only insert a collection layer for a genuinely non-empty name;
         # a blank/whitespace value must reproduce the legacy layout rather

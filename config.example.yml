@@ -30,6 +30,9 @@ author_dir: "nickname"
 # 默认不下载作者主页置顶作品；如需包含置顶，改为 true
 download_pinned: false
 
+# 下载博主作品时，在作者根目录覆盖保存一张主页首屏截图
+homepage_screenshot: false
+
 mode:
   - post
 

@@ -57,6 +57,7 @@ class UserDownloader(BaseDownloader):
             nickname=user_info.get("nickname"),
             sec_uid=user_info.get("sec_uid") or sec_uid,
         )
+        await self._save_homepage_screenshot(sec_uid, user_info, modes)
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
         seen_aweme_ids: Set[str] = set()
@@ -74,6 +75,40 @@ class UserDownloader(BaseDownloader):
             result.skipped,
         )
         return result
+
+    async def _save_homepage_screenshot(
+        self,
+        sec_uid: str,
+        user_info: Dict[str, Any],
+        modes: List[str],
+    ) -> None:
+        if not self._as_bool(self.config.get("homepage_screenshot", False)):
+            return
+
+        normalized_modes = {str(mode or "").strip() for mode in modes}
+        if sec_uid == "self" or normalized_modes.issubset(self.SELF_COLLECT_MODES):
+            return
+
+        effective_sec_uid = str(user_info.get("sec_uid") or sec_uid).strip()
+        if not effective_sec_uid or effective_sec_uid == "self":
+            logger.warning("Homepage screenshot skipped because sec_uid is unavailable")
+            return
+
+        author_name = str(user_info.get("nickname") or "unknown")
+        try:
+            author_dir = self.file_manager.get_author_dir(
+                author_name,
+                author_sec_uid=effective_sec_uid,
+                author_dir_style=self.config.get("author_dir") or "nickname",
+            )
+            saved = await self.api_client.save_user_homepage_screenshot(
+                effective_sec_uid,
+                (author_dir / "主页截图.png").resolve(),
+            )
+            if not saved:
+                logger.warning("Homepage screenshot was not saved for %s", effective_sec_uid)
+        except Exception as exc:
+            logger.warning("Homepage screenshot failed for %s: %s", effective_sec_uid, exc)
 
     def _configured_modes(self) -> List[str]:
         modes_config = self.config.get("mode", ["post"])
