@@ -96,6 +96,9 @@ def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch)
         async def title(self):
             return "作者主页"
 
+        async def wait_for_function(self, expression, **kwargs):
+            captured["wait_for_function"] = {"expression": expression, **kwargs}
+
         async def wait_for_timeout(self, timeout_ms):
             captured["wait_ms"] = timeout_ms
 
@@ -150,6 +153,10 @@ def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch)
     assert saved is True
     assert target.read_bytes() == b"png"
     assert captured["context"]["viewport"] == {"width": 1600, "height": 900}
+    assert "粉丝" in captured["wait_for_function"]["expression"]
+    assert captured["wait_for_function"]["polling"] == 250
+    assert captured["wait_for_function"]["timeout"] == 20_000
+    assert captured["wait_ms"] == 750
     assert captured["screenshot"]["full_page"] is False
     assert captured["screenshot"]["type"] == "png"
     assert captured["context_closed"] is True
