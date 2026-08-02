@@ -11,7 +11,7 @@ from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
-from core.metadata import extract_author_sec_uid
+from core.metadata import extract_author_sec_uid, extract_video_cover_urls
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
 from storage.database import order_cover_mirrors
@@ -234,6 +234,12 @@ class BaseDownloader(ABC):
                 if not path.is_file():
                     continue
                 if path.suffix.lower() not in self._local_media_suffixes:
+                    continue
+                # Optional sidecars include the aweme id in their filename but
+                # do not mean the primary video/gallery asset exists. Ignoring
+                # them lets a later run with ``video: true`` fetch the actual
+                # video after an earlier cover-only archive.
+                if path.stem.lower().endswith(("_cover", "_avatar", "_music")):
                     continue
                 try:
                     if path.stat().st_size <= 0:
@@ -475,31 +481,37 @@ class BaseDownloader(ABC):
 
         session = await self.api_client.get_session()
         video_path: Optional[Path] = None
-        # 可选资产（封面/音乐/头像）相互独立且不影响主媒体成败：先登记
-        # (保存路径, 未 await 的协程)，主媒体成功后统一并行下载，避免
-        # 串行等待每个附件（尤其是慢镜像）时占住全局下载并发槽。
+        primary_media_downloaded = False
+        # 可选资产（封面/音乐/头像）相互独立且不影响主媒体成败：统一登记
+        # (保存路径, 未 await 的协程) 后并行下载，避免串行等待每个附件
+        # （尤其是慢镜像）时占住全局下载并发槽。视频关闭时这些附件仍可
+        # 独立保存，因此封面归档不再强制要求先下载 mp4。
         optional_assets: List[Tuple[Path, Any]] = []
 
         if media_type == "video":
-            video_candidates = self._build_video_url_candidates(aweme_data)
-            if not video_candidates:
-                logger.error("No playable video URL found for aweme %s", aweme_id)
-                return False
+            if self.config.get("video", True):
+                video_candidates = self._build_video_url_candidates(aweme_data)
+                if not video_candidates:
+                    logger.error("No playable video URL found for aweme %s", aweme_id)
+                    return False
 
-            video_path = save_dir / f"{file_stem}.mp4"
-            if not await self._download_video_with_fallback(video_candidates, video_path, session):
-                return False
-            downloaded_files.append(video_path)
+                video_path = save_dir / f"{file_stem}.mp4"
+                if not await self._download_video_with_fallback(
+                    video_candidates, video_path, session
+                ):
+                    return False
+                downloaded_files.append(video_path)
+                primary_media_downloaded = True
 
             if self.config.get("cover"):
-                cover_source = aweme_data.get("video", {}).get("cover")
-                if self._extract_urls(cover_source):
+                cover_urls = extract_video_cover_urls(aweme_data)
+                if cover_urls:
                     cover_path = save_dir / f"{file_stem}_cover.jpg"
                     optional_assets.append(
                         (
                             cover_path,
                             self._download_first_available(
-                                cover_source,
+                                cover_urls,
                                 cover_path,
                                 session,
                                 headers=self._download_headers(),
@@ -587,6 +599,7 @@ class BaseDownloader(ABC):
                     logger.error(f"Failed downloading live image {index} for aweme {aweme_id}")
                     return False
                 downloaded_files.append(live_path)
+            primary_media_downloaded = True
         else:
             logger.error("Unsupported media type for aweme %s: %s", aweme_id, media_type)
             return False
@@ -629,13 +642,19 @@ class BaseDownloader(ABC):
             if await self._save_comments(str(aweme_id), comments_path, comments_cfg):
                 downloaded_files.append(comments_path)
 
+        if not downloaded_files:
+            logger.error(
+                "No assets were downloaded for aweme %s; enable video or another asset option",
+                aweme_id,
+            )
+            return False
+
         author = aweme_data.get("author", {})
         if self.database:
             metadata_json = json.dumps(aweme_data, ensure_ascii=False)
-            cover = (aweme_data.get("video") or {}).get("cover") or {}
-            cover_list = cover.get("url_list")
+            cover_list = extract_video_cover_urls(aweme_data)
             if not cover_list:
-                # Image posts carry no video.cover — fall back to the first
+                # Image posts carry no video cover — fall back to the first
                 # image's mirrors (same rule as the my-content projection).
                 images = aweme_data.get("images")
                 first_image = images[0] if isinstance(images, list) and images else None
@@ -701,8 +720,9 @@ class BaseDownloader(ABC):
                     transcript_result.get("error", "unknown"),
                 )
 
-        self._mark_local_aweme_downloaded(aweme_id)
-        logger.info("Downloaded %s: %s (%s)", media_type, desc, aweme_id)
+        if primary_media_downloaded:
+            self._mark_local_aweme_downloaded(aweme_id)
+        logger.info("Downloaded selected assets for %s: %s (%s)", media_type, desc, aweme_id)
         return True
 
     async def _download_with_retry(

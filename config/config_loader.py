@@ -160,6 +160,7 @@ class ConfigLoader:
         "path",
         "thread",
         "rate_limit",
+        "video",
         "cover",
         "music",
         "avatar",

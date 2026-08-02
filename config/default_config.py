@@ -2,6 +2,7 @@ from typing import Any, Dict
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "path": "./Downloaded/",
+    "video": True,
     "music": True,
     "cover": True,
     "avatar": True,
