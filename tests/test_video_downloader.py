@@ -681,9 +681,7 @@ async def test_video_false_skips_mp4_but_keeps_selected_sidecars(tmp_path, monke
         saved_paths.append(save_path)
         return True
 
-    downloader._download_with_retry = _fake_download_with_retry.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
 
     aweme_data = {
         "aweme_id": "7600224486650121600",
@@ -736,9 +734,7 @@ async def test_video_download_remains_enabled_when_config_key_is_omitted(tmp_pat
         attempted.append(url)
         return True
 
-    downloader._download_with_retry = _fake_download_with_retry.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
 
     success = await downloader._download_aweme_assets(
         {
@@ -779,9 +775,7 @@ async def test_video_false_does_not_disable_gallery_images(tmp_path, monkeypatch
         attempted.append(url)
         return True
 
-    downloader._download_with_retry = _fake_download_with_retry.__get__(
-        downloader, VideoDownloader
-    )
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
 
     success = await downloader._download_aweme_assets(
         {

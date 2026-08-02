@@ -375,9 +375,9 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     assert len(api_client.homepage_screenshot_calls) == 1
     screenshot_sec_uid, screenshot_path = api_client.homepage_screenshot_calls[0]
     assert screenshot_sec_uid == "sec_uid_x"
-    assert screenshot_path == (
-        tmp_path / "Downloaded" / "tester_sec_uid_x" / "主页截图.png"
-    ).resolve()
+    assert (
+        screenshot_path == (tmp_path / "Downloaded" / "tester_sec_uid_x" / "主页截图.png").resolve()
+    )
 
 
 def test_homepage_screenshot_failure_does_not_fail_download(tmp_path, monkeypatch):
