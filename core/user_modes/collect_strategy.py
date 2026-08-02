@@ -79,9 +79,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
         """Collect the account-level feed plus every custom folder."""
         fetch_collect_aweme = getattr(self.downloader.api_client, "get_collect_aweme", None)
         fetch_collects = getattr(self.downloader.api_client, self.api_method_name, None)
-        fetch_account_collection = getattr(
-            self.downloader.api_client, "get_user_collection", None
-        )
+        fetch_account_collection = getattr(self.downloader.api_client, "get_user_collection", None)
         if not callable(fetch_collects):
             logger.warning("API client missing %s", self.api_method_name)
             return []
@@ -96,9 +94,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
         # custom folders. Older API doubles may not implement it, so keep the
         # custom-folder path backward-compatible while real clients include it.
         if callable(fetch_account_collection):
-            account_items = await self._collect_paged_entries(
-                fetch_account_collection, "self"
-            )
+            account_items = await self._collect_paged_entries(fetch_account_collection, "self")
             for item in account_items:
                 aweme = self._extract_aweme_from_item(item)
                 if not aweme:
