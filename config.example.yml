@@ -3,6 +3,8 @@ link:
 
 path: ./Downloaded/
 
+# 是否下载视频文件；关闭后仍可按下方开关保存原始封面、音乐、头像或 JSON。
+video: true
 music: true
 cover: true
 avatar: true

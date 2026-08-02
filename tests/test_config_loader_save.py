@@ -45,13 +45,29 @@ def test_save_roundtrips_across_new_loader(tmp_path):
     config_path = tmp_path / "config.yml"
 
     first = ConfigLoader(str(config_path))
-    first.update(path=str(tmp_path / "downloads"), thread=7, video_quality="1080p")
+    first.update(
+        path=str(tmp_path / "downloads"),
+        thread=7,
+        video=False,
+        video_quality="1080p",
+    )
     first.save()
 
     second = ConfigLoader(str(config_path))
     assert second.get("thread") == 7
     assert second.get("path") == str(tmp_path / "downloads")
+    assert second.get("video") is False
     assert second.get("video_quality") == "1080p"
+
+
+def test_legacy_config_without_video_key_defaults_to_enabled(tmp_path):
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("cover: false\n", encoding="utf-8")
+
+    loader = ConfigLoader(str(config_path))
+
+    assert loader.get("video") is True
+    assert loader.get("cover") is False
 
 
 def test_save_preserves_unrelated_user_keys(tmp_path):

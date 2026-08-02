@@ -9,6 +9,7 @@ from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
+from core.metadata import extract_video_cover_urls
 from core.video_downloader import VideoDownloader
 from storage import FileManager
 
@@ -49,6 +50,28 @@ def _build_downloader(tmp_path):
     )
 
     return downloader, api_client
+
+
+def test_extract_video_cover_urls_prefers_original_cover():
+    aweme = {
+        "video": {
+            "origin_cover": {"url_list": ["https://example.com/original.jpg"]},
+            "cover": {"url_list": ["https://example.com/preview.jpg"]},
+        }
+    }
+
+    assert extract_video_cover_urls(aweme) == ["https://example.com/original.jpg"]
+
+
+def test_extract_video_cover_urls_falls_back_to_preview_cover():
+    aweme = {
+        "video": {
+            "origin_cover": {"url_list": []},
+            "cover": {"url_list": ["https://example.com/preview.jpg"]},
+        }
+    }
+
+    assert extract_video_cover_urls(aweme) == ["https://example.com/preview.jpg"]
 
 
 @pytest.mark.asyncio
@@ -468,6 +491,20 @@ async def test_should_download_skips_when_aweme_exists_locally(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_should_download_does_not_treat_cover_as_primary_media(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+    aweme_id = "7600223638943468864"
+
+    cover_file = tmp_path / f"2026-02-18_demo_{aweme_id}_cover.jpg"
+    cover_file.write_bytes(b"1")
+
+    should_download = await downloader._should_download(aweme_id)
+    assert should_download is True
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_download_aweme_assets_uses_publish_date_and_writes_manifest(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
     downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
@@ -614,6 +651,151 @@ async def test_download_aweme_assets_video_writes_cover_avatar_and_json(tmp_path
     assert any(path.name.endswith("_avatar.jpg") for path in saved_paths)
     metadata_files = list(tmp_path.rglob("*_data.json"))
     assert len(metadata_files) == 1
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_false_skips_mp4_but_keeps_selected_sidecars(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        video=False,
+        music=True,
+        cover=True,
+        avatar=False,
+        json=True,
+        folderstyle=True,
+        transcript={"enabled": False},
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    attempted = []
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, url, save_path, _session, **_kwargs):
+        attempted.append(url)
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    aweme_data = {
+        "aweme_id": "7600224486650121600",
+        "desc": "仅归档附加资源",
+        "author": {"nickname": "测试作者"},
+        "music": {"play_url": {"url_list": ["https://example.com/music.mp3"]}},
+        "video": {
+            "play_addr": {"url_list": ["https://example.com/video.mp4"]},
+            "origin_cover": {"url_list": ["https://example.com/original.jpg"]},
+            "cover": {"url_list": ["https://example.com/preview.jpg"]},
+        },
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    assert "https://example.com/video.mp4" not in attempted
+    assert "https://example.com/original.jpg" in attempted
+    assert "https://example.com/preview.jpg" not in attempted
+    assert "https://example.com/music.mp3" in attempted
+    assert not any(path.suffix == ".mp4" for path in saved_paths)
+    assert len(list(tmp_path.rglob("*_data.json"))) == 1
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_download_remains_enabled_when_config_key_is_omitted(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        music=False,
+        cover=False,
+        avatar=False,
+        json=False,
+        folderstyle=True,
+        transcript={"enabled": False},
+    )
+    downloader.config.config.pop("video", None)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    attempted = []
+
+    async def _fake_download_with_retry(self, url, _save_path, _session, **_kwargs):
+        attempted.append(url)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    success = await downloader._download_aweme_assets(
+        {
+            "aweme_id": "7600224486650121601",
+            "desc": "旧配置默认下载视频",
+            "video": {"play_addr": {"url_list": ["https://example.com/video.mp4"]}},
+        },
+        author_name="测试作者",
+        mode="post",
+    )
+
+    assert success is True
+    assert "https://example.com/video.mp4" in attempted
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_video_false_does_not_disable_gallery_images(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(
+        video=False,
+        music=False,
+        cover=False,
+        avatar=False,
+        json=False,
+        folderstyle=True,
+    )
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    attempted = []
+
+    async def _fake_download_with_retry(self, url, _save_path, _session, **_kwargs):
+        attempted.append(url)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(
+        downloader, VideoDownloader
+    )
+
+    success = await downloader._download_aweme_assets(
+        {
+            "aweme_id": "7600224486650121602",
+            "aweme_type": 68,
+            "desc": "图集不受视频开关影响",
+            "images": [{"url_list": ["https://example.com/gallery.jpg"]}],
+        },
+        author_name="测试作者",
+        mode="post",
+    )
+
+    assert success is True
+    assert attempted == ["https://example.com/gallery.jpg"]
 
     await api_client.close()
 
