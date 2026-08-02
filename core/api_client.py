@@ -30,6 +30,24 @@ logger = setup_logger("APIClient")
 _LOGIN_REQUIRED_STATUS_CODES = {2483}
 _HOMEPAGE_SCREENSHOT_BRIDGE_ENV = "DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE"
 _HOMEPAGE_SCREENSHOT_MESSAGE_PREFIX = "DOUYIN_HOMEPAGE_SCREENSHOT_REQUEST "
+_HOMEPAGE_PROFILE_READY_SCRIPT = r"""() => {
+    if (document.readyState !== "complete" || !document.body) return false;
+    const text = (document.body.innerText || "").replace(/\s+/g, "");
+    const followerIndex = text.indexOf("粉丝");
+    const start = Math.max(0, followerIndex - 24);
+    const followerText = followerIndex < 0 ? "" : text.slice(start, followerIndex + 32);
+    const hasFollowerCount = /[0-9０-９]/.test(followerText);
+    const key = "__DOUYIN_HOMEPAGE_PROFILE_READY_SINCE__";
+    if (!hasFollowerCount) {
+        delete window[key];
+        return false;
+    }
+    if (!window[key]) {
+        window[key] = Date.now();
+        return false;
+    }
+    return Date.now() - window[key] >= 500;
+}"""
 
 
 class LoginRequiredError(Exception):
@@ -1272,7 +1290,18 @@ class DouyinAPIClient:
                                 "Homepage screenshot skipped because verification is required"
                             )
                             return False
-                        await page.wait_for_timeout(1500)
+                        try:
+                            await page.wait_for_function(
+                                _HOMEPAGE_PROFILE_READY_SCRIPT,
+                                polling=250,
+                                timeout=min(timeout_ms, 20_000),
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Homepage profile data did not become ready before capture: %s",
+                                _safe_error_text(exc),
+                            )
+                        await page.wait_for_timeout(750)
                         await page.screenshot(path=str(tmp_path), type="png", full_page=False)
                         await asyncio.to_thread(os.replace, tmp_path, target)
                     finally:
