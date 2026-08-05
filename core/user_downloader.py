@@ -45,6 +45,8 @@ class UserDownloader(BaseDownloader):
         if not self._validate_mode_scope(sec_uid, modes):
             return result
 
+        sec_uid = await self._resolve_self_alias(sec_uid, modes)
+
         logger.info(
             "User download started: sec_uid=%s modes=%s number=%s increase=%s",
             sec_uid,
@@ -76,6 +78,41 @@ class UserDownloader(BaseDownloader):
         )
         return result
 
+    async def _resolve_self_alias(self, sec_uid: str, modes: List[str]) -> str:
+        """把 ``/user/self`` 里的 ``self`` 换成登录账号真实 sec_uid。
+
+        抖音网页版自己主页的地址栏形态是 ``/user/self``，``self`` 是"当前
+        登录者"的别名而不是 sec_uid：直接透传给
+        ``/aweme/v1/web/user/profile/other/?sec_user_id=self`` 会拿到
+        ``status_code=2 UserId不合法``、``user={}``，旧代码把这个空结果当成
+        "用户信息拿不到"，抛出误导性的 Cookie 失效错误。
+
+        收藏夹模式（collect/collectmix）按 cookie 身份分页，不需要真实
+        sec_uid，保持 ``self`` 原样走既有分支。
+        """
+        if sec_uid != "self":
+            return sec_uid
+
+        normalized_modes = {str(mode or "").strip() for mode in modes}
+        if normalized_modes.issubset(self.SELF_COLLECT_MODES):
+            return sec_uid
+
+        self._progress_update_step("识别账号", "解析当前登录账号主页")
+        try:
+            self_info = await self.api_client.get_self_info()
+        except Exception as exc:  # noqa: BLE001 - 任何失败都归为"解析不出账号"
+            logger.warning("Resolve /user/self failed: %s", exc)
+            self_info = None
+
+        resolved = str((self_info or {}).get("sec_uid") or "").strip()
+        if not resolved:
+            raise RuntimeError(
+                "无法识别当前登录账号，请重新登录抖音，"
+                "或改用自己主页的完整链接（形如 https://www.douyin.com/user/MS4w...）"
+            )
+        logger.info("Resolved /user/self alias: sec_uid=%s", resolved)
+        return resolved
+
     async def _save_homepage_screenshot(
         self,
         sec_uid: str,
@@ -104,6 +141,7 @@ class UserDownloader(BaseDownloader):
             saved = await self.api_client.save_user_homepage_screenshot(
                 effective_sec_uid,
                 (author_dir / "主页截图.png").resolve(),
+                profile=user_info,
             )
             if not saved:
                 logger.warning("Homepage screenshot was not saved for %s", effective_sec_uid)

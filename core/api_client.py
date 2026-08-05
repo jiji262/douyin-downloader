@@ -28,26 +28,95 @@ except Exception:  # pragma: no cover - optional dependency
 logger = setup_logger("APIClient")
 
 _LOGIN_REQUIRED_STATUS_CODES = {2483}
+
+# Douyin fronts the web API with an edge WAF that answers 403 (and 429)
+# once a caller trips a rate-based risk-control rule. Both are transient:
+# the block is served in tens of milliseconds without reaching the
+# backend, and the *same* cookies succeed again after a cooldown. A real
+# logout never looks like this — Douyin reports those as HTTP 200 with a
+# non-zero ``status_code`` (see ``_is_login_required``), so retrying a
+# 403 cannot mask an expired session.
+#
+# These reuse the ordinary retry schedule on purpose. A longer WAF-specific
+# backoff was tried and reverted: ``_request_json`` is the chokepoint for
+# every Douyin call, so stretching it to ~20s per request blew past the
+# renderer's 15s timeout on the my-content routes and turned per-item loops
+# (``user_downloader``'s detail recovery) into multi-hour stalls. Callers
+# that walk many pages degrade gracefully on an exhausted fetch instead.
+_RISK_CONTROL_HTTP_STATUSES = frozenset({403, 429})
+
 _HOMEPAGE_SCREENSHOT_BRIDGE_ENV = "DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE"
 _HOMEPAGE_SCREENSHOT_MESSAGE_PREFIX = "DOUYIN_HOMEPAGE_SCREENSHOT_REQUEST "
-_HOMEPAGE_PROFILE_READY_SCRIPT = r"""() => {
-    if (document.readyState !== "complete" || !document.body) return false;
-    const text = (document.body.innerText || "").replace(/\s+/g, "");
-    const followerIndex = text.indexOf("粉丝");
-    const start = Math.max(0, followerIndex - 24);
-    const followerText = followerIndex < 0 ? "" : text.slice(start, followerIndex + 32);
-    const hasFollowerCount = /[0-9０-９]/.test(followerText);
-    const key = "__DOUYIN_HOMEPAGE_PROFILE_READY_SINCE__";
-    if (!hasFollowerCount) {
-        delete window[key];
+_HOMEPAGE_PROFILE_READY_SCRIPT = r"""(expected) => {
+    const normalize = (value) => String(value ?? "")
+        .normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+    const readyKey = "__DOUYIN_HOMEPAGE_PROFILE_READY_STATE__";
+    const blockedKey = "__DOUYIN_HOMEPAGE_PROFILE_BLOCKED_REASON__";
+    const reset = () => {
+        delete window[readyKey];
         return false;
+    };
+    if (document.readyState !== "complete" || !document.body) return reset();
+
+    const bodyText = normalize(document.body.innerText || document.body.textContent);
+    const blocked = ["验证码", "安全验证", "验证后继续", "页面不存在", "用户不存在",
+        "账号已注销"].find((marker) => bodyText.includes(normalize(marker)));
+    if (blocked) {
+        window[blockedKey] = blocked;
+        return reset();
     }
-    if (!window[key]) {
-        window[key] = Date.now();
-        return false;
-    }
-    return Date.now() - window[key] >= 500;
+    delete window[blockedKey];
+
+    const visible = (element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden" &&
+            style.opacity !== "0" && rect.width > 0 && rect.height > 0 &&
+            rect.bottom > 0 && rect.top < Math.max(window.innerHeight || 0, 900);
+    };
+    const numberToken = "(\\d+(?:[.,]\\d+)?(?:万|亿|w|k|m)?\\+?)";
+    const groups = [["关注"], ["粉丝"], ["获赞", "点赞"]];
+    const readStats = (text, direction) => groups.map((labels) => {
+        for (const label of labels) {
+            const normalizedLabel = normalize(label);
+            const pattern = direction === "before"
+                ? new RegExp(`${numberToken}${normalizedLabel}`)
+                : new RegExp(`${normalizedLabel}${numberToken}`);
+            const match = text.match(pattern);
+            if (match?.[1]) return match[1];
+        }
+        return "";
+    });
+    const expectedNickname = normalize(expected?.nickname);
+    const candidates = Array.from(
+        document.body.querySelectorAll("main, header, section, article, div")
+    ).filter(visible).map((element) => {
+        const text = normalize(element.innerText || element.textContent);
+        if (!text || text.length > 1500) return null;
+        const before = readStats(text, "before");
+        const after = readStats(text, "after");
+        const beforeCount = before.filter(Boolean).length;
+        const afterCount = after.filter(Boolean).length;
+        const values = afterCount >= beforeCount ? after : before;
+        if (!values[1] || Math.max(beforeCount, afterCount) < 2) return null;
+        if (expectedNickname && !text.includes(expectedNickname)) return null;
+        return {element, text, values};
+    }).filter(Boolean).sort((left, right) => left.text.length - right.text.length);
+    const profile = candidates[0];
+    if (!profile) return reset();
+    const images = Array.from(profile.element.querySelectorAll("img")).filter(visible);
+    if (images.some((image) => !image.complete)) return reset();
+    if (document.fonts && document.fonts.status !== "loaded") return reset();
+
+    const signature = profile.values.join("|");
+    const previous = window[readyKey];
+    const count = previous?.signature === signature ? previous.count + 1 : 1;
+    window[readyKey] = {signature, count};
+    return count >= 3;
 }"""
+_HOMEPAGE_PROFILE_BLOCKED_SCRIPT = (
+    "() => String(window.__DOUYIN_HOMEPAGE_PROFILE_BLOCKED_REASON__ || '')"
+)
 
 
 class LoginRequiredError(Exception):
@@ -331,9 +400,11 @@ class DouyinAPIClient:
             raise ValueError(f"unsupported request method: {method}")
         delays = [1, 2, 5]
         last_exc: Optional[Exception] = None
+        risk_control_hit = False
 
         for attempt in range(max_retries):
             started = time.monotonic()
+            risk_control_hit = False
             signing_kwargs: Dict[str, Any] = {}
             if base_url:
                 signing_kwargs["base_url"] = base_url
@@ -409,7 +480,8 @@ class DouyinAPIClient:
                                 path,
                             )
                         return result
-                    if response.status < 500 and response.status != 429:
+                    risk_control_hit = response.status in _RISK_CONTROL_HTTP_STATUSES
+                    if response.status < 500 and not risk_control_hit:
                         log_fn = logger.info if suppress_error else logger.error
                         log_fn(
                             "Douyin API HTTP failure: path=%s attempt=%d/%d status=%s "
@@ -425,12 +497,13 @@ class DouyinAPIClient:
                     last_exc = RuntimeError(f"HTTP {response.status} for {path}")
                     logger.warning(
                         "Douyin API retryable HTTP failure: path=%s attempt=%d/%d status=%s "
-                        "duration_ms=%d",
+                        "duration_ms=%d risk_control=%s",
                         path,
                         attempt + 1,
                         max_retries,
                         response.status,
                         _elapsed_ms(started),
+                        risk_control_hit,
                     )
             except LoginRequiredError:
                 raise
@@ -450,11 +523,13 @@ class DouyinAPIClient:
             if attempt < max_retries - 1:
                 delay = delays[min(attempt, len(delays) - 1)]
                 logger.info(
-                    "Douyin API retry scheduled: path=%s completed_attempt=%d/%d delay_s=%d",
+                    "Douyin API retry scheduled: path=%s completed_attempt=%d/%d "
+                    "delay_s=%d risk_control=%s",
                     path,
                     attempt + 1,
                     max_retries,
                     delay,
+                    risk_control_hit,
                 )
                 await asyncio.sleep(delay)
 
@@ -1231,13 +1306,14 @@ class DouyinAPIClient:
         sec_uid: str,
         save_path: Path,
         *,
+        profile: Optional[Dict[str, Any]] = None,
         viewport_width: int = 1600,
         viewport_height: int = 900,
         timeout_seconds: int = 30,
     ) -> bool:
         """Save one creator-homepage viewport without affecting downloads."""
         if os.environ.get(_HOMEPAGE_SCREENSHOT_BRIDGE_ENV) == "electron":
-            return self._emit_homepage_screenshot_request(sec_uid, save_path)
+            return self._emit_homepage_screenshot_request(sec_uid, save_path, profile)
 
         try:
             from playwright.async_api import async_playwright
@@ -1290,9 +1366,15 @@ class DouyinAPIClient:
                                 "Homepage screenshot skipped because verification is required"
                             )
                             return False
+                        profile_expectation: Dict[str, str] = {}
+                        if isinstance(profile, dict):
+                            nickname = profile.get("nickname")
+                            if isinstance(nickname, str) and nickname.strip():
+                                profile_expectation["nickname"] = nickname.strip()[:200]
                         try:
                             await page.wait_for_function(
                                 _HOMEPAGE_PROFILE_READY_SCRIPT,
+                                arg=profile_expectation,
                                 polling=250,
                                 timeout=min(timeout_ms, 20_000),
                             )
@@ -1301,7 +1383,16 @@ class DouyinAPIClient:
                                 "Homepage profile data did not become ready before capture: %s",
                                 _safe_error_text(exc),
                             )
-                        await page.wait_for_timeout(750)
+                        try:
+                            blocked_reason = await page.evaluate(_HOMEPAGE_PROFILE_BLOCKED_SCRIPT)
+                        except Exception:
+                            blocked_reason = ""
+                        if blocked_reason:
+                            logger.warning(
+                                "Homepage screenshot skipped because the page is blocked: %s",
+                                blocked_reason,
+                            )
+                            return False
                         await page.screenshot(path=str(tmp_path), type="png", full_page=False)
                         await asyncio.to_thread(os.replace, tmp_path, target)
                     finally:
@@ -1324,10 +1415,27 @@ class DouyinAPIClient:
         return True
 
     @staticmethod
-    def _emit_homepage_screenshot_request(sec_uid: str, save_path: Path) -> bool:
+    def _emit_homepage_screenshot_request(
+        sec_uid: str,
+        save_path: Path,
+        profile: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         try:
+            safe_profile: Dict[str, Any] = {}
+            if isinstance(profile, dict):
+                nickname = profile.get("nickname")
+                if isinstance(nickname, str) and nickname.strip():
+                    safe_profile["nickname"] = nickname.strip()[:200]
+                for key in ("follower_count", "following_count", "total_favorited"):
+                    count = profile.get(key)
+                    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+                        safe_profile[key] = count
+
+            request = {"version": 1, "sec_uid": str(sec_uid), "save_path": str(save_path)}
+            if safe_profile:
+                request["profile"] = safe_profile
             payload = json.dumps(
-                {"version": 1, "sec_uid": str(sec_uid), "save_path": str(save_path)},
+                request,
                 ensure_ascii=False,
                 separators=(",", ":"),
             ).encode("utf-8")

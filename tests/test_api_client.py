@@ -73,7 +73,19 @@ def test_homepage_screenshot_bridge_emits_encoded_request(tmp_path, monkeypatch,
     client = DouyinAPIClient({"msToken": "token-1"})
     target = (tmp_path / "作者" / "主页截图.png").resolve()
 
-    saved = asyncio.run(client.save_user_homepage_screenshot("sec_uid_x", target))
+    saved = asyncio.run(
+        client.save_user_homepage_screenshot(
+            "sec_uid_x",
+            target,
+            profile={
+                "nickname": "测试作者",
+                "follower_count": 0,
+                "following_count": 12,
+                "total_favorited": 345,
+                "signature": "must-not-cross-bridge",
+            },
+        )
+    )
 
     assert saved is True
     line = capsys.readouterr().out.strip()
@@ -82,7 +94,17 @@ def test_homepage_screenshot_bridge_emits_encoded_request(tmp_path, monkeypatch,
     encoded = line[len(prefix) :]
     encoded += "=" * (-len(encoded) % 4)
     payload = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
-    assert payload == {"version": 1, "sec_uid": "sec_uid_x", "save_path": str(target)}
+    assert payload == {
+        "version": 1,
+        "sec_uid": "sec_uid_x",
+        "save_path": str(target),
+        "profile": {
+            "nickname": "测试作者",
+            "follower_count": 0,
+            "following_count": 12,
+            "total_favorited": 345,
+        },
+    }
 
 
 def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch):
@@ -99,8 +121,9 @@ def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch)
         async def wait_for_function(self, expression, **kwargs):
             captured["wait_for_function"] = {"expression": expression, **kwargs}
 
-        async def wait_for_timeout(self, timeout_ms):
-            captured["wait_ms"] = timeout_ms
+        async def evaluate(self, expression):
+            captured["evaluate"] = expression
+            return ""
 
         async def screenshot(self, **kwargs):
             captured["screenshot"] = kwargs
@@ -154,9 +177,11 @@ def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch)
     assert target.read_bytes() == b"png"
     assert captured["context"]["viewport"] == {"width": 1600, "height": 900}
     assert "粉丝" in captured["wait_for_function"]["expression"]
+    assert "count >= 3" in captured["wait_for_function"]["expression"]
+    assert captured["wait_for_function"]["arg"] == {}
     assert captured["wait_for_function"]["polling"] == 250
     assert captured["wait_for_function"]["timeout"] == 20_000
-    assert captured["wait_ms"] == 750
+    assert "PROFILE_BLOCKED_REASON" in captured["evaluate"]
     assert captured["screenshot"]["full_page"] is False
     assert captured["screenshot"]["type"] == "png"
     assert captured["context_closed"] is True

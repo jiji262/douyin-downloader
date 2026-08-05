@@ -61,13 +61,13 @@ class _FakeAPIClient:
         self.browser_call_kwargs: List[Dict[str, Any]] = []
         self.browser_post_items: Dict[str, Dict[str, Any]] = {}
         self.browser_post_stats: Dict[str, int] = {}
-        self.homepage_screenshot_calls: List[tuple[str, Any]] = []
+        self.homepage_screenshot_calls: List[tuple[str, Any, Dict[str, Any]]] = []
 
     async def get_user_info(self, sec_uid: str):
         return {"uid": "uid-1", "sec_uid": sec_uid, "nickname": "tester"}
 
-    async def save_user_homepage_screenshot(self, sec_uid: str, save_path):
-        self.homepage_screenshot_calls.append((sec_uid, save_path))
+    async def save_user_homepage_screenshot(self, sec_uid: str, save_path, *, profile=None):
+        self.homepage_screenshot_calls.append((sec_uid, save_path, profile))
         return True
 
     async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, _count: int = 20):
@@ -373,8 +373,11 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
 
     assert len(api_client.homepage_screenshot_calls) == 1
-    screenshot_sec_uid, screenshot_path = api_client.homepage_screenshot_calls[0]
+    screenshot_sec_uid, screenshot_path, screenshot_profile = api_client.homepage_screenshot_calls[
+        0
+    ]
     assert screenshot_sec_uid == "sec_uid_x"
+    assert screenshot_profile == {"uid": "uid-1", "sec_uid": "sec_uid_x", "nickname": "tester"}
     assert (
         screenshot_path == (tmp_path / "Downloaded" / "tester_sec_uid_x" / "主页截图.png").resolve()
     )
