@@ -6,6 +6,8 @@ from control.queue_manager import QueueManager
 from core.user_downloader import UserDownloader
 from storage.file_manager import FileManager
 
+_UNSET = object()
+
 
 def _make_aweme(aweme_id: str) -> Dict[str, Any]:
     return {
@@ -35,14 +37,24 @@ class _NoopRateLimiter:
 
 
 class _FakeAPIClient:
-    def __init__(self):
+    def __init__(self, self_info: Any = _UNSET):
         self.user_info_calls = []
         self.collect_calls = 0
         self.collect_mix_calls = 0
+        self.self_info_calls = 0
+        self._self_info = (
+            {"uid": "uid-1", "sec_uid": "sec_uid_real", "nickname": "tester"}
+            if self_info is _UNSET
+            else self_info
+        )
 
     async def get_user_info(self, _sec_uid: str):
         self.user_info_calls.append(_sec_uid)
         return {"uid": "uid-1", "nickname": "tester", "aweme_count": 99}
+
+    async def get_self_info(self):
+        self.self_info_calls += 1
+        return self._self_info
 
     async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, count: int = 20):
         if max_cursor > 0:
@@ -99,7 +111,7 @@ class _FakeAPIClient:
         }
 
 
-def _build_downloader(tmp_path, mode: List[str]) -> UserDownloader:
+def _build_downloader(tmp_path, mode: List[str], api_client=None) -> UserDownloader:
     config_data = {
         "number": {"post": 0, "like": 0, "mix": 0, "music": 0},
         "increase": {"post": False, "like": False, "mix": False, "music": False},
@@ -111,7 +123,7 @@ def _build_downloader(tmp_path, mode: List[str]) -> UserDownloader:
     file_manager = FileManager(str(tmp_path / "Downloaded"))
     downloader = UserDownloader(
         config=config,
-        api_client=_FakeAPIClient(),
+        api_client=api_client or _FakeAPIClient(),
         file_manager=file_manager,
         cookie_manager=_FakeCookieManager(),
         database=None,
@@ -194,6 +206,46 @@ def test_user_downloader_supports_mix_and_music_modes(tmp_path, monkeypatch):
 
     assert result.total == 2
     assert result.success == 2
+
+
+def test_user_downloader_resolves_self_alias_for_regular_modes(tmp_path, monkeypatch):
+    """`https://www.douyin.com/user/self` 是自己主页的地址栏形态,`self`
+    不是 sec_uid —— 直接透传给 profile/other 会拿到 status_code=2
+    “UserId不合法”。regular 模式下必须先换成登录账号真实 sec_uid。
+    """
+    downloader = _build_downloader(tmp_path, mode=["post"])
+
+    async def _always_true(*_args, **_kwargs):
+        return True
+
+    async def _download_ok(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _download_ok)
+
+    result = asyncio.run(downloader.download({"sec_uid": "self"}))
+
+    assert result.success == 2
+    assert downloader.api_client.self_info_calls == 1
+    assert downloader.api_client.user_info_calls == ["sec_uid_real"]
+
+
+def test_user_downloader_self_alias_failure_reports_account_error(tmp_path):
+    """解析不出登录账号时,错误信息要指向"识别账号"而不是甩锅 Cookie。"""
+    downloader = _build_downloader(
+        tmp_path, mode=["post"], api_client=_FakeAPIClient(self_info=None)
+    )
+
+    try:
+        asyncio.run(downloader.download({"sec_uid": "self"}))
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected RuntimeError for unresolvable /user/self")
+
+    assert "无法识别当前登录账号" in message
+    assert downloader.api_client.user_info_calls == []
 
 
 def test_user_downloader_supports_self_collect_mode(tmp_path, monkeypatch):
