@@ -176,6 +176,9 @@ class LiveDownloader(BaseDownloader):
             template_context,
             fallback=f"{date}_{room_id}",
         )
+        # 让「打开输出文件夹」落到该作者目录而不是下载根目录。
+        author_dir_style = self.config.get("author_dir") or "nickname"
+        self._report_author_output_dir(author_name, None, author_dir_style)
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode="live",
@@ -185,7 +188,7 @@ class LiveDownloader(BaseDownloader):
             download_date=date,
             folder_name=folder_name,
             author_sec_uid=None,
-            author_dir_style=self.config.get("author_dir") or "nickname",
+            author_dir_style=author_dir_style,
             group_by_mode=self.config.get("group_by_mode", True),
         )
         return save_dir, file_stem

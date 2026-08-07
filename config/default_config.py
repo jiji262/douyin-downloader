@@ -2,11 +2,14 @@ from typing import Any, Dict
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "path": "./Downloaded/",
+    # 处理内容开关：默认只保存视频本体。封面 / 音乐 / 头像 / 作品 JSON 都是
+    # 附带产物，绝大多数用户并不需要，默认全开会平白多出几倍文件和请求。
+    # 只影响新配置；已有 config.yml 里显式写过的值不受影响。
     "video": True,
-    "music": True,
-    "cover": True,
-    "avatar": True,
-    "json": True,
+    "music": False,
+    "cover": False,
+    "avatar": False,
+    "json": False,
     "start_time": "",
     "end_time": "",
     "folderstyle": True,
@@ -49,7 +52,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "rate_limit": 2,
     "proxy": "",
     # 视频下载画质。可选值：
-    #   "highest"  - 最高可用档（默认，与历史行为一致）
+    #   "highest"  - 最高画质（默认）：先探测上传原片（ratio=default，转码档
+    #                列表之外），比所选转码档大则优先下载；探测失败退回转码档
     #   "lowest"   - 最低可用档（省流量）
     #   "1440p" / "1080p" / "720p" / "540p" / "480p" / "360p"
     #              - 指定分辨率，匹配不到时自动降级到最接近的可用档
