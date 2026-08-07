@@ -177,6 +177,9 @@ class LiveReplayDownloader(BaseDownloader):
         folder_template = self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
         file_stem = render_template(filename_template, context, fallback=f"{date}_{episode_id}")
         folder_name = render_template(folder_template, context, fallback=f"{date}_{episode_id}")
+        # 让「打开输出文件夹」落到该作者目录而不是下载根目录。
+        author_dir_style = self.config.get("author_dir") or "nickname"
+        self._report_author_output_dir(author_name, None, author_dir_style)
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode="live_replay",
@@ -186,7 +189,7 @@ class LiveReplayDownloader(BaseDownloader):
             download_date=date,
             folder_name=folder_name,
             author_sec_uid=None,
-            author_dir_style=self.config.get("author_dir") or "nickname",
+            author_dir_style=author_dir_style,
             group_by_mode=self.config.get("group_by_mode", True),
         )
         return save_dir, file_stem

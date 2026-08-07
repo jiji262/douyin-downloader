@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 from urllib.parse import urlparse
 
+import aiohttp
+
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
@@ -100,6 +102,9 @@ class BaseDownloader(ABC):
         # 控制终端错误日志量，避免进度条被大量日志打断后出现重复重绘。
         self._download_error_log_count = 0
         self._download_error_log_limit = 5
+        # 本次任务已解析过的作者目录，键是 (昵称, sec_uid, 目录风格)。
+        # 只为「打开输出文件夹」上报一次，避免每条作品都多敲一次 mkdir。
+        self._author_dir_cache: Dict[Tuple[str, str, str], Path] = {}
 
     def _progress_update_step(self, step: str, detail: str = "") -> None:
         if not self.progress_reporter:
@@ -124,6 +129,41 @@ class BaseDownloader(ABC):
             self.progress_reporter.advance_item(status, detail)
         except Exception as exc:
             logger.debug("Progress advance_item failed: %s", exc)
+
+    def _report_author_output_dir(
+        self,
+        author_name: str,
+        author_sec_uid: Optional[str],
+        author_dir_style: str,
+    ) -> None:
+        """把作品实际落盘的作者目录报给宿主任务。
+
+        任务卡片的「打开输出文件夹」要落在当前博主目录，而不是设置里的下载
+        根目录。跨作者任务（收藏夹）与去重由 reporter 侧聚合处理，见
+        ``QueueProgressReporter.on_output_dir``；这里只负责在每个作者第一次
+        出现时把目录算出来上报一次。
+        """
+        if not self.progress_reporter:
+            return
+        key = (author_name, author_sec_uid or "", author_dir_style)
+        if key in self._author_dir_cache:
+            return
+        try:
+            author_dir = self.file_manager.get_author_dir(
+                author_name,
+                author_sec_uid=author_sec_uid,
+                author_dir_style=author_dir_style,
+            )
+        except Exception as exc:
+            logger.debug("Resolve author dir for progress failed: %s", exc)
+            return
+        self._author_dir_cache[key] = author_dir
+        try:
+            fn = getattr(self.progress_reporter, "on_output_dir", None)
+            if callable(fn):
+                fn(path=str(author_dir))
+        except Exception as exc:
+            logger.debug("Progress on_output_dir failed: %s", exc)
 
     def _progress_report_author(
         self,
@@ -380,6 +420,8 @@ class BaseDownloader(ABC):
             mode,
             author_sec_uid=effective_sec_uid,
         )
+        author_dir_style = self.config.get("author_dir") or "nickname"
+        self._report_author_output_dir(author_name, effective_sec_uid, author_dir_style)
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode=mode,
@@ -389,7 +431,7 @@ class BaseDownloader(ABC):
             download_date=metadata["publish_date"],
             folder_name=names["folder_name"],
             author_sec_uid=effective_sec_uid,
-            author_dir_style=self.config.get("author_dir") or "nickname",
+            author_dir_style=author_dir_style,
             group_by_mode=self.config.get("group_by_mode", True),
             collection_dir=collection_dir,
         )
@@ -494,6 +536,9 @@ class BaseDownloader(ABC):
                 if not video_candidates:
                     logger.error("No playable video URL found for aweme %s", aweme_id)
                     return False
+                video_candidates = await self._maybe_promote_original_candidate(
+                    aweme_data, video_candidates, session
+                )
 
                 video_path = save_dir / f"{file_stem}.mp4"
                 if not await self._download_video_with_fallback(
@@ -991,6 +1036,107 @@ class BaseDownloader(ABC):
         }
         signed_url, ua = self.api_client.build_signed_path("/aweme/v1/play/", params)
         return signed_url, self._download_headers(user_agent=ua)
+
+    # /aweme/v1/play/ 的 ratio=default 会 302 到上传原片。web detail API 的
+    # bit_rate 阶梯不含该档(实测最高档可比原画小 8 倍),原画只能走这里。
+    _ORIGINAL_PROBE_TIMEOUT_SECONDS = 10
+
+    async def _maybe_promote_original_candidate(
+        self,
+        aweme_data: Dict[str, Any],
+        candidates: List[Tuple[str, Dict[str, str]]],
+        session,
+    ) -> List[Tuple[str, Dict[str, str]]]:
+        """highest 画质下探测原画,比所选档大时置顶为首选候选。
+
+        置顶前必须比较真实大小:存在超分重编码档大于原画的反例(如
+        7508597705644985612,档 47.4M > 原画 31.7M),盲选原画会降质。
+        置顶的是探测时已跟随 302 的直连 CDN 地址,避免下载时重抽 play
+        端点的 PCDN 落点;探测失败时保持原候选链,行为与旧版一致。
+        """
+        quality = str(self.config.get("video_quality") or "highest").strip().lower()
+        if quality != "highest":
+            return candidates
+        video = aweme_data.get("video") if isinstance(aweme_data.get("video"), dict) else {}
+        play_addr = self._pick_preferred_play_addr(video, quality) or {}
+        uri = (
+            play_addr.get("uri")
+            or video.get("vid")
+            or (video.get("download_addr") or {}).get("uri")
+        )
+        if not uri:
+            return candidates
+        probed = await self._probe_original_play_source(
+            str(uri),
+            session,
+            need_set_cookie=bool(video.get("is_need_set_cookie")),
+        )
+        if not probed:
+            return candidates
+        original_url, original_size = probed
+        try:
+            selected_size = int(play_addr.get("data_size") or 0)
+        except (TypeError, ValueError):
+            selected_size = 0
+        if selected_size and original_size <= selected_size:
+            return candidates
+        return [(original_url, self._download_headers())] + candidates
+
+    async def _probe_original_play_source(
+        self, uri: str, session, *, need_set_cookie: bool = False
+    ) -> Optional[Tuple[str, int]]:
+        """Range 取 1 字节探测原画地址,返回 (302 落点 URL, 文件总大小)。
+
+        content-type 必须是 video/*:WAF 拦截页等 200+HTML 响应不得被
+        误判为原画。任何异常都返回 None,由调用方退回原候选链。
+        """
+        params = {
+            "video_id": uri,
+            "ratio": "default",
+            "line": "0",
+            "is_play_url": "1",
+            "watermark": "0",
+            "source": "PackSourceEnum_PUBLISH",
+        }
+        if need_set_cookie:
+            # 受限作品(video.is_need_set_cookie)官方 App 会附带此标记,
+            # 缺失时 play 端点会拒绝。
+            params["ss_is_p_v_ss"] = "1"
+        signed_url, ua = self.api_client.build_signed_path("/aweme/v1/play/", params)
+        headers = {**self._download_headers(user_agent=ua), "Range": "bytes=0-0"}
+        try:
+            async with session.get(
+                signed_url,
+                headers=headers,
+                allow_redirects=True,
+                proxy=getattr(self.api_client, "proxy", None) or None,
+                timeout=aiohttp.ClientTimeout(total=self._ORIGINAL_PROBE_TIMEOUT_SECONDS),
+            ) as resp:
+                if resp.status not in (200, 206):
+                    raise ValueError(f"unexpected status {resp.status}")
+                if not str(resp.content_type or "").startswith("video/"):
+                    raise ValueError(f"unexpected content-type {resp.content_type}")
+                content_range = str(resp.headers.get("Content-Range") or "")
+                raw_total = (
+                    content_range.rsplit("/", 1)[-1]
+                    if "/" in content_range
+                    else resp.headers.get("Content-Length")
+                )
+                total = int(raw_total or 0)
+                if total <= 0:
+                    raise ValueError(f"missing total size (Content-Range={content_range!r})")
+                return str(resp.url), total
+        except Exception as error:
+            # 探测是 best-effort:任何失败(网络、WAF 403 限速、签名、假
+            # session)都必须退回原候选链,绝不能让主下载流程因此中断。但要
+            # 留下可见线索:play 端点被限速时批量任务会整批降级到可小数倍
+            # 的转码档,只有 debug 日志用户根本无从察觉。复用限量日志防刷屏。
+            self._log_download_error(
+                logger.warning,
+                f"Original-quality probe failed for {uri}: {error}; "
+                "falling back to transcoded tracks",
+            )
+            return None
 
     # 视频画质选择支持的规格名称。值保留为横屏长边尺寸，用于兼容只有
     # width 的旧响应；完整 width/height 响应会按短边匹配 1080p/720p 等档位。

@@ -113,6 +113,9 @@ class MusicDownloader(BaseDownloader):
             fallback=f"{publish_date}_{record_id}",
         )
 
+        # 让「打开输出文件夹」落到该作者目录而不是下载根目录。
+        author_dir_style = self.config.get("author_dir") or "nickname"
+        self._report_author_output_dir(author_name, None, author_dir_style)
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
             mode="music",
@@ -122,7 +125,7 @@ class MusicDownloader(BaseDownloader):
             download_date=publish_date,
             folder_name=folder_name,
             author_sec_uid=None,
-            author_dir_style=self.config.get("author_dir") or "nickname",
+            author_dir_style=author_dir_style,
             group_by_mode=self.config.get("group_by_mode", True),
         )
 
