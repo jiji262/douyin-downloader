@@ -133,6 +133,16 @@ class LoginRequiredError(Exception):
         super().__init__(f"login required (status_code={status_code}) at {path}: {status_msg}")
 
 
+class ReplyAPIError(RuntimeError):
+    """Raised when the reply endpoint cannot produce a trustworthy page."""
+
+    def __init__(self, error_code: str, message: str = ""):
+        self.error_code = str(error_code)
+        self.message = str(message or "")
+        detail = f": {self.message}" if self.message else ""
+        super().__init__(f"{self.error_code}{detail}")
+
+
 def _is_login_required(data: object) -> bool:
     if not isinstance(data, dict):
         return False
@@ -215,6 +225,32 @@ def _log_api_response(
         summary["verify_page"],
         summary["top_level_keys"],
     )
+
+
+def _reply_login_required(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    code = data.get("status_code")
+    try:
+        code = int(code)
+    except (TypeError, ValueError):
+        pass
+    message = str(data.get("status_msg") or "").lower()
+    return code in _LOGIN_REQUIRED_STATUS_CODES or any(
+        token in message for token in ("login", "请先登录", "璇峰厛鐧诲綍")
+    )
+
+
+def _is_verification_required(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    risk_flags = data.get("risk_flags")
+    if isinstance(risk_flags, dict) and risk_flags.get("verify_page"):
+        return True
+    if data.get("verify_ticket") or data.get("verify_data") or data.get("verify_page"):
+        return True
+    message = str(data.get("status_msg") or "")
+    return any(token in message for token in ("验证码", "验证", "楠岃瘉"))
 
 
 _USER_AGENT_POOL = [
@@ -1260,8 +1296,39 @@ class DouyinAPIClient:
                 "count": count,
             }
         )
-        raw = await self._request_json("/aweme/v1/web/comment/list/reply/", params)
-        return self._normalize_paged_response(raw, item_keys=["comments"])
+        try:
+            raw = await self._request_json("/aweme/v1/web/comment/list/reply/", params)
+        except LoginRequiredError as exc:
+            raise ReplyAPIError("reply_login_required", str(exc)) from exc
+        except asyncio.TimeoutError as exc:
+            raise ReplyAPIError("reply_timeout", "reply request timed out") from exc
+        except ReplyAPIError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ReplyAPIError("reply_api_failed", "reply request failed") from exc
+
+        if not isinstance(raw, dict) or not raw:
+            raise ReplyAPIError("reply_response_invalid", "empty reply response")
+        if _reply_login_required(raw):
+            raise ReplyAPIError("reply_login_required", "login required")
+        if _is_verification_required(raw):
+            raise ReplyAPIError("reply_verification_required", "verification required")
+
+        status_code = raw.get("status_code")
+        try:
+            status_code_value = int(status_code)
+        except (TypeError, ValueError):
+            raise ReplyAPIError("reply_response_invalid", "invalid status_code") from None
+        if status_code_value != 0:
+            raise ReplyAPIError("reply_api_failed", f"status_code={status_code_value}")
+
+        comments = raw.get("comments")
+        if not isinstance(comments, list):
+            raise ReplyAPIError("reply_response_invalid", "comments field is missing")
+
+        normalized = self._normalize_paged_response(raw, item_keys=["comments"])
+        normalized["response_valid"] = True
+        return normalized
 
     async def resolve_short_url(
         self, short_url: str, *, timeout_seconds: float = 10.0
