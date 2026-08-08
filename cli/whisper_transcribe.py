@@ -347,7 +347,8 @@ def transcribe_file(
         display.advance_file("识别中", f"音频 {audio_mb:.1f}MB")
 
         # Step 2: Whisper 识别
-        result = model.transcribe(audio_path, language=language, verbose=False)
+        fp16_supported = model.device.type == "cuda"
+        result = model.transcribe(audio_path, language=language, verbose=False, fp16=fp16_supported)
         segments = result.get("segments", [])
         detected_lang = result.get("language", language)
 
@@ -496,8 +497,15 @@ def main():
     display.info(f"找到 {len(videos)} 个视频")
 
     # ── 加载模型 ──
-    display.info(f"加载 Whisper 模型: [{THEME['model']}]{args.model}[/]  (首次需下载)")
-    model = whisper.load_model(args.model)
+    import torch
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+
+    display.info(f"加载 Whisper 模型: [{THEME['model']}]{args.model}[/] (运行设备: {device})  (首次需下载)")
+    model = whisper.load_model(args.model, device=device)
     display.success(f"模型 [{THEME['model']}]{args.model}[/] 加载完成")
     console.print()
 
