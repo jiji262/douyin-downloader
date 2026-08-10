@@ -1,0 +1,74 @@
+# Thin automation overlay for favorites daily ingest (M1/M2).
+#
+# Usage (prefer Douzy config as base so path/cookies/music align):
+#   1) daily-favorites.ps1 merges %APPDATA%\Douzy\config.yml + this file
+#   2) or: run with --config pointing at a generated temp yml
+#
+# Hard requirements:
+#   - transcript.enabled: false  (Douzy built-in TranscriptManager OFF)
+#   - mcp_transcript.enabled: true  (MCP extract_text library/CLI direct call)
+#   - music: true  (audio authority in G:\media\douyin)
+#   - path: same as Douzy → G:\media\douyin
+#   - cookie: auto  (loads %APPDATA%\Douzy\.cookies.json next to Douzy config)
+#   - database_path: absolute Douzy DB when sharing; else filesystem+_factory dedupe
+#   - collect_use_aweme_author_dir: true → <原作者>/...（对齐 Douzy；勿用 self/collect）
+#   - group_by_mode: false → 日更不分 collect/post 层，统一 <原作者>/{date}_{title}_{id}/
+#
+# API key: set DOUYIN_API_KEY (preferred). Fallbacks: API_KEY, OPENAI_API_KEY.
+# Never commit keys. daily-favorites may load Douzy transcript.api_key into
+# process env only when those env vars are empty.
+
+link:
+  - https://www.douyin.com/user/self
+
+path: G:\media\douyin
+
+cookie: auto
+auto_cookie: true
+
+video: true
+music: true
+cover: true
+avatar: false
+json: false
+
+mode:
+  - collect
+
+# 收藏落盘用作品原作者目录（默认 true；与 Douzy author_dir=nickname 对齐）
+collect_use_aweme_author_dir: true
+# 日更不分模式层，统一作者根下直落（无 collect/）
+group_by_mode: false
+
+number:
+  collect: 20
+  collectmix: 0
+  post: 0
+  like: 0
+  mix: 0
+  music: 0
+
+increase:
+  collect: true
+  collectmix: false
+  post: false
+  like: false
+  mix: false
+  music: false
+
+database: true
+# Prefer sharing Douzy DB (D2). Relative paths resolve to CWD — use absolute:
+# database_path: C:\Users\<you>\AppData\Roaming\Douzy\dy_downloader.db
+# daily-favorites.ps1 rewrites this to the live Douzy userData path.
+
+transcript:
+  enabled: false
+
+mcp_transcript:
+  enabled: true
+  api_key_env: DOUYIN_API_KEY
+  mcp_scripts_path: D:\dev\github\douyin-mcp-server\douyin-video\scripts
+  mcp_python: D:\dev\github\douyin-mcp-server\.venv\Scripts\python.exe
+  timeout_seconds: 600
+  # Prefer local mp4 ASR; share-URL HTML / videoInfoRes is fallback only (HAI-11).
+  prefer_local_video: true
