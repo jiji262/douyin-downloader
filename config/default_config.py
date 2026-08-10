@@ -27,6 +27,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     #   True  - 作者目录下再分 post/like/... （默认，与历史行为一致）
     #   False - 不分模式层，文件直接落在作者目录下（复刻 legacy 布局，无 POST 文件夹）
     "group_by_mode": True,
+    # collect / collectmix：顶层目录用作品原作者（与 Douzy 作者目录一致），
+    # 而不是收藏夹主人占位名 "self"。关闭则恢复 feed-owner 目录（self/collect）。
+    "collect_use_aweme_author_dir": True,
     "download_pinned": False,
     # 下载博主作品时，是否在作者根目录覆盖保存一张主页首屏截图。
     "homepage_screenshot": False,
@@ -80,6 +83,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         # deliberately does not surface this toggle — see
         # ``.kiro/specs/transcript-audio-extract-and-ui`` Requirement 1.
         "upload_audio_only": True,
+    },
+    # Production transcript: MCP extract_text direct call (not :8080, not Douzy built-in).
+    # Enable via automation overlay / daily-favorites. Keep transcript.enabled false.
+    "mcp_transcript": {
+        "enabled": False,
+        "api_key_env": "DOUYIN_API_KEY",
+        "mcp_scripts_path": r"D:\dev\github\douyin-mcp-server\douyin-video\scripts",
+        "mcp_python": r"D:\dev\github\douyin-mcp-server\.venv\Scripts\python.exe",
+        "timeout_seconds": 600,
+        # Prefer local mp4 ASR over share-URL HTML parse (avoids videoInfoRes failures).
+        "prefer_local_video": True,
     },
     "auto_cookie": False,
     "browser_fallback": {

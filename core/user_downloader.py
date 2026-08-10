@@ -4,6 +4,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.metadata import extract_author_nickname, extract_author_sec_uid
 from core.user_mode_registry import UserModeRegistry
 from utils.logger import setup_logger
 
@@ -257,6 +258,34 @@ class UserDownloader(BaseDownloader):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
 
+    def _collect_use_aweme_author_dir(self) -> bool:
+        """Whether collect/collectmix should land under each aweme's author."""
+        return self._as_bool(self.config.get("collect_use_aweme_author_dir", True))
+
+    def _resolve_save_author(
+        self,
+        aweme_data: Dict[str, Any],
+        *,
+        mode: str,
+        feed_author_name: str,
+        feed_author_sec_uid: Optional[str],
+    ) -> tuple:
+        """Pick directory author for one aweme.
+
+        For collect/collectmix with ``collect_use_aweme_author_dir`` (default
+        on), use the original content author so paths match Douzy's
+        ``author_dir: nickname`` layout instead of ``self/collect/...``.
+        """
+        normalized = (mode or "").strip()
+        if normalized in self.SELF_COLLECT_MODES and self._collect_use_aweme_author_dir():
+            nickname = extract_author_nickname(aweme_data)
+            sec_uid = extract_author_sec_uid(aweme_data)
+            return (
+                nickname or feed_author_name or "unknown",
+                sec_uid or feed_author_sec_uid,
+            )
+        return (feed_author_name or "unknown", feed_author_sec_uid)
+
     async def _resolve_user_info(self, sec_uid: str, modes: List[str]) -> Optional[Dict[str, Any]]:
         normalized_modes = {str(mode or "").strip() for mode in modes}
         if sec_uid == "self" and normalized_modes.issubset(self.SELF_COLLECT_MODES):
@@ -367,12 +396,18 @@ class UserDownloader(BaseDownloader):
 
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
+            dir_author_name, dir_author_sec_uid = self._resolve_save_author(
+                item,
+                mode=mode,
+                feed_author_name=author_name,
+                feed_author_sec_uid=author_sec_uid,
+            )
             if not await self._should_download(str(aweme_id or "")):
                 saved = await self._collect_comments_for_existing_aweme(
                     item,
-                    author_name,
+                    dir_author_name,
                     mode,
-                    author_sec_uid=author_sec_uid,
+                    author_sec_uid=dir_author_sec_uid,
                 )
                 status = "success" if saved else "skipped"
                 self._progress_advance_item(status, str(aweme_id or "unknown"))
@@ -380,10 +415,10 @@ class UserDownloader(BaseDownloader):
 
             success = await self._download_aweme_assets(
                 item,
-                author_name,
+                dir_author_name,
                 mode=mode,
                 db_batch=db_batch,
-                author_sec_uid=author_sec_uid,
+                author_sec_uid=dir_author_sec_uid,
             )
             status = "success" if success else "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))

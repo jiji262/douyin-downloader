@@ -15,6 +15,14 @@ from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
 from core.metadata import extract_author_sec_uid, extract_video_cover_urls
 from core.transcript_manager import TranscriptManager
+from local_pipeline.mcp_transcript import (
+    append_factory_records,
+    build_factory_record,
+    mcp_transcript_enabled,
+    process_aweme_transcript_async,
+    title_from_stem,
+    transcript_txt_path,
+)
 from storage import Database, FileManager, MetadataHandler
 from storage.database import order_cover_mirrors
 from utils.logger import setup_logger
@@ -748,10 +756,77 @@ class BaseDownloader(ABC):
         )
 
         if media_type == "video" and video_path is not None:
+            await self._after_video_assets_downloaded(
+                aweme_id=aweme_id,
+                author_name=author.get("nickname", author_name),
+                title=desc,
+                save_dir=save_dir,
+                file_stem=file_stem,
+                video_path=video_path,
+            )
+
+        if primary_media_downloaded:
+            self._mark_local_aweme_downloaded(aweme_id)
+        logger.info("Downloaded selected assets for %s: %s (%s)", media_type, desc, aweme_id)
+        return True
+
+    async def _after_video_assets_downloaded(
+        self,
+        *,
+        aweme_id: str,
+        author_name: str,
+        title: str,
+        save_dir: Path,
+        file_stem: str,
+        video_path: Path,
+    ) -> None:
+        """MCP extract hook (production) or built-in TranscriptManager (off by default).
+
+        Failures never fail the download. Always append a ``_factory`` index row
+        when the media root looks like a production library (has or can create
+        ``_factory``).
+        """
+        mcp_cfg = self.config.get("mcp_transcript") or {}
+        if not isinstance(mcp_cfg, dict):
+            mcp_cfg = {}
+
+        transcript_status = "skipped"
+        transcript_path: Optional[str] = None
+
+        if mcp_transcript_enabled(self.config):
+            try:
+                result = await process_aweme_transcript_async(
+                    aweme_id=aweme_id,
+                    save_dir=save_dir,
+                    file_stem=file_stem,
+                    mcp_cfg=mcp_cfg,
+                    video_path=video_path,
+                )
+                transcript_status = str(result.get("status") or "failed")
+                transcript_path = result.get("transcript_path")
+                if transcript_status == "skipped":
+                    logger.info(
+                        "MCP transcript skipped for aweme %s: %s",
+                        aweme_id,
+                        result.get("reason", "unknown"),
+                    )
+                elif transcript_status == "failed":
+                    logger.warning(
+                        "MCP transcript failed for aweme %s: %s",
+                        aweme_id,
+                        result.get("error", "unknown"),
+                    )
+                else:
+                    logger.info("MCP transcript ok for aweme %s", aweme_id)
+            except Exception as exc:  # noqa: BLE001
+                transcript_status = "failed"
+                transcript_path = str(transcript_txt_path(save_dir, file_stem))
+                logger.warning("MCP transcript hook crashed for %s: %s", aweme_id, exc)
+        else:
             transcript_result = await self.transcript_manager.process_video(
                 video_path, aweme_id=aweme_id
             )
-            transcript_status = transcript_result.get("status")
+            transcript_status = str(transcript_result.get("status") or "skipped")
             if transcript_status == "skipped":
                 logger.info(
                     "Transcript skipped for aweme %s: %s",
@@ -764,11 +839,27 @@ class BaseDownloader(ABC):
                     aweme_id,
                     transcript_result.get("error", "unknown"),
                 )
+            # Built-in manager writes its own sidecar names; factory still
+            # records the conventional stem path if present.
+            candidate = transcript_txt_path(save_dir, file_stem)
+            if candidate.is_file():
+                transcript_path = str(candidate)
 
-        if primary_media_downloaded:
-            self._mark_local_aweme_downloaded(aweme_id)
-        logger.info("Downloaded selected assets for %s: %s (%s)", media_type, desc, aweme_id)
-        return True
+        try:
+            media_root = Path(self.file_manager.base_path)
+            effective_title = (title or "").strip() or title_from_stem(file_stem, aweme_id)
+            record = build_factory_record(
+                aweme_id=aweme_id,
+                author=author_name,
+                title=effective_title,
+                media_path=str(video_path),
+                transcript_path=transcript_path,
+                transcript_status=transcript_status,
+                source="cli",
+            )
+            append_factory_records(media_root, record)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Factory index append failed for %s: %s", aweme_id, exc)
 
     async def _download_with_retry(
         self,

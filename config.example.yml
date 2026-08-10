@@ -30,6 +30,15 @@ folder_template: "{date}_{title}_{id}"
 # 切换只影响后续下载，不会迁移已存在的目录。
 author_dir: "nickname"
 
+# 是否按下载模式再分一层（post / like / collect …）。默认 true。
+# 日更生产面（favorites → G:\media\douyin）强制 false：
+#   → <原作者>/{date}_{title}_{id}/（无 collect 层）。见 config.automation.yml / LOCAL_SETUP.md
+# group_by_mode: true
+
+# collect / collectmix：顶层用作品原作者目录（默认 true，对齐 Douzy）。
+# false 则落在收藏夹主人占位名 self/collect/…。日更保持 true。
+# collect_use_aweme_author_dir: true
+
 # 默认不下载作者主页置顶作品；如需包含置顶，改为 true
 download_pinned: false
 
@@ -74,6 +83,7 @@ video_quality: highest
 progress:
   quiet_logs: true
 
+# Douzy / 桌面内置转写。生产日更保持 enabled: false；转写走下方 mcp_transcript。
 transcript:
   enabled: false
   model: gpt-4o-mini-transcribe
@@ -84,6 +94,17 @@ transcript:
   api_url: https://api.openai.com/v1/audio/transcriptions
   api_key_env: OPENAI_API_KEY
   api_key: ""
+
+# 生产转写（CLI）：下载后直调 MCP extract_text（库/CLI，非 :8080），写旁侧 .transcript.txt
+# 并追加 G:\media\douyin\_factory。日更由 config.automation.yml 打开；密钥用 DOUYIN_API_KEY。
+# 说明见 LOCAL_SETUP.md；存量补跑：tools/run_mcp_transcript.py
+# mcp_transcript:
+#   enabled: false
+#   api_key_env: DOUYIN_API_KEY
+#   mcp_scripts_path: D:\dev\github\douyin-mcp-server\douyin-video\scripts
+#   mcp_python: D:\dev\github\douyin-mcp-server\.venv\Scripts\python.exe
+#   timeout_seconds: 600
+#   prefer_local_video: true  # local mp4 ASR first; share URL is fallback only
 
 browser_fallback:
   enabled: true
