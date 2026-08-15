@@ -1442,3 +1442,184 @@ def test_iter_gallery_items_top_level_image_list(tmp_path):
     assert len(items) == 1
 
     asyncio.run(api_client.close())
+
+
+
+def _paid_aweme_without_direct_urls():
+    """付费作品：play_addr 无可用直连 URL，只剩 uri 与 download_addr 可构造。"""
+    return {
+        "aweme_id": "7640058716376583458",
+        "charge_info": {
+            "is_charge_content": True,
+            "has_paid": False,
+            "preview_config": {"is_preview": True, "start_time": 0, "end_time": 180000},
+        },
+        "video": {
+            "play_addr": {"uri": "", "url_list": [], "data_size": 163679958},
+            "download_addr": {
+                "uri": "v0d00fg10000d83f1svog65hmig36qeg",
+                "url_list": [],
+                "data_size": 59874426,
+            },
+        },
+    }
+
+
+async def test_paid_content_never_falls_back_to_download_addr(tmp_path):
+    """付费作品的 download_addr 是 CENC 密文，不能作为兜底源。"""
+    downloader, _ = _build_downloader(tmp_path)
+    aweme = _paid_aweme_without_direct_urls()
+
+    assert downloader._build_video_url_candidates(aweme) == []
+
+
+async def test_free_content_still_falls_back_to_download_addr(tmp_path):
+    """免费作品的 play_addr 与 download_addr 是同一资产，兜底行为保持不变。"""
+    downloader, _ = _build_downloader(tmp_path)
+    aweme = _paid_aweme_without_direct_urls()
+    aweme["charge_info"] = None
+
+    candidates = downloader._build_video_url_candidates(aweme)
+
+    assert len(candidates) == 1
+    assert "v0d00fg10000d83f1svog65hmig36qeg" in candidates[0][0]
+
+
+async def test_encrypted_download_is_discarded(tmp_path):
+    """落盘的 CENC 密文必须删除并判失败，而不是当作下载成功。"""
+    import struct
+
+    downloader, _ = _build_downloader(tmp_path)
+
+    def box(box_type, payload=b""):
+        return struct.pack(">I", 8 + len(payload)) + box_type + payload
+
+    sinf = box(
+        b"sinf",
+        box(b"frma", b"avc1")
+        + box(b"schm", b"\x00\x00\x00\x00" + b"cenc" + b"\x00\x01\x00\x00"),
+    )
+    stsd = box(
+        b"stsd",
+        b"\x00\x00\x00\x00"
+        + struct.pack(">I", 1)
+        + box(b"encv", b"\x00" * 78 + sinf),
+    )
+    moov = box(b"moov", box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", stsd)))))
+    video_path = tmp_path / "paid.mp4"
+    video_path.write_bytes(box(b"ftyp", b"isom") + moov)
+
+    assert downloader._discard_if_encrypted(video_path, "7640058716376583458") is False
+    assert not video_path.exists()
+
+
+async def test_plaintext_download_is_kept(tmp_path):
+    """明文 mp4 不受影响，检测失败也不该误删正常文件。"""
+    import struct
+
+    downloader, _ = _build_downloader(tmp_path)
+
+    def box(box_type, payload=b""):
+        return struct.pack(">I", 8 + len(payload)) + box_type + payload
+
+    stsd = box(
+        b"stsd",
+        b"\x00\x00\x00\x00" + struct.pack(">I", 1) + box(b"avc1", b"\x00" * 78),
+    )
+    moov = box(b"moov", box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", stsd)))))
+    video_path = tmp_path / "free.mp4"
+    video_path.write_bytes(box(b"ftyp", b"isom") + moov)
+
+    assert downloader._discard_if_encrypted(video_path, "123") is True
+    assert video_path.exists()
+
+
+
+async def test_paid_content_skips_original_quality_probe(tmp_path):
+    """付费作品不做 ratio=default 原画探测：探到的是同一份试看资产（实测
+    大小逐字节相等），真正的「原片」是要不起的 CENC 全长正片。"""
+    downloader, _ = _build_downloader(tmp_path)
+    aweme = {
+        "charge_info": {"is_charge_content": True, "has_paid": False},
+        "video": {"play_addr": {"uri": "v0200abc", "data_size": 163679958}},
+    }
+    candidates = [("https://v26-web.douyinvod.com/plain.mp4", {})]
+    probed = False
+
+    async def _fail_if_probed(*args, **kwargs):
+        nonlocal probed
+        probed = True
+        return ("https://cdn.example.com/original.mp4", 10**12)
+
+    downloader._probe_original_play_source = _fail_if_probed
+
+    result = await downloader._maybe_promote_original_candidate(aweme, candidates, None)
+
+    assert probed is False
+    assert result == candidates
+
+
+async def test_free_content_still_probes_original_quality(tmp_path):
+    """免费作品的原画探测行为保持不变。"""
+    downloader, _ = _build_downloader(tmp_path)
+    aweme = {
+        "charge_info": None,
+        "video": {"play_addr": {"uri": "v0300abc", "data_size": 1000}},
+    }
+    candidates = [("https://v26-web.douyinvod.com/plain.mp4", {})]
+
+    async def _probe(*args, **kwargs):
+        return ("https://cdn.example.com/original.mp4", 99999)
+
+    downloader._probe_original_play_source = _probe
+
+    result = await downloader._maybe_promote_original_candidate(aweme, candidates, None)
+
+    assert result[0][0] == "https://cdn.example.com/original.mp4"
+
+
+async def test_encrypted_video_aborts_before_recording_success(tmp_path, monkeypatch):
+    """密文被丢弃后，这条作品不得进入 DB / 本地索引，也不得留下文件。"""
+    import struct
+
+    downloader, _ = _build_downloader(tmp_path)
+
+    def box(box_type, payload=b""):
+        return struct.pack(">I", 8 + len(payload)) + box_type + payload
+
+    sinf = box(
+        b"sinf",
+        box(b"frma", b"avc1")
+        + box(b"schm", b"\x00\x00\x00\x00" + b"cenc" + b"\x00\x01\x00\x00"),
+    )
+    stsd = box(
+        b"stsd",
+        b"\x00\x00\x00\x00" + struct.pack(">I", 1) + box(b"encv", b"\x00" * 78 + sinf),
+    )
+    ciphertext = box(b"ftyp", b"isom") + box(
+        b"moov", box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", stsd))))
+    )
+
+    async def _fake_download(candidates, save_path, session, **kwargs):
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_bytes(ciphertext)
+        return True
+
+    marked = []
+    monkeypatch.setattr(downloader, "_download_video_with_fallback", _fake_download)
+    monkeypatch.setattr(downloader, "_mark_local_aweme_downloaded", lambda i: marked.append(i))
+    monkeypatch.setattr(downloader.api_client, "get_session", AsyncMock(return_value=None))
+
+    aweme = {
+        "aweme_id": "7640058716376583458",
+        "desc": "paid",
+        "create_time": 1747353600,
+        "charge_info": {"is_charge_content": True, "has_paid": False},
+        "video": {"play_addr": {"uri": "v0200abc", "url_list": ["https://cdn/x.mp4"]}},
+    }
+
+    ok = await downloader._download_aweme_assets(aweme, "作者", "post")
+
+    assert ok is False
+    assert marked == []
+    assert not list(tmp_path.rglob("*.mp4"))

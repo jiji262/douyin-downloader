@@ -1,7 +1,8 @@
 import os
 import re
+import time
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Callable, Dict, Optional, Union
 
 import aiofiles
 import aiohttp
@@ -29,6 +30,65 @@ _DOWNLOAD_CHUNK_BYTES = 256 * 1024
 _DOWNLOAD_TOTAL_TIMEOUT_S = 300
 _DOWNLOAD_CONNECT_TIMEOUT_S = 15
 _DOWNLOAD_READ_STALL_TIMEOUT_S = 60
+
+# 慢节点地板：冷存储 / PCDN 节点（*-mc-cold.douyinvod.com 之类）握手成功后
+# 会以每秒几 KB 滴水式吐字节——一直有数据，sock_read 停滞检测永远不触发，
+# 只能等满 total=300s 才失败切换（线上 job f25a60b4850f 队尾一条视频因此
+# 静默 5 分钟，换下一个候选后 2 秒下完）。20 KB/s 远低于任何可用链路：
+# 真按这个速度，6MB 的视频也要 300s+，本来就跨不过 total 超时，提前放弃
+# 只会更早换到健康候选，不会牺牲原本能成功的下载。
+_DOWNLOAD_MIN_SPEED_BPS = 20 * 1024
+_DOWNLOAD_SLOW_WINDOW_S = 30
+
+# 下载途中向调用方回报进度的最小间隔。批量任务的事件流按条渲染，
+# 太密会把事件列表刷屏；2s 既能让 UI 明显「在动」，又不至于淹没日志。
+_DOWNLOAD_PROGRESS_INTERVAL_S = 2.0
+
+# 模块级时钟别名，便于测试注入假时钟（真实 sleep 会让用例慢到不可接受）。
+_monotonic = time.monotonic
+
+
+class SlowDownloadError(Exception):
+    """节点持续低于最低吞吐——提前放弃，交给候选轮扫换下一个地址。"""
+
+
+class _ThroughputGuard:
+    """滚动窗口吞吐地板判定。
+
+    按窗口而不是累计均值判定：累计均值会被「开头很快、后面卡成滴水」
+    的节点骗过去，而这正是 PCDN 抽签失手后的典型形态。
+    """
+
+    def __init__(self, min_bps: int, window_s: float, clock=None):
+        self._min_bps = min_bps
+        self._window_s = window_s
+        self._clock = clock or _monotonic
+        self._window_start = self._clock()
+        self._window_bytes = 0
+
+    def feed(self, nbytes: int) -> None:
+        """记入一块数据；本窗口持续低于地板时抛 :class:`SlowDownloadError`。"""
+        self._window_bytes += nbytes
+        elapsed = self._clock() - self._window_start
+        if elapsed < self._window_s:
+            return
+        if self._window_bytes < self._min_bps * elapsed:
+            raise SlowDownloadError(
+                f"{self._window_bytes / elapsed / 1024:.1f} KB/s over {elapsed:.0f}s "
+                f"(floor {self._min_bps / 1024:.0f} KB/s)"
+            )
+        self._window_start = self._clock()
+        self._window_bytes = 0
+
+
+def _emit_progress(on_progress, bytes_read: int, bytes_total: int) -> None:
+    """进度回调是尽力而为的旁路：reporter 抛错不能拖垮下载本身。"""
+    if on_progress is None:
+        return
+    try:
+        on_progress(bytes_read, bytes_total)
+    except Exception as exc:
+        logger.debug("Download progress callback failed: %s", exc)
 
 
 class FileManager:
@@ -226,6 +286,7 @@ class FileManager:
         *,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
+        on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> Union[bool, Path]:
         should_close = False
         if session is None:
@@ -259,6 +320,7 @@ class FileManager:
                         response.headers,
                         prefer_response_content_type=prefer_response_content_type,
                         return_saved_path=return_saved_path,
+                        on_progress=on_progress,
                     )
                 if response.status == 206:
                     expected_size = self._complete_content_range_size(response.headers)
@@ -276,6 +338,7 @@ class FileManager:
                         response.headers,
                         prefer_response_content_type=prefer_response_content_type,
                         return_saved_path=return_saved_path,
+                        on_progress=on_progress,
                     )
                 status = response.status
                 logger.debug("Download failed for %s, status=%s", final_path.name, status)
@@ -290,7 +353,14 @@ class FileManager:
                     proxy=proxy,
                     prefer_response_content_type=prefer_response_content_type,
                     return_saved_path=return_saved_path,
+                    on_progress=on_progress,
                 )
+            return False
+        except SlowDownloadError as e:
+            # 明确区别于普通失败：这条走 WARNING，免得排查时又只看到
+            # 一条空消息的 DEBUG（旧行为下 asyncio.TimeoutError 的 str 为空）。
+            logger.warning("Abandoned slow node for %s: %s", final_path.name, e)
+            tmp_path.unlink(missing_ok=True)
             return False
         except Exception as e:
             logger.debug("Download error for %s: %s", final_path.name, e)
@@ -324,6 +394,7 @@ class FileManager:
         *,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
+        on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> Union[bool, Path]:
         """Stream ``chunk_iter`` to a temp file and atomically rename it.
 
@@ -336,11 +407,14 @@ class FileManager:
             prefer_response_content_type=prefer_response_content_type,
         )
         tmp_path = final_path.with_suffix(final_path.suffix + ".tmp")
-        written = 0
-        async with aiofiles.open(tmp_path, "wb") as f:
-            async for chunk in chunk_iter:
-                await f.write(chunk)
-                written += len(chunk)
+        try:
+            written = await self._stream_to_tmp(chunk_iter, tmp_path, expected_size, on_progress)
+        except BaseException:
+            # 任何中断——慢节点提前放弃、单条作品超时、用户取消任务——都不该
+            # 把半截 .tmp 留在下载目录里。CancelledError 是 BaseException，
+            # 单捕 Exception 会漏掉取消这条最常见的路径。
+            tmp_path.unlink(missing_ok=True)
+            raise
         if expected_size is not None and written != expected_size:
             logger.warning(
                 "Size mismatch for %s: expected %d, got %d",
@@ -353,6 +427,32 @@ class FileManager:
         os.replace(str(tmp_path), str(final_path))
         return final_path if return_saved_path else True
 
+    @staticmethod
+    async def _stream_to_tmp(chunk_iter, tmp_path: Path, expected_size, on_progress) -> int:
+        """把响应体写进临时文件，途中做吞吐地板判定并按节流回报进度。"""
+        guard = _ThroughputGuard(_DOWNLOAD_MIN_SPEED_BPS, _DOWNLOAD_SLOW_WINDOW_S)
+        last_emit = _monotonic()
+        emitted = False
+        written = 0
+        async with aiofiles.open(tmp_path, "wb") as f:
+            async for chunk in chunk_iter:
+                await f.write(chunk)
+                written += len(chunk)
+                # 已经收齐声明字节数时不再判定：数据都拿全了，「追不上」
+                # 没有意义（小封面可能一整块下完但整体耗时越过判定窗口）。
+                if expected_size is None or written < expected_size:
+                    guard.feed(len(chunk))
+                now = _monotonic()
+                if on_progress is not None and now - last_emit >= _DOWNLOAD_PROGRESS_INTERVAL_S:
+                    last_emit = now
+                    emitted = True
+                    _emit_progress(on_progress, written, expected_size or 0)
+        # 收尾补一条 100%，但只补给「途中报过进度」的下载：秒下的小文件
+        # 本来就没有假死问题，不该白白占掉事件流那 250 条的回放窗口。
+        if emitted:
+            _emit_progress(on_progress, written, expected_size or 0)
+        return written
+
     async def _download_via_httpx(
         self,
         url: str,
@@ -362,6 +462,7 @@ class FileManager:
         proxy: Optional[str] = None,
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
+        on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> Union[bool, Path]:
         """Download an asset via httpx, whose TLS fingerprint the Douyin image
         CDN accepts when aiohttp's is rejected (403). Mirrors aiohttp's
@@ -400,7 +501,11 @@ class FileManager:
                         response.headers,
                         prefer_response_content_type=prefer_response_content_type,
                         return_saved_path=return_saved_path,
+                        on_progress=on_progress,
                     )
+        except SlowDownloadError:
+            # 交给 download_file 统一按 WARNING 记账，别在这里降级成 DEBUG。
+            raise
         except Exception as e:
             logger.debug("httpx fallback error for %s: %s", save_path.name, e)
             return False

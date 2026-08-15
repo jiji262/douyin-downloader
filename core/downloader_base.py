@@ -4,7 +4,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
@@ -24,6 +24,11 @@ from utils.naming import (
     build_aweme_context,
     render_template,
 )
+from utils.paid_content import (
+    detect_mp4_encryption,
+    is_paid_content,
+    paid_content_warning,
+)
 
 logger = setup_logger("BaseDownloader")
 
@@ -34,6 +39,12 @@ logger = setup_logger("BaseDownloader")
 # 手动删除的文件要到进程重启后才会被重新检测（与原先单 job 内的索引
 # 是同一权衡，只是范围从单 job 扩大到进程）。
 _LOCAL_AWEME_INDEX_CACHE: Dict[str, set[str]] = {}
+
+# 单条视频的兜底总时限。单次请求的 total 超时（storage.file_manager 里的
+# 300s）只约束一次尝试，而 _download_video_with_fallback 会「候选数 × 重试
+# 轮数」地把它乘起来：4 轮 × 4 候选最坏能挂 80 分钟，整个队列跟着停摆。
+# 15 分钟对正常大小的作品绰绰有余（真跑满说明这条已经没救了）。
+_VIDEO_ITEM_DEADLINE_S = 900
 
 
 class ProgressReporter(Protocol):
@@ -129,6 +140,28 @@ class BaseDownloader(ABC):
             self.progress_reporter.advance_item(status, detail)
         except Exception as exc:
             logger.debug("Progress advance_item failed: %s", exc)
+
+    def _make_item_progress(self, aweme_id: Optional[str]):
+        """构造单文件下载途中的字节进度回调（没有 reporter / id 时返回 None）。
+
+        批量任务原先只在整条作品的全部资产下完后才 advance_item，单个大
+        文件或慢节点期间事件流完全静止——线上 job f25a60b4850f 队尾一条
+        视频静默 5 分钟，用户判定为卡死并连续取消了 4 个任务。
+        """
+        reporter = self.progress_reporter
+        if not reporter or not aweme_id:
+            return None
+        emit = getattr(reporter, "on_item_progress", None)
+        if not callable(emit):
+            return None
+
+        def _on_progress(bytes_read: int, bytes_total: int) -> None:
+            try:
+                emit(aweme_id=aweme_id, bytes_read=bytes_read, bytes_total=bytes_total)
+            except Exception as exc:
+                logger.debug("Progress on_item_progress failed: %s", exc)
+
+        return _on_progress
 
     def _report_author_output_dir(
         self,
@@ -531,6 +564,9 @@ class BaseDownloader(ABC):
         optional_assets: List[Tuple[Path, Any]] = []
 
         if media_type == "video":
+            paid_note = paid_content_warning(aweme_data)
+            if paid_note:
+                logger.warning("Aweme %s: %s", aweme_id, paid_note)
             if self.config.get("video", True):
                 video_candidates = self._build_video_url_candidates(aweme_data)
                 if not video_candidates:
@@ -542,8 +578,10 @@ class BaseDownloader(ABC):
 
                 video_path = save_dir / f"{file_stem}.mp4"
                 if not await self._download_video_with_fallback(
-                    video_candidates, video_path, session
+                    video_candidates, video_path, session, aweme_id=aweme_id
                 ):
+                    return False
+                if not self._discard_if_encrypted(video_path, aweme_id):
                     return False
                 downloaded_files.append(video_path)
                 primary_media_downloaded = True
@@ -781,6 +819,7 @@ class BaseDownloader(ABC):
         prefer_response_content_type: bool = False,
         return_saved_path: bool = False,
         retry: bool = True,
+        on_progress: Optional[Callable[[int, int], None]] = None,
     ) -> bool | Path:
         async def _task():
             download_result = await self.file_manager.download_file(
@@ -791,6 +830,7 @@ class BaseDownloader(ABC):
                 proxy=getattr(self.api_client, "proxy", None),
                 prefer_response_content_type=prefer_response_content_type,
                 return_saved_path=return_saved_path,
+                on_progress=on_progress,
             )
             if not download_result:
                 raise RuntimeError(f"Download failed for {url}")
@@ -813,15 +853,23 @@ class BaseDownloader(ABC):
         candidates: List[Tuple[str, Dict[str, str]]],
         save_path: Path,
         session,
+        *,
+        aweme_id: Optional[str] = None,
     ) -> bool:
         """在候选地址间降级下载视频：每轮按序各尝试一次，整轮失败再退避重试。
 
         play 端点的失败多为 302 落点抽签不走运（PCDN 死节点），重试同一
         URL 有意义；直连地址失败（403/过期）则应换下一候选。按轮扫 +
         RetryHandler 退避兼顾两种失败模式，单候选时行为与旧退避重试一致。
+
+        ``_VIDEO_ITEM_DEADLINE_S`` 是整条作品的兜底时限：候选数 × 重试轮数
+        会把单次超时预算乘起来（旧行为最坏 4 轮 × 4 候选 × 300s ≈ 80 分钟），
+        没有总时限时一条视频就能把整个队列拖死。
         """
         if not candidates:
             return False
+
+        on_progress = self._make_item_progress(aweme_id)
 
         async def _attempt_round() -> bool:
             for url, headers in candidates:
@@ -832,14 +880,47 @@ class BaseDownloader(ABC):
                     headers=headers,
                     optional=True,
                     retry=False,
+                    on_progress=on_progress,
                 ):
                     return True
             raise RuntimeError(
                 f"All {len(candidates)} video url candidate(s) failed for {save_path.name}"
             )
 
+        return await self._run_within_item_deadline(
+            self.retry_handler.execute_with_retry(_attempt_round), save_path
+        )
+
+    def _discard_if_encrypted(self, video_path: Path, aweme_id: Optional[str]) -> bool:
+        """落盘的 mp4 若是 DRM 密文就删掉并判失败。
+
+        付费作品的 ``download_addr`` 是 CENC 加密的全长正片，容器与 NAL
+        分帧都正常（进度条能拖、时长正确），只有 slice 内容是密文，播放
+        器一律花屏无声。密钥只由抖音授权接口下发，留着这份文件既占空间
+        又会让人误以为下载成功。
+        """
+        scheme = detect_mp4_encryption(video_path)
+        if not scheme:
+            return True
+        self._log_download_error(
+            logger.error,
+            f"Aweme {aweme_id}: 下载到的是 {scheme.upper()} 加密流（付费/会员内容），"
+            f"本地无法播放，已删除 {video_path.name}",
+        )
+        video_path.unlink(missing_ok=True)
+        return False
+
+    async def _run_within_item_deadline(self, awaitable, save_path: Path) -> bool:
+        """给单条作品的下载套上兜底总时限，超时/失败一律归为「这条没下成」。"""
         try:
-            return await self.retry_handler.execute_with_retry(_attempt_round)
+            return await asyncio.wait_for(awaitable, timeout=_VIDEO_ITEM_DEADLINE_S)
+        except asyncio.TimeoutError:
+            self._log_download_error(
+                logger.warning,
+                f"Video download deadline ({_VIDEO_ITEM_DEADLINE_S}s) exceeded "
+                f"for {save_path.name}",
+            )
+            return False
         except Exception:
             return False
 
@@ -950,7 +1031,9 @@ class BaseDownloader(ABC):
         if candidates:
             return candidates
 
-        constructed = self._build_signed_play_url(video, play_addr, quality)
+        constructed = self._build_signed_play_url(
+            video, play_addr, quality, paid=is_paid_content(aweme_data)
+        )
         if constructed:
             return [constructed]
         if watermarked_candidate:
@@ -1006,8 +1089,10 @@ class BaseDownloader(ABC):
         video: Dict[str, Any],
         play_addr: Dict[str, Any],
         quality: str,
+        *,
+        paid: bool = False,
     ) -> Optional[Tuple[str, Dict[str, str]]]:
-        uri = play_addr.get("uri") or video.get("vid") or video.get("download_addr", {}).get("uri")
+        uri = self._pick_source_uri(video, play_addr, paid=paid)
         if not uri:
             return None
         # Douyin /aweme/v1/play/ accepts a limited set of ratio strings.
@@ -1057,13 +1142,14 @@ class BaseDownloader(ABC):
         quality = str(self.config.get("video_quality") or "highest").strip().lower()
         if quality != "highest":
             return candidates
+        # 付费作品的 play_addr 就是试看渲染版本身，ratio=default 探到的
+        # 是同一份资产（实测大小逐字节相等），探测只是白搭一次请求；真正
+        # 的「原片」是要不起的 CENC 全长正片，置顶它只会下到一份密文。
+        if is_paid_content(aweme_data):
+            return candidates
         video = aweme_data.get("video") if isinstance(aweme_data.get("video"), dict) else {}
         play_addr = self._pick_preferred_play_addr(video, quality) or {}
-        uri = (
-            play_addr.get("uri")
-            or video.get("vid")
-            or (video.get("download_addr") or {}).get("uri")
-        )
+        uri = self._pick_source_uri(video, play_addr, paid=is_paid_content(aweme_data))
         if not uri:
             return candidates
         probed = await self._probe_original_play_source(
@@ -1148,6 +1234,22 @@ class BaseDownloader(ABC):
         "480p": 854,
         "360p": 640,
     }
+
+    @staticmethod
+    def _pick_source_uri(
+        video: Dict[str, Any], play_addr: Dict[str, Any], *, paid: bool = False
+    ) -> Optional[str]:
+        """挑选构造播放地址用的 vid，付费内容跳过 ``download_addr``。
+
+        付费作品的 ``play_addr`` 与 ``download_addr`` 是转码期生成的两份
+        不同资产：前者明文（试看窗口外画面已被预渲染成模糊、音轨静音），
+        后者是 CENC 加密的全长正片。回退到 download_addr 只会下到一份解
+        不开的密文，还不如就用明文的试看版。
+        """
+        uri = play_addr.get("uri") or video.get("vid")
+        if not uri and not paid:
+            uri = (video.get("download_addr") or {}).get("uri")
+        return uri or None
 
     @staticmethod
     def _find_bit_rate_entry(video: Dict[str, Any], play_addr: Dict[str, Any]) -> Dict[str, Any]:
