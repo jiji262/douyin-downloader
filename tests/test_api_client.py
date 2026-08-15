@@ -177,10 +177,13 @@ def test_homepage_screenshot_playwright_captures_viewport(tmp_path, monkeypatch)
     assert target.read_bytes() == b"png"
     assert captured["context"]["viewport"] == {"width": 1600, "height": 900}
     assert "粉丝" in captured["wait_for_function"]["expression"]
+    # 就绪判定必须覆盖整个视口的图片（含作品网格），只看资料区会在网格还是
+    # 灰块时就放行；与桌面版 inspectHomepageProfileContent 保持一致。
+    assert "document.images" in captured["wait_for_function"]["expression"]
+    assert captured["wait_for_function"]["timeout"] == 45_000
     assert "count >= 3" in captured["wait_for_function"]["expression"]
     assert captured["wait_for_function"]["arg"] == {}
     assert captured["wait_for_function"]["polling"] == 250
-    assert captured["wait_for_function"]["timeout"] == 20_000
     assert "PROFILE_BLOCKED_REASON" in captured["evaluate"]
     assert captured["screenshot"]["full_page"] is False
     assert captured["screenshot"]["type"] == "png"
