@@ -104,11 +104,12 @@ _HOMEPAGE_PROFILE_READY_SCRIPT = r"""(expected) => {
     }).filter(Boolean).sort((left, right) => left.text.length - right.text.length);
     const profile = candidates[0];
     if (!profile) return reset();
-    const images = Array.from(profile.element.querySelectorAll("img")).filter(visible);
+    const images = Array.from(document.images).filter(visible);
     if (images.some((image) => !image.complete)) return reset();
     if (document.fonts && document.fonts.status !== "loaded") return reset();
 
-    const signature = profile.values.join("|");
+    const loaded = images.filter((image) => image.naturalWidth > 0).length;
+    const signature = profile.values.concat(String(loaded)).join("|");
     const previous = window[readyKey];
     const count = previous?.signature === signature ? previous.count + 1 : 1;
     window[readyKey] = {signature, count};
@@ -117,6 +118,8 @@ _HOMEPAGE_PROFILE_READY_SCRIPT = r"""(expected) => {
 _HOMEPAGE_PROFILE_BLOCKED_SCRIPT = (
     "() => String(window.__DOUYIN_HOMEPAGE_PROFILE_BLOCKED_REASON__ || '')"
 )
+# 就绪判定要等到懒加载的作品网格铺完，冷缓存下 20 秒常常不够。
+_HOMEPAGE_PROFILE_READY_TIMEOUT_MS = 45_000
 
 
 class LoginRequiredError(Exception):
@@ -1376,7 +1379,7 @@ class DouyinAPIClient:
                                 _HOMEPAGE_PROFILE_READY_SCRIPT,
                                 arg=profile_expectation,
                                 polling=250,
-                                timeout=min(timeout_ms, 20_000),
+                                timeout=_HOMEPAGE_PROFILE_READY_TIMEOUT_MS,
                             )
                         except Exception as exc:
                             logger.warning(
