@@ -1103,6 +1103,10 @@ class BaseDownloader(ABC):
         selected_ratio = f"{short_edge}p"
         normalised_quality = quality.strip().lower()
         ratio_map = {
+            # original 只是 highest 加一次原画探测；走到签名 play 端点这条
+            # 备用链时两者的 ratio 完全一致。列出来是为了让意图可读——未知
+            # 值本来就 fallback 到 1080p。
+            "original": "1080p",
             "highest": "1080p",
             "lowest": "540p",
         }
@@ -1132,7 +1136,7 @@ class BaseDownloader(ABC):
         candidates: List[Tuple[str, Dict[str, str]]],
         session,
     ) -> List[Tuple[str, Dict[str, str]]]:
-        """highest 画质下探测原画,比所选档大时置顶为首选候选。
+        """original 画质下探测原画,比所选档大时置顶为首选候选。
 
         置顶前必须比较真实大小:存在超分重编码档大于原画的反例(如
         7508597705644985612,档 47.4M > 原画 31.7M),盲选原画会降质。
@@ -1140,7 +1144,10 @@ class BaseDownloader(ABC):
         端点的 PCDN 落点;探测失败时保持原候选链,行为与旧版一致。
         """
         quality = str(self.config.get("video_quality") or "highest").strip().lower()
-        if quality != "highest":
+        # 探测有代价(原片可达转码档 8 倍体积,每条多一次超时上限 10s 的请求),
+        # 所以它是 original 这一档的显式语义,而不是 highest 的隐含行为——
+        # 藏在 highest 里用户既看不见也关不掉。默认值仍是 highest,即默认不探。
+        if quality != "original":
             return candidates
         # 付费作品的 play_addr 就是试看渲染版本身，ratio=default 探到的
         # 是同一份资产（实测大小逐字节相等），探测只是白搭一次请求；真正

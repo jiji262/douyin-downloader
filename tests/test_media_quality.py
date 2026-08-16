@@ -143,6 +143,17 @@ class TestPickPlayAddrByQuality:
         assert best is not None
         assert best["url_list"] == ["https://1080p-width-only/v"]
 
+    def test_original_picks_same_tier_as_highest(self):
+        """original 只是「highest + 探测原画」，挑档阶段必须与 highest 完全一致。
+
+        锁住这条，防止后来者给 _pick_play_addr_by_quality 加 original 分支：
+        未知值落默认分支（最高分辨率）本身就是正确行为。
+        """
+        video = self._three_tier_video()
+        assert BaseDownloader._pick_play_addr_by_quality(
+            video, "original"
+        ) is BaseDownloader._pick_play_addr_by_quality(video, "highest")
+
     def test_lowest_picks_min_bit_rate(self):
         video = self._three_tier_video()
         best = BaseDownloader._pick_play_addr_by_quality(video, "lowest")
