@@ -1539,6 +1539,9 @@ async def test_paid_content_skips_original_quality_probe(tmp_path):
     """付费作品不做 ratio=default 原画探测：探到的是同一份试看资产（实测
     大小逐字节相等），真正的「原片」是要不起的 CENC 全长正片。"""
     downloader, _ = _build_downloader(tmp_path)
+    # 必须显式选 original：默认的 highest 根本不探测，那样这条用例就算删掉
+    # 付费护栏也照样通过——测的是空气。
+    downloader.config.update(video_quality="original")
     aweme = {
         "charge_info": {"is_charge_content": True, "has_paid": False},
         "video": {"play_addr": {"uri": "v0200abc", "data_size": 163679958}},
@@ -1562,6 +1565,7 @@ async def test_paid_content_skips_original_quality_probe(tmp_path):
 async def test_free_content_still_probes_original_quality(tmp_path):
     """免费作品的原画探测行为保持不变。"""
     downloader, _ = _build_downloader(tmp_path)
+    downloader.config.update(video_quality="original")
     aweme = {
         "charge_info": None,
         "video": {"play_addr": {"uri": "v0300abc", "data_size": 1000}},
