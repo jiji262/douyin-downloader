@@ -103,7 +103,7 @@ class TranscriptManager:
         """``transcript.upload_audio_only`` flag (R1.14, default ``True``).
 
         Hidden from the Settings UI by design (R1.18); editable only via
-        ``settings.yml`` or a direct ``PATCH /api/v1/settings`` call so a
+        ``settings.yml`` or a direct ``POST /api/v1/settings`` call so a
         user wandering through the UI can't accidentally disable the
         bandwidth-saving path.
         """

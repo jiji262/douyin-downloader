@@ -1444,7 +1444,6 @@ def test_iter_gallery_items_top_level_image_list(tmp_path):
     asyncio.run(api_client.close())
 
 
-
 def _paid_aweme_without_direct_urls():
     """付费作品：play_addr 无可用直连 URL，只剩 uri 与 download_addr 可构造。"""
     return {
@@ -1496,14 +1495,11 @@ async def test_encrypted_download_is_discarded(tmp_path):
 
     sinf = box(
         b"sinf",
-        box(b"frma", b"avc1")
-        + box(b"schm", b"\x00\x00\x00\x00" + b"cenc" + b"\x00\x01\x00\x00"),
+        box(b"frma", b"avc1") + box(b"schm", b"\x00\x00\x00\x00" + b"cenc" + b"\x00\x01\x00\x00"),
     )
     stsd = box(
         b"stsd",
-        b"\x00\x00\x00\x00"
-        + struct.pack(">I", 1)
-        + box(b"encv", b"\x00" * 78 + sinf),
+        b"\x00\x00\x00\x00" + struct.pack(">I", 1) + box(b"encv", b"\x00" * 78 + sinf),
     )
     moov = box(b"moov", box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", stsd)))))
     video_path = tmp_path / "paid.mp4"
@@ -1532,7 +1528,6 @@ async def test_plaintext_download_is_kept(tmp_path):
 
     assert downloader._discard_if_encrypted(video_path, "123") is True
     assert video_path.exists()
-
 
 
 async def test_paid_content_skips_original_quality_probe(tmp_path):
@@ -1593,8 +1588,7 @@ async def test_encrypted_video_aborts_before_recording_success(tmp_path, monkeyp
 
     sinf = box(
         b"sinf",
-        box(b"frma", b"avc1")
-        + box(b"schm", b"\x00\x00\x00\x00" + b"cenc" + b"\x00\x01\x00\x00"),
+        box(b"frma", b"avc1") + box(b"schm", b"\x00\x00\x00\x00" + b"cenc" + b"\x00\x01\x00\x00"),
     )
     stsd = box(
         b"stsd",
