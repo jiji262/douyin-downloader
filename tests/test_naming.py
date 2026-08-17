@@ -2,7 +2,7 @@
 
 Validates the render + validation contract used by both the downloaders
 (BaseDownloader._download_aweme_assets, MusicDownloader, LiveDownloader) and
-the desktop settings API (PATCH /api/v1/settings).
+the desktop settings API (POST /api/v1/settings).
 """
 
 from __future__ import annotations
