@@ -311,9 +311,7 @@ class TestOriginalPromotion:
         downloader = _build_video_downloader(tmp_path, video_quality="highest")
         aweme = _aweme(gear_size=8_000_000)
         base = downloader._build_video_url_candidates(aweme)
-        session = _prepare(
-            downloader, session_response=_FakeResponse(total_size=70_000_000)
-        )
+        session = _prepare(downloader, session_response=_FakeResponse(total_size=70_000_000))
 
         result = asyncio.run(
             downloader._maybe_promote_original_candidate(aweme, list(base), session)
