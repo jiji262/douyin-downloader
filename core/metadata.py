@@ -66,3 +66,18 @@ def extract_author_sec_uid(aweme: Optional[Mapping[str, Any]]) -> Optional[str]:
         return None
     sec_uid = sec_uid.strip()
     return sec_uid or None
+
+
+def extract_author_nickname(aweme: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """Return ``aweme["author"]["nickname"]`` or ``None`` if unavailable."""
+
+    if not isinstance(aweme, Mapping):
+        return None
+    author = aweme.get("author")
+    if not isinstance(author, Mapping):
+        return None
+    nickname = author.get("nickname")
+    if not isinstance(nickname, str):
+        return None
+    nickname = nickname.strip()
+    return nickname or None

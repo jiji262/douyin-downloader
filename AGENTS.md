@@ -54,6 +54,11 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
   - `utils/proxy.py` — desktop-only policy for following the OS proxy when the app proxy setting is blank; CLI keeps explicit-only proxy semantics.
   - `storage/database.py` — desktop adds TikTok, Following, and My Content schema/helpers; only dependency-neutral database tests remain byte-identical.
   - `tests/test_database_platform.py`, `tests/test_database_desktop_schema.py`, `tests/test_retry_executor.py` — desktop-only tests and not present here.
+  - `local_pipeline/` — CLI production MCP transcript + `_factory` index; not part of Douzy desktop sync.
+  - `core/downloader_base.py` — CLI adds `_after_video_assets_downloaded` MCP hook + factory append; desktop sync must not wipe without porting.
+  - `core/user_downloader.py` — CLI default `collect_use_aweme_author_dir: true` lands collect under each aweme's original author (not `self/…`); daily automation also forces `group_by_mode: false` so paths are `<author>/{date}_{title}_{id}/` with no `collect` layer. Set the flag false to restore feed-owner dirs.
+  - `config/default_config.py` — CLI adds `mcp_transcript` defaults + `collect_use_aweme_author_dir`; keep Douzy built-in `transcript.enabled: false` for production.
+  - `config.automation.yml`, `scripts/daily-favorites.ps1`, `tools/run_mcp_transcript.py`, `tools/merge_daily_config.py` — CLI-only daily ingest path (`group_by_mode: false`, MCP transcript on).
 
 ### Testing Requirements
 - Run: `python -m pytest tests/`
