@@ -20,6 +20,7 @@ from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core import DouyinAPIClient, DownloaderFactory, URLParser
 from server.jobs import JobManager
+from server.resolver import MediaResolveError, resolve_media_urls
 from storage import FileManager
 from utils.logger import setup_logger
 from utils.validators import is_short_url, normalize_short_url
@@ -35,6 +36,13 @@ class JobResponse(BaseModel):
     job_id: str
     status: str
     url: str
+
+
+class ResolveResponse(BaseModel):
+    aweme_id: str
+    title: str
+    media_type: str
+    urls: List[str]
 
 
 class _ServerDeps:
@@ -164,6 +172,16 @@ def build_app(config: ConfigLoader) -> FastAPI:
             raise HTTPException(status_code=400, detail="url is required")
         job = await manager.submit(req.url)
         return JobResponse(job_id=job.job_id, status=job.status, url=job.url)
+
+    @app.post("/api/v1/resolve", response_model=ResolveResponse)
+    async def resolve_media(req: DownloadRequest) -> ResolveResponse:
+        if not req.url:
+            raise HTTPException(status_code=400, detail="url is required")
+        try:
+            result = await resolve_media_urls(req.url, deps)
+        except MediaResolveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        return ResolveResponse(**result)
 
     @app.get("/api/v1/jobs/{job_id}")
     async def get_job(job_id: str) -> Dict[str, Any]:

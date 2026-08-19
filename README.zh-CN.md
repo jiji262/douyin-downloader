@@ -334,9 +334,12 @@ python run.py --serve --serve-port 8000
 | Method | Path | 说明 |
 |--------|------|------|
 | POST | `/api/v1/download` | 提交 `{"url": "..."}`，返回 `{job_id, status}` |
+| POST | `/api/v1/resolve` | 解析单个视频或图集，返回 `{aweme_id, title, media_type, urls}` |
 | GET | `/api/v1/jobs/{job_id}` | 查询指定 job 的状态/计数 |
 | GET | `/api/v1/jobs` | 列出最近的 job（按 TTL + 容量剪裁） |
 | GET | `/api/v1/health` | 健康探针 |
+
+`/api/v1/resolve` 不会保存媒体文件；返回的 CDN URL 有时效，应立即下载。
 
 完成态的 job 会按 TTL（默认 24 小时）+ 最大数量（默认 500）自动剪裁；in-flight 的 job 永不被裁掉。
 可通过 `server.max_jobs` / `server.job_ttl_seconds` 调整。

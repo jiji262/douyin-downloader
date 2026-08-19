@@ -344,9 +344,12 @@ Endpoints:
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/download` | Submit `{"url": "..."}`, returns `{job_id, status}` |
+| POST | `/api/v1/resolve` | Resolve one video or gallery into `{aweme_id, title, media_type, urls}` |
 | GET | `/api/v1/jobs/{job_id}` | Get a specific job's status/counts |
 | GET | `/api/v1/jobs` | List recent jobs (TTL + capacity capped) |
 | GET | `/api/v1/health` | Health probe |
+
+`/api/v1/resolve` does not save media files. Returned CDN URLs are short-lived and should be downloaded immediately.
 
 Finished jobs are pruned by TTL (default 24h) and max-jobs (default 500) — in-flight jobs are never pruned. Configure via `server.max_jobs` / `server.job_ttl_seconds`.
 
