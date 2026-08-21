@@ -59,8 +59,8 @@ _Screenshots were captured from the current desktop `main` build. Demonstration 
 | Concurrent downloads | Configurable concurrency, default 5 |
 | Retry with backoff | Exponential backoff (1s, 2s, 5s) |
 | Rate limiting | Default 2 req/s |
-| SQLite deduplication | Database + local file dual dedup |
-| Incremental downloads | `increase.post/like/mix/music` |
+| SQLite history | Records download metadata; does not decide incremental skips |
+| Incremental downloads | Disk-based skip/redownload via `increase.post/like/mix/music` |
 | Time filters | `start_time` / `end_time` |
 | Browser fallback | Launches browser when pagination is blocked, manual CAPTCHA supported |
 | Download integrity check | Content-Length validation, auto-cleanup of incomplete files |
@@ -373,13 +373,19 @@ notifications:
 All enabled providers are notified in parallel; a failing provider never blocks the download flow.
 
 
-### Incremental download (only new items)
+### Incremental download (disk-based)
 
 ```yaml
 increase:
   post: true
-database: true    # incremental mode requires database
 ```
+
+With `true`, the downloader skips an item only when its non-empty primary media
+already exists under the current download directory. Deleting the media file makes
+the next run download it again; SQLite history does not affect this decision.
+
+Set a mode to `false` to redownload and atomically replace existing files within the
+current number/date/media filters.
 
 ### Full crawl (no item limit)
 
@@ -441,7 +447,7 @@ pytest -q
 |-------|-------------|
 | `mode` | Supports `post`/`like`/`mix`/`music`; logged-in favorites mode additionally supports standalone `collect`/`collectmix` |
 | `number.post/like/mix/music/collect/collectmix` | Per-mode download limit, 0 = unlimited |
-| `increase.post/like/mix/music` | Per-mode incremental toggle |
+| `increase.post/like/mix/music` | `true`: skip existing primary media on disk; `false`: redownload and overwrite current scope |
 | `start_time` / `end_time` | Time filter (format: `YYYY-MM-DD`) |
 | `folderstyle` | Create per-item subdirectories |
 | `browser_fallback.*` | Browser fallback for `post` when pagination is restricted |

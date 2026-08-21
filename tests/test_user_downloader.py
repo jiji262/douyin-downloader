@@ -111,10 +111,11 @@ def _build_downloader(
     number_post: int = 0,
     homepage_screenshot: bool = False,
     author_dir: str = "nickname",
+    increase_post: bool = True,
 ) -> UserDownloader:
     config_data = {
         "number": {"post": number_post},
-        "increase": {"post": False},
+        "increase": {"post": increase_post},
         "mode": ["post"],
         "thread": 2,
         "homepage_screenshot": homepage_screenshot,
@@ -141,6 +142,64 @@ def _build_downloader(
     )
     downloader.progress_reporter = progress_reporter
     return downloader
+
+
+def test_increment_disabled_redownloads_existing_item(tmp_path, monkeypatch):
+    aweme_id = "7412345678901234567"
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        increase_post=False,
+    )
+    media_path = tmp_path / "Downloaded" / f"2026-08-21_demo_{aweme_id}.mp4"
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"existing-media")
+    downloaded_ids: List[str] = []
+
+    async def _record_download(item, *_args, **_kwargs):
+        downloaded_ids.append(str(item.get("aweme_id")))
+        return True
+
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _record_download)
+
+    result = asyncio.run(
+        downloader._download_mode_items(
+            "post",
+            [_make_aweme(aweme_id)],
+            "tester",
+        )
+    )
+
+    assert downloaded_ids == [aweme_id]
+    assert result.success == 1
+    assert result.skipped == 0
+
+
+def test_unconfigured_mode_keeps_disk_dedupe(tmp_path, monkeypatch):
+    aweme_id = "7412345678901234568"
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+    downloader.config._data["increase"] = {}
+    media_path = tmp_path / "Downloaded" / f"2026-08-21_demo_{aweme_id}.mp4"
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"existing-media")
+
+    async def _unexpected_download(*_args, **_kwargs):
+        raise AssertionError("unconfigured modes must keep disk dedupe")
+
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _unexpected_download)
+
+    result = asyncio.run(
+        downloader._download_mode_items(
+            "collect",
+            [_make_aweme(aweme_id)],
+            "tester",
+        )
+    )
+
+    assert result.skipped == 1
+    assert result.success == 0
 
 
 def test_user_post_browser_fallback_recovers_missing_pages(tmp_path, monkeypatch):
@@ -309,7 +368,7 @@ def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):
         progress_reporter=reporter,
     )
 
-    async def _fake_should_download(aweme_id):
+    async def _fake_should_download(aweme_id, **_kwargs):
         return aweme_id != "222"
 
     async def _fake_download_aweme_assets(item, *_args, **_kwargs):

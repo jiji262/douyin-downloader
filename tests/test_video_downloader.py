@@ -94,6 +94,37 @@ async def test_video_downloader_skip_counts_total(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_new_downloader_rescans_disk_after_external_file_deletion(tmp_path):
+    aweme_id = "7412345678901234567"
+    media_path = tmp_path / f"2026-08-21_demo_{aweme_id}.mp4"
+    media_path.write_bytes(b"existing-media")
+
+    first, first_api = _build_downloader(tmp_path)
+    assert await first._should_download(aweme_id) is False
+
+    media_path.unlink()
+    second, second_api = _build_downloader(tmp_path)
+    assert await second._should_download(aweme_id) is True
+
+    await first_api.close()
+    await second_api.close()
+
+
+@pytest.mark.asyncio
+async def test_disk_check_does_not_query_download_history(tmp_path):
+    class _HistoryDatabase:
+        async def is_downloaded(self, _aweme_id):
+            raise AssertionError("disk is the only incremental skip source")
+
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.database = _HistoryDatabase()
+
+    assert await downloader._should_download("7412345678901234567") is True
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_video_downloader_reports_item_progress(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
     reporter = _FakeProgressReporter()
