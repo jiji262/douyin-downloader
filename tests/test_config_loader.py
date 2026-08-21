@@ -3,6 +3,18 @@ import pytest
 from config import ConfigLoader
 
 
+def test_incremental_download_defaults_to_disk_dedupe_for_supported_modes():
+    loader = ConfigLoader()
+
+    assert loader.get("increase") == {
+        "post": True,
+        "like": True,
+        "allmix": True,
+        "mix": True,
+        "music": True,
+    }
+
+
 def test_config_loader_merges_file_and_defaults(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yml"
     config_file.write_text(
@@ -281,7 +293,7 @@ path: ./Downloaded/
         ({"allmix": 7}, {"allmix": True}, 7, True, False),
         ({"mix": 8, "allmix": 8}, {"mix": False, "allmix": False}, 8, False, False),
         ({"mix": 5, "allmix": 3}, {"mix": False, "allmix": True}, 5, False, True),
-        ({}, {}, 0, False, False),
+        ({}, {}, 0, True, False),
     ],
 )
 def test_config_loader_normalizes_mix_aliases(

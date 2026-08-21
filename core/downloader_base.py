@@ -32,14 +32,6 @@ from utils.paid_content import (
 
 logger = setup_logger("BaseDownloader")
 
-# 进程级本地作品索引缓存（按下载根目录）。批量任务会为每个 job 新建
-# downloader 实例，没有缓存时每个 job 首次下载前都要 rglob 全库一遍。
-# 同一根目录的所有实例共享同一个集合对象，_mark_local_aweme_downloaded
-# 的增量更新对后续 job 立即可见。缓存伴随进程存活：会话期间在应用外
-# 手动删除的文件要到进程重启后才会被重新检测（与原先单 job 内的索引
-# 是同一权衡，只是范围从单 job 扩大到进程）。
-_LOCAL_AWEME_INDEX_CACHE: Dict[str, set[str]] = {}
-
 # 单条视频的兜底总时限。单次请求的 total 超时（storage.file_manager 里的
 # 300s）只约束一次尝试，而 _download_video_with_fallback 会「候选数 × 重试
 # 轮数」地把它乘起来：4 轮 × 4 候选最坏能挂 80 分钟，整个队列跟着停摆。
@@ -240,24 +232,12 @@ class BaseDownloader(ABC):
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         pass
 
-    async def _should_download(self, aweme_id: str) -> bool:
-        await self._ensure_local_aweme_index()
-        in_local = self._is_locally_downloaded(aweme_id)
-        in_db = False
-        if self.database:
-            in_db = await self.database.is_downloaded(aweme_id)
-
-        if in_db and in_local:
-            return False
-
-        if in_db and not in_local:
-            logger.info(
-                "Aweme %s exists in database but media file not found locally, retry download",
-                aweme_id,
-            )
+    async def _should_download(self, aweme_id: str, *, force: bool = False) -> bool:
+        if force:
             return True
 
-        if in_local:
+        await self._ensure_local_aweme_index()
+        if self._is_locally_downloaded(aweme_id):
             logger.info("Aweme %s already exists locally, skipping", aweme_id)
             return False
 
@@ -294,12 +274,6 @@ class BaseDownloader(ABC):
 
     def _build_local_aweme_index(self):
         base_path = self.file_manager.base_path
-        cache_key = str(base_path.resolve())
-        cached = _LOCAL_AWEME_INDEX_CACHE.get(cache_key)
-        if cached is not None:
-            self._local_aweme_ids = cached
-            return
-
         aweme_ids: set[str] = set()
 
         if base_path.exists():
@@ -323,18 +297,15 @@ class BaseDownloader(ABC):
                     aweme_ids.add(match.group(1))
 
         self._local_aweme_ids = aweme_ids
-        _LOCAL_AWEME_INDEX_CACHE[cache_key] = aweme_ids
 
     def _mark_local_aweme_downloaded(self, aweme_id: str):
         if not aweme_id:
             return
 
         if self._local_aweme_ids is None:
-            # 绑定共享缓存集合后再标记。retry_executor 直接调用
-            # _download_aweme_assets（不经过 _should_download），此时索引
-            # 还未建；若落入实例私有集合，id 进不了进程级缓存，同进程的
-            # 后续 job 会把该作品当缺失重新下载。缓存命中时这里是纯字典
-            # 查找，零额外成本。
+            # retry_executor 直接调用 _download_aweme_assets（不经过
+            # _should_download），此时索引还未建；先建立本任务的索引，
+            # 再把刚下载的作品加入其中。
             self._build_local_aweme_index()
         if self._local_aweme_ids is None:  # pragma: no cover — 防御
             self._local_aweme_ids = set()

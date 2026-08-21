@@ -364,10 +364,19 @@ class UserDownloader(BaseDownloader):
         # Accumulate per-aweme DB records and flush in a single transaction
         # at the end — avoids one fsync per item across the whole batch.
         db_batch: Optional[List[Dict[str, Any]]] = [] if self.database else None
+        increase_config = self.config.get("increase", {})
+        force_download = (
+            isinstance(increase_config, dict)
+            and mode in increase_config
+            and not bool(increase_config.get(mode))
+        )
 
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
-            if not await self._should_download(str(aweme_id or "")):
+            if not await self._should_download(
+                str(aweme_id or ""),
+                force=force_download,
+            ):
                 saved = await self._collect_comments_for_existing_aweme(
                     item,
                     author_name,
