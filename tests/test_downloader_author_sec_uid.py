@@ -34,6 +34,7 @@ from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
+from core.live_replay_downloader import LiveReplayDownloader
 from core.metadata import extract_author_sec_uid
 from core.music_downloader import MusicDownloader
 from core.video_downloader import VideoDownloader
@@ -341,6 +342,81 @@ async def test_music_downloader_persists_null_when_sec_uid_missing(tmp_path, mon
 
         row = await _fetch_db_row(db, "music_7601")
         assert row is not None
+        assert row["author_sec_uid"] is None
+    finally:
+        await db.close()
+
+
+# ---------------------------------------------------------------------------
+# 4. LiveReplayDownloader — the third `add_aweme` call site
+#
+# This path used to hard-code `"author_sec_uid": ""`, so replay rows landed as
+# an empty string while every other downloader wrote NULL for "unknown". The
+# column is documented as NULL-when-absent (R12.12) and `extract_author_sec_uid`
+# collapses empty/whitespace to None precisely so consumers can treat the two
+# identically — a literal "" broke that contract.
+# ---------------------------------------------------------------------------
+def _build_live_replay_downloader(tmp_path, database: Database):
+    config = ConfigLoader()
+    config.update(path=str(tmp_path))
+    api_client = DouyinAPIClient({})
+    downloader = LiveReplayDownloader(
+        config,
+        api_client,
+        FileManager(str(tmp_path)),
+        CookieManager(str(tmp_path / ".cookies.json")),
+        database=database,
+        rate_limiter=RateLimiter(max_per_second=5),
+        retry_handler=RetryHandler(max_retries=1),
+        queue_manager=QueueManager(max_workers=1),
+    )
+    return downloader, api_client
+
+
+async def _record_replay(tmp_path, db: Database, episode_id: str, owner: Dict[str, Any]):
+    downloader, api_client = _build_live_replay_downloader(tmp_path, db)
+    output = tmp_path / f"{episode_id}.mp4"
+    output.write_bytes(b"stub")
+    episode = {
+        "id": episode_id,
+        "title": "回放",
+        "start_time": 1707303025,
+        "owner": owner,
+    }
+    await downloader._record_outputs(
+        episode, {"title": "回放"}, episode_id, "room-1", tmp_path, [output], "ok"
+    )
+    await api_client.close()
+
+
+async def test_live_replay_persists_author_sec_uid_when_present(tmp_path):
+    db = Database(db_path=str(tmp_path / "test.db"))
+    await db.initialize()
+    try:
+        await _record_replay(
+            tmp_path,
+            db,
+            "ep-with-sec-uid",
+            {"nickname": "主播甲", "id": "owner-1", "sec_uid": "SEC_REPLAY"},
+        )
+
+        row = await _fetch_db_row(db, "ep-with-sec-uid")
+        assert row is not None
+        assert row["author_sec_uid"] == "SEC_REPLAY"
+        assert row["author_id"] == "owner-1"
+    finally:
+        await db.close()
+
+
+async def test_live_replay_persists_null_when_owner_has_no_sec_uid(tmp_path):
+    db = Database(db_path=str(tmp_path / "test.db"))
+    await db.initialize()
+    try:
+        await _record_replay(tmp_path, db, "ep-no-sec-uid", {"nickname": "主播乙"})
+
+        row = await _fetch_db_row(db, "ep-no-sec-uid")
+        assert row is not None
+        # NULL, not "" — matches the video and music paths.
         assert row["author_sec_uid"] is None
     finally:
         await db.close()
