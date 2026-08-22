@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.ffmpeg import resolve_ffmpeg_path
+from core.metadata import build_author_home_url, extract_author_sec_uid
 from utils.logger import setup_logger
 from utils.naming import (
     DEFAULT_FILE_TEMPLATE,
@@ -300,6 +301,13 @@ class LiveReplayDownloader(BaseDownloader):
         title = str(replay.get("title") or episode.get("title") or "直播回放")
         owner = episode.get("owner") if isinstance(episode.get("owner"), dict) else {}
         author_name = str(owner.get("nickname") or "unknown")
+        # `owner` is the author block for a replay episode; reuse the shared
+        # extractor so the trim / type defences stay in one place. Live replay
+        # payloads have not been observed carrying sec_uid, so this usually
+        # resolves to None — the DB column then stores NULL (same as the video
+        # and music paths) and the manifest records "" like any other unknown
+        # author.
+        owner_sec_uid = extract_author_sec_uid({"author": owner})
         metadata_json = json.dumps(
             {"episode": episode, "replay": replay, "remux_status": remux_status},
             ensure_ascii=False,
@@ -315,7 +323,7 @@ class LiveReplayDownloader(BaseDownloader):
                     "create_time": int(self._started_at(episode).timestamp()),
                     "file_path": str(save_dir),
                     "metadata": metadata_json,
-                    "author_sec_uid": "",
+                    "author_sec_uid": owner_sec_uid,
                     "cover_urls": json.dumps([]),
                     "job_id": self.job_id or "",
                 }
@@ -326,6 +334,8 @@ class LiveReplayDownloader(BaseDownloader):
                 "date": self._started_at(episode).strftime("%Y-%m-%d_%H%M"),
                 "aweme_id": episode_id,
                 "author_name": author_name,
+                "author_sec_uid": owner_sec_uid or "",
+                "author_url": build_author_home_url(owner_sec_uid) or "",
                 "desc": title,
                 "media_type": "live_replay",
                 "mode": "live_replay",

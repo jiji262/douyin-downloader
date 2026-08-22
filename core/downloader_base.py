@@ -13,7 +13,11 @@ from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
-from core.metadata import extract_author_sec_uid, extract_video_cover_urls
+from core.metadata import (
+    build_author_home_url,
+    extract_author_sec_uid,
+    extract_video_cover_urls,
+)
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
 from storage.database import order_cover_mirrors
@@ -740,10 +744,19 @@ class BaseDownloader(ABC):
             else:
                 await self.database.add_aweme(record)
 
+        # Same precedence as `_build_aweme_file_context`: a sec_uid the caller
+        # resolved from the profile URL outranks the payload's author block,
+        # which the upstream API sometimes trims.
+        manifest_sec_uid = author_sec_uid or extract_author_sec_uid(aweme_data)
         manifest_record = {
             "date": publish_date,
             "aweme_id": aweme_id,
             "author_name": author.get("nickname", author_name),
+            # Fixed schema — always present, "" when unknown — so manifest
+            # consumers never branch on a missing key. `author_name` alone
+            # cannot survive a nickname change or a collision.
+            "author_sec_uid": manifest_sec_uid or "",
+            "author_url": build_author_home_url(manifest_sec_uid) or "",
             "desc": desc,
             "media_type": media_type,
             "tags": self._extract_tags(aweme_data),
