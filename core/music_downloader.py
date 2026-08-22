@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from core.downloader_base import BaseDownloader, DownloadResult
-from core.metadata import extract_author_sec_uid
+from core.metadata import build_author_home_url, extract_author_sec_uid
 from utils.logger import setup_logger
 from utils.naming import (
     DEFAULT_FILE_TEMPLATE,
@@ -164,6 +164,7 @@ class MusicDownloader(BaseDownloader):
                 detail or {"music_id": music_id}, save_dir / f"{file_stem}_data.json"
             )
 
+        author_sec_uid = extract_author_sec_uid(detail)
         if self.database:
             await self.database.add_aweme(
                 {
@@ -177,7 +178,7 @@ class MusicDownloader(BaseDownloader):
                     "metadata": json.dumps(detail or {}, ensure_ascii=False),
                     "job_id": self.job_id or "",
                 },
-                author_sec_uid=extract_author_sec_uid(detail),
+                author_sec_uid=author_sec_uid,
             )
 
         await self.metadata_handler.append_download_manifest(
@@ -186,6 +187,8 @@ class MusicDownloader(BaseDownloader):
                 "date": publish_date,
                 "aweme_id": record_id,
                 "author_name": author_name,
+                "author_sec_uid": author_sec_uid or "",
+                "author_url": build_author_home_url(author_sec_uid) or "",
                 "desc": title,
                 "media_type": "music",
                 "file_names": [music_path.name],
