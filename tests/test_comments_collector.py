@@ -21,6 +21,33 @@ class _FakeAPIClient:
         return self._pages.pop(0)
 
 
+class _ReplyAPIClient:
+    def __init__(self, reply_page=None, reply_error=None):
+        self.reply_page = reply_page
+        self.reply_error = reply_error
+        self.reply_calls = []
+
+    async def get_aweme_comments(self, aweme_id, *, cursor, count, include_replies):
+        assert include_replies is False
+        return {
+            "items": [
+                {
+                    "cid": "root-1",
+                    "text": "root",
+                    "reply_comment_total": 1,
+                }
+            ],
+            "has_more": False,
+            "max_cursor": 0,
+        }
+
+    async def get_aweme_comment_replies(self, *, aweme_id, comment_id, cursor, count):
+        self.reply_calls.append((aweme_id, comment_id, cursor, count))
+        if self.reply_error is not None:
+            raise self.reply_error
+        return self.reply_page
+
+
 @pytest.mark.asyncio
 async def test_collector_paginates_until_no_more(tmp_path):
     api = _FakeAPIClient(
@@ -118,3 +145,261 @@ async def test_collector_returns_none_on_api_error(tmp_path):
     payload = await collector.collect_and_save("E1", out)
     assert payload is None
     assert not out.exists()
+
+
+@pytest.mark.asyncio
+async def test_collector_flattens_api_replies_with_parent_id(tmp_path):
+    api = _ReplyAPIClient(
+        reply_page={
+            "items": [{"cid": "reply-1", "text": "reply"}],
+            "has_more": False,
+            "max_cursor": 0,
+        }
+    )
+    collector = CommentsCollector(
+        api,
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    assert [item["cid"] for item in payload["comments"]] == ["root-1", "reply-1"]
+    assert payload["comments"][0]["parent_comment_id"] == ""
+    assert payload["comments"][1]["parent_comment_id"] == "root-1"
+    assert payload["reply_api_attempted"] == 1
+    assert payload["reply_browser_fallback_attempted"] == 0
+
+
+@pytest.mark.asyncio
+async def test_collector_uses_browser_fallback_after_reply_api_failure(tmp_path):
+    class _ReplyFailure(RuntimeError):
+        error_code = "reply_response_invalid"
+
+    api = _ReplyAPIClient(reply_error=_ReplyFailure("empty"))
+    fallback_calls = []
+
+    async def _fallback(aweme_id, content_url, failed, per_comment, remaining):
+        fallback_calls.append((aweme_id, content_url, failed, per_comment, remaining))
+        return {
+            "replies": [
+                {
+                    "cid": "reply-1",
+                    "text": "browser reply",
+                    "parent_comment_id": "root-1",
+                }
+            ]
+        }
+
+    collector = CommentsCollector(
+        api,
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+        reply_browser_fallback=_fallback,
+    )
+    collector.set_content_url("A1", "https://www.douyin.com/video/123")
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    assert [item["cid"] for item in payload["comments"]] == ["root-1", "reply-1"]
+    assert fallback_calls[0][0:2] == ("A1", "https://www.douyin.com/video/123")
+    assert fallback_calls[0][2][0]["error_code"] == "reply_response_invalid"
+    assert payload["reply_browser_fallback_attempted"] == 1
+    assert payload["reply_browser_fallback_succeeded"] == 1
+
+
+@pytest.mark.asyncio
+async def test_collector_keeps_top_level_when_reply_fallback_fails(tmp_path):
+    class _ReplyFailure(RuntimeError):
+        error_code = "reply_login_required"
+
+    api = _ReplyAPIClient(reply_error=_ReplyFailure("login"))
+
+    async def _fallback(*_args):
+        return {"failures": [{"error_code": "reply_login_required"}]}
+
+    collector = CommentsCollector(
+        api,
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+        reply_browser_fallback=_fallback,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    assert [item["cid"] for item in payload["comments"]] == ["root-1"]
+    assert payload["reply_failures"] == [{"error_code": "reply_login_required"}]
+    assert payload["reply_browser_fallback_failed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_collector_deduplicates_reply_ids_and_honors_limits(tmp_path):
+    class _PagedReplyAPI(_ReplyAPIClient):
+        def __init__(self):
+            super().__init__()
+            self.pages = [
+                {
+                    "items": [{"cid": "reply-1"}, {"cid": "reply-2"}],
+                    "has_more": True,
+                    "max_cursor": 2,
+                },
+                {
+                    "items": [{"cid": "reply-2"}, {"cid": "reply-3"}],
+                    "has_more": False,
+                    "max_cursor": 3,
+                },
+            ]
+
+        async def get_aweme_comment_replies(self, **kwargs):
+            self.reply_calls.append(kwargs)
+            return self.pages.pop(0)
+
+    api = _PagedReplyAPI()
+    collector = CommentsCollector(
+        api,
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=2,
+        max_replies_per_content=2,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    assert [item["cid"] for item in payload["comments"]] == ["root-1", "reply-1", "reply-2"]
+    assert payload["replies_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_browser_fallback_enforces_parent_limit_dedup_and_parent_allowlist(
+    tmp_path,
+):
+    class _ReplyFailure(RuntimeError):
+        error_code = "reply_response_invalid"
+
+    api = _ReplyAPIClient(reply_error=_ReplyFailure("empty"))
+
+    async def _fallback(*_args):
+        replies = [
+            {
+                "cid": f"reply-{index}",
+                "parent_comment_id": "root-1",
+            }
+            for index in range(25)
+        ]
+        replies.extend(
+            [
+                {"cid": "reply-0", "parent_comment_id": "root-1"},
+                {"cid": "outside-1", "parent_comment_id": "not-failed"},
+            ]
+        )
+        return {"replies": replies}
+
+    collector = CommentsCollector(
+        api,
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+        reply_browser_fallback=_fallback,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    replies = [
+        item for item in payload["comments"] if item["parent_comment_id"]
+    ]
+    assert len(replies) == 20
+    assert {item["parent_comment_id"] for item in replies} == {"root-1"}
+    assert len({item["cid"] for item in replies}) == 20
+    assert payload["replies_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_browser_fallback_honors_content_limit_after_api_replies(tmp_path):
+    class _MixedReplyAPI:
+        async def get_aweme_comments(
+            self, aweme_id, *, cursor, count, include_replies
+        ):
+            return {
+                "items": [
+                    {
+                        "cid": "api-root",
+                        "reply_comment_total": 10,
+                    },
+                    *[
+                        {
+                            "cid": f"failed-root-{index}",
+                            "reply_comment_total": 20,
+                        }
+                        for index in range(11)
+                    ],
+                ],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+        async def get_aweme_comment_replies(
+            self, *, aweme_id, comment_id, cursor, count
+        ):
+            if comment_id == "api-root":
+                return {
+                    "items": [
+                        {
+                            "cid": f"api-reply-{index}",
+                            "parent_comment_id": "api-root",
+                        }
+                        for index in range(10)
+                    ],
+                    "has_more": False,
+                    "max_cursor": 0,
+                }
+            error = RuntimeError("empty")
+            error.error_code = "reply_response_invalid"
+            raise error
+
+    async def _fallback(*_args):
+        return {
+            "replies": [
+                {
+                    "cid": f"browser-reply-{parent}-{index}",
+                    "parent_comment_id": f"failed-root-{parent}",
+                }
+                for parent in range(11)
+                for index in range(20)
+            ]
+        }
+
+    collector = CommentsCollector(
+        _MixedReplyAPI(),
+        MetadataHandler(),
+        include_replies=True,
+        max_replies_per_comment=20,
+        max_replies_per_content=200,
+        reply_browser_fallback=_fallback,
+    )
+
+    payload = await collector.collect_and_save("A1", tmp_path / "out.json")
+
+    assert payload is not None
+    replies = [
+        item for item in payload["comments"] if item["parent_comment_id"]
+    ]
+    assert len(replies) == 200
+    parent_counts = {}
+    for reply in replies:
+        parent_id = reply["parent_comment_id"]
+        parent_counts[parent_id] = parent_counts.get(parent_id, 0) + 1
+    assert all(count <= 20 for count in parent_counts.values())
+    assert len({item["cid"] for item in replies}) == 200
+    assert payload["replies_truncated"] is True
