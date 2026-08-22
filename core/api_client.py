@@ -251,9 +251,19 @@ class DouyinAPIClient:
         "login_time",
     }
 
-    def __init__(self, cookies: Dict[str, str], proxy: Optional[str] = None):
+    def __init__(
+        self,
+        cookies: Dict[str, str],
+        proxy: Optional[str] = None,
+        page_bridge: Optional[Any] = None,
+    ):
         self.cookies = sanitize_cookies(cookies or {})
         self.proxy = str(proxy or "").strip()
+        # 桌面版注入的页面签名通道(core/page_bridge.py,desktop-only)。为 None 时
+        # 所有端点走 aiohttp——CLI 姊妹仓永远是 None。鸭子类型:只要求
+        # ``await fetch(path, params, method=, data=)`` 返回带 http_status/body/text
+        # 的对象,失败异常带 ``page_bridge_code``。
+        self.page_bridge = page_bridge
         self._session: Optional[aiohttp.ClientSession] = None
         self._browser_post_aweme_items: Dict[str, Dict[str, Any]] = {}
         self._browser_post_stats: Dict[str, int] = {}
@@ -548,6 +558,61 @@ class DouyinAPIClient:
         )
         return {}
 
+    async def _request_json_gated(
+        self,
+        path: str,
+        params: Dict[str, Any],
+        *,
+        method: str = "GET",
+        data: Optional[Dict[str, Any]] = None,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """被 ArgusSecurityPlugin 门禁的端点入口。
+
+        有 ``page_bridge`` 时交给 Electron 隐藏登录窗口发(页面 SDK 补
+        uifid / timestamp / x-secsdk-web-signature),否则与 ``_request_json``
+        完全一致。经 bridge 的 403/429 不重试:Argus 拒绝是确定性的,重试只会
+        加速触发验证码。
+        """
+        if self.page_bridge is None:
+            return await self._request_json(
+                path, params, method=method, data=data, request_headers=request_headers
+            )
+        started = time.monotonic()
+        logger.info(
+            "Douyin API request via page bridge: path=%s method=%s param_keys=%s",
+            path,
+            method.upper(),
+            ",".join(sorted(str(key) for key in params)),
+        )
+        try:
+            result = await self.page_bridge.fetch(path, params, method=method.upper(), data=data)
+        except Exception as exc:
+            if getattr(exc, "page_bridge_code", None) == "NOT_LOGGED_IN":
+                raise LoginRequiredError(0, "page bridge: not logged in", path) from exc
+            raise
+        status = int(getattr(result, "http_status", 0) or 0)
+        text = str(getattr(result, "text", "") or "")
+        if status == 200:
+            body = getattr(result, "body", None)
+            payload = body if isinstance(body, dict) else {}
+            _log_api_response(path, 0, 1, text.encode("utf-8", "replace"), payload, started)
+            if _is_login_required(payload):
+                raise LoginRequiredError(
+                    int(payload.get("status_code") or 0),
+                    str(payload.get("status_msg") or ""),
+                    path,
+                )
+            return payload
+        logger.error(
+            "Douyin API HTTP failure via page bridge: path=%s status=%s duration_ms=%d body=%r",
+            path,
+            status,
+            _elapsed_ms(started),
+            text[:80],
+        )
+        return {}
+
     @staticmethod
     def _normalize_paged_response(
         raw_data: Any,
@@ -690,7 +755,7 @@ class DouyinAPIClient:
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
     ) -> Dict[str, Any]:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
-        raw = await self._request_json("/aweme/v1/web/aweme/favorite/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/aweme/favorite/", params)
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def get_user_mix(
@@ -784,7 +849,7 @@ class DouyinAPIClient:
                 "version_name": "17.4.0",
             }
         )
-        raw = await self._request_json(
+        raw = await self._request_json_gated(
             "/aweme/v1/web/aweme/listcollection/",
             params,
             method="POST",
@@ -804,7 +869,7 @@ class DouyinAPIClient:
             return self._normalize_paged_response({}, item_keys=["collects_list"], source="api")
 
         params = await self._build_collect_page_params(max_cursor, count)
-        raw = await self._request_json("/aweme/v1/web/collects/list/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/collects/list/", params)
         return self._normalize_paged_response(raw, item_keys=["collects_list"])
 
     async def get_collect_aweme(
@@ -812,7 +877,7 @@ class DouyinAPIClient:
     ) -> Dict[str, Any]:
         params = await self._build_collect_page_params(max_cursor, count)
         params.update({"collects_id": collects_id})
-        raw = await self._request_json("/aweme/v1/web/collects/video/list/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/collects/video/list/", params)
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def get_user_collect_mix(
@@ -823,7 +888,7 @@ class DouyinAPIClient:
             return self._normalize_paged_response({}, item_keys=["mix_infos"], source="api")
 
         params = await self._build_collect_page_params(max_cursor, count)
-        raw = await self._request_json("/aweme/v1/web/mix/listcollection/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/mix/listcollection/", params)
         return self._normalize_paged_response(raw, item_keys=["mix_infos"])
 
     async def get_user_info(self, sec_uid: str) -> Optional[Dict[str, Any]]:

@@ -548,7 +548,7 @@ async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
     client = DouyinAPIClient({"msToken": "token-1"})
     called_requests = []
 
-    async def _fake_request_json(path, params, suppress_error=False):
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
         called_requests.append((path, dict(params)))
         return {"status_code": 0, "aweme_list": [], "has_more": 0, "max_cursor": 0}
 
@@ -853,3 +853,130 @@ async def test_get_video_detail_returns_on_first_success():
     assert detail is not None
     assert detail["aweme_id"] == "456"
     assert call_count == 1  # no retry needed
+
+
+# ---------------------------------------------------------------------------
+# Page bridge routing (desktop injects a bridge; CLI never does)
+# ---------------------------------------------------------------------------
+
+
+class _BridgeResult:
+    def __init__(self, http_status, body, text=""):
+        self.http_status = http_status
+        self.body = body
+        self.text = text
+
+
+class _BridgeFailure(Exception):
+    def __init__(self, code):
+        super().__init__(f"page bridge {code}")
+        self.page_bridge_code = code
+
+
+class _FakeBridge:
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.calls = []
+
+    async def fetch(self, path, params, *, method="GET", data=None):
+        self.calls.append({"path": path, "params": dict(params), "method": method, "data": data})
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+_GATED_CALLS = [
+    ("get_user_like", ("sec-1",), "/aweme/v1/web/aweme/favorite/", "GET"),
+    ("get_user_collection", ("self",), "/aweme/v1/web/aweme/listcollection/", "POST"),
+    ("get_user_collects", ("self",), "/aweme/v1/web/collects/list/", "GET"),
+    ("get_collect_aweme", ("folder-1",), "/aweme/v1/web/collects/video/list/", "GET"),
+    ("get_user_collect_mix", ("self",), "/aweme/v1/web/mix/listcollection/", "GET"),
+]
+
+
+@pytest.mark.parametrize("method_name,args,path,http_method", _GATED_CALLS)
+async def test_gated_methods_use_page_bridge_when_present(method_name, args, path, http_method):
+    bridge = _FakeBridge(_BridgeResult(200, {"status_code": 0, "aweme_list": [], "has_more": 0}))
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+
+    async def _must_not_run(*_a, **_k):
+        raise AssertionError("aiohttp path must not be used when a bridge is injected")
+
+    client._request_json = _must_not_run
+    await getattr(client, method_name)(*args)
+    assert len(bridge.calls) == 1
+    assert bridge.calls[0]["path"] == path
+    assert bridge.calls[0]["method"] == http_method
+    if http_method == "POST":
+        assert bridge.calls[0]["data"] == {"count": 20, "cursor": 0}
+    await client.close()
+
+
+async def test_gated_methods_fall_back_to_request_json_without_bridge():
+    client = DouyinAPIClient({"msToken": "t"})
+    seen = []
+
+    async def _fake_request_json(path, params, **kwargs):
+        seen.append((path, kwargs.get("method", "GET")))
+        return {"status_code": 0, "aweme_list": []}
+
+    client._request_json = _fake_request_json
+    await client.get_user_like("sec-1")
+    await client.get_user_collection("self")
+    assert seen == [("/aweme/v1/web/aweme/favorite/", "GET"), ("/aweme/v1/web/aweme/listcollection/", "POST")]
+    await client.close()
+
+
+async def test_non_gated_methods_never_touch_the_bridge():
+    bridge = _FakeBridge(_BridgeResult(200, {"status_code": 0}))
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+
+    async def _fake_request_json(path, params, **kwargs):
+        return {"status_code": 0, "aweme_list": [], "has_more": 0}
+
+    client._request_json = _fake_request_json
+    await client.get_user_post("sec-1")
+    await client.get_mix_aweme("mix-1")
+    assert bridge.calls == []
+    await client.close()
+
+
+async def test_bridge_login_required_body_raises_login_required_error():
+    from core.api_client import LoginRequiredError
+
+    bridge = _FakeBridge(_BridgeResult(200, {"status_code": 8, "status_msg": "用户未登录"}))
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+    with pytest.raises(LoginRequiredError):
+        await client.get_user_like("sec-1")
+    await client.close()
+
+
+async def test_bridge_not_logged_in_maps_to_login_required_error():
+    from core.api_client import LoginRequiredError
+
+    bridge = _FakeBridge(error=_BridgeFailure("NOT_LOGGED_IN"))
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+    with pytest.raises(LoginRequiredError):
+        await client.get_user_like("sec-1")
+    await client.close()
+
+
+async def test_bridge_other_failures_propagate_unchanged():
+    failure = _BridgeFailure("TIMEOUT")
+    bridge = _FakeBridge(error=failure)
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+    with pytest.raises(_BridgeFailure) as info:
+        await client.get_user_like("sec-1")
+    assert info.value is failure
+    await client.close()
+
+
+async def test_bridge_403_returns_empty_without_retry():
+    bridge = _FakeBridge(_BridgeResult(403, None, "Blocked by ArgusSecurityPlugin Signature Not Found"))
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+    page = await client.get_user_like("sec-1")
+    assert page["raw"] == {}
+    assert page["items"] == []
+    assert len(bridge.calls) == 1
+    await client.close()
