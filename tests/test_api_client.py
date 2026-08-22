@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -979,4 +980,19 @@ async def test_bridge_403_returns_empty_without_retry():
     assert page["raw"] == {}
     assert page["items"] == []
     assert len(bridge.calls) == 1
+    await client.close()
+
+
+async def test_bridge_non_json_200_logs_warning_and_returns_empty(caplog, monkeypatch):
+    # APIClient uses a namespaced logger with propagate=False (see
+    # utils/logger.setup_logger); enable propagation temporarily so
+    # pytest's caplog can see the warning (same pattern as test_file_manager.py).
+    monkeypatch.setattr(logging.getLogger("APIClient"), "propagate", True)
+    bridge = _FakeBridge(_BridgeResult(200, None, "<html>challenge</html>"))
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+    with caplog.at_level("WARNING", logger="APIClient"):
+        page = await client.get_user_like("sec-1")
+    assert page["raw"] == {}
+    assert page["items"] == []
+    assert "Non-JSON 200 response via page bridge" in caplog.text
     await client.close()
