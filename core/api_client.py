@@ -558,6 +558,32 @@ class DouyinAPIClient:
         )
         return {}
 
+    def _payload_from_bridge_result(
+        self, result: Any, path: str, started: float
+    ) -> Dict[str, Any]:
+        """把 bridge 200 响应折算成与 ``_request_json`` 一致的 payload。
+
+        body 非 dict(如反爬 HTML challenge 页)按 Non-JSON 200 记警告并降级为
+        ``{}``,与 aiohttp 路径的同名日志对齐,避免把它悄悄记成成功响应。
+        """
+        text = str(getattr(result, "text", "") or "")
+        body = getattr(result, "body", None)
+        if not isinstance(body, dict):
+            logger.warning(
+                "Non-JSON 200 response via page bridge: path=%s text_len=%d",
+                path,
+                len(text),
+            )
+        payload = body if isinstance(body, dict) else {}
+        _log_api_response(path, 0, 1, text.encode("utf-8", "replace"), payload, started)
+        if _is_login_required(payload):
+            raise LoginRequiredError(
+                int(payload.get("status_code") or 0),
+                str(payload.get("status_msg") or ""),
+                path,
+            )
+        return payload
+
     async def _request_json_gated(
         self,
         path: str,
@@ -592,24 +618,14 @@ class DouyinAPIClient:
                 raise LoginRequiredError(0, "page bridge: not logged in", path) from exc
             raise
         status = int(getattr(result, "http_status", 0) or 0)
-        text = str(getattr(result, "text", "") or "")
         if status == 200:
-            body = getattr(result, "body", None)
-            payload = body if isinstance(body, dict) else {}
-            _log_api_response(path, 0, 1, text.encode("utf-8", "replace"), payload, started)
-            if _is_login_required(payload):
-                raise LoginRequiredError(
-                    int(payload.get("status_code") or 0),
-                    str(payload.get("status_msg") or ""),
-                    path,
-                )
-            return payload
+            return self._payload_from_bridge_result(result, path, started)
         logger.error(
             "Douyin API HTTP failure via page bridge: path=%s status=%s duration_ms=%d body=%r",
             path,
             status,
             _elapsed_ms(started),
-            text[:80],
+            str(getattr(result, "text", "") or "")[:80],
         )
         return {}
 
