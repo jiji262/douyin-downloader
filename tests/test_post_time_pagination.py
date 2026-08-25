@@ -61,6 +61,14 @@ def test_confirmation_page_without_regular_items_disables_boundary():
     assert decision.degraded_reason == "confirmation_page_without_regular_items"
 
 
+def test_confirmation_page_reentry_disables_boundary_with_specific_reason():
+    boundary = PostTimeBoundary(200)
+    boundary.observe_page([_item("in", 220), _item("old", 190)])
+    decision = boundary.observe_page([_item("reentry", 210), _item("older", 180)])
+    assert decision.degraded_reason == "time_range_reentry"
+    assert boundary.observe_page([_item("oldest", 170)]).degraded_reason is None
+
+
 class _NoopRateLimiter:
     async def acquire(self):
         return None
@@ -155,6 +163,23 @@ def test_post_stops_after_old_confirmation_page_without_browser_recovery():
     assert [item["aweme_id"] for item in strategy.apply_filters(items)] == ["in-1", "in-2"]
     assert downloader.api_client.calls == [0, 1, 2]
     assert any("提前结束翻页" in detail for _, detail in downloader.progress_reporter.updates)
+
+
+def test_boundary_on_last_page_ends_naturally_without_browser_recovery():
+    pages = {
+        0: _page(
+            [
+                _item("in", _ts("2026-08-23 12:00:00")),
+                _item("old", _ts("2026-08-22 12:00:00")),
+            ],
+            next_cursor=0,
+            has_more=False,
+        )
+    }
+    strategy, downloader = _strategy(pages)
+    items = asyncio.run(strategy.collect_items("sec", {"aweme_count": 2}))
+    assert [item["aweme_id"] for item in strategy.apply_filters(items)] == ["in"]
+    assert downloader.api_client.calls == [0]
 
 
 def test_missing_confirmation_time_degrades_and_scans_to_natural_end():
