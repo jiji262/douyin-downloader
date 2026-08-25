@@ -10,10 +10,8 @@
 
 ## Global Constraints
 
-- Write `author_url.txt` for every resolvable single-creator homepage task, regardless of `homepage_screenshot`.
-- Store exactly one canonical URL plus a trailing newline using UTF-8 and overwrite on each task.
-- Skip `/user/self` when unresolved and collect-only (`collect` / `collectmix`) contexts.
-- Log URL construction or file-write failures as warnings without failing the download.
+- Write `author_url.txt` for every resolvable single-creator homepage task regardless of `homepage_screenshot`; use UTF-8, one canonical URL plus a trailing newline, and overwrite on each task.
+- Skip unresolved `/user/self` and collect-only (`collect` / `collectmix`) contexts; log construction or write failures without failing the download.
 - Keep CLI and desktop Python behavior equivalent; preserve unrelated pre-existing branch differences.
 - Do not add configuration, schema, dependencies, routes, or manifest changes.
 - Codex execution uses `superpowers:executing-plans` inline; do not use subagent-driven implementation.
@@ -27,8 +25,7 @@
 - Modify: `core/user_downloader.py:1-150`
 
 **Interfaces:**
-- Consumes: `build_author_home_url(sec_uid: Optional[str]) -> Optional[str]` and `FileManager.get_author_dir(...) -> Path`.
-- Produces: `UserDownloader._save_author_home_url(sec_uid: str, user_info: Dict[str, Any], modes: List[str]) -> None`.
+- Consumes `build_author_home_url(...)` and `FileManager.get_author_dir(...)`; produces `UserDownloader._save_author_home_url(sec_uid: str, user_info: Dict[str, Any], modes: List[str]) -> None`.
 
 - [ ] **Step 1: Write failing URL-file tests**
 
@@ -59,7 +56,6 @@ def test_author_url_overwrites_existing_file(tmp_path):
     target = tmp_path / "Downloaded" / "tester" / "author_url.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("stale\n", encoding="utf-8")
-
     asyncio.run(
         downloader._save_author_home_url(
             "sec_uid_x",
@@ -67,7 +63,6 @@ def test_author_url_overwrites_existing_file(tmp_path):
             ["post"],
         )
     )
-
     assert target.read_text(encoding="utf-8") == (
         "https://www.douyin.com/user/sec_uid_x\n"
     )
@@ -89,10 +84,8 @@ def test_author_url_skips_collect_only_context(tmp_path):
 ```python
 def test_author_url_write_failure_does_not_raise(tmp_path, monkeypatch, caplog):
     downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
-
     def _fail_open(*_args, **_kwargs):
         raise OSError("disk full")
-
     monkeypatch.setattr("core.user_downloader.aiofiles.open", _fail_open)
     asyncio.run(
         downloader._save_author_home_url(
@@ -146,13 +139,11 @@ async def _save_author_home_url(
     normalized_modes = {str(mode or "").strip() for mode in modes}
     if sec_uid == "self" or normalized_modes.issubset(self.SELF_COLLECT_MODES):
         return
-
     effective_sec_uid = str(user_info.get("sec_uid") or sec_uid).strip()
     author_url = build_author_home_url(effective_sec_uid)
     if not author_url or effective_sec_uid == "self":
         logger.warning("Author homepage URL skipped because sec_uid is unavailable")
         return
-
     author_name = str(user_info.get("nickname") or "unknown")
     try:
         author_dir = self.file_manager.get_author_dir(
@@ -193,8 +184,7 @@ git commit -m "feat(download): 保存博主主页地址文件"
 - Modify: `desktop/src/renderer/pages/Settings.test.tsx:2064-2087`
 
 **Interfaces:**
-- Consumes: the `_save_author_home_url(...)` behavior from Task 1.
-- Produces: equivalent desktop backend behavior plus settings copy describing `author_url.txt`.
+- Consumes Task 1's `_save_author_home_url(...)`; produces equivalent desktop behavior plus settings copy describing `author_url.txt`.
 
 - [ ] **Step 1: Create a clean isolated desktop worktree**
 
@@ -278,8 +268,7 @@ git commit -m "feat(download): 保存博主主页地址文件"
 - Verify: approved design and implementation plan
 
 **Interfaces:**
-- Consumes: both repository implementations from Tasks 1 and 2.
-- Produces: test evidence, feature-hunk parity evidence, and an independent review result.
+- Consumes both implementations; produces test evidence, feature-hunk parity evidence, and an independent review result.
 
 - [ ] **Step 1: Compare feature hunks**
 
@@ -291,7 +280,6 @@ Compare the imports, `download()` call site, `_save_author_home_url(...)`, and n
 python -m pytest tests/
 ruff check .
 ```
-
 Expected: full pytest and Ruff pass.
 
 - [ ] **Step 3: Run full Desktop Python verification**
