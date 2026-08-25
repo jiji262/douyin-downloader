@@ -412,6 +412,11 @@ def test_homepage_screenshot_disabled_does_not_call_api(tmp_path, monkeypatch):
 
     assert result.success == 1
     assert api_client.homepage_screenshot_calls == []
+    author_url_path = tmp_path / "Downloaded" / "tester" / "author_url.txt"
+    assert author_url_path.exists()
+    assert author_url_path.read_text(encoding="utf-8") == (
+        "https://www.douyin.com/user/sec_uid_x\n"
+    )
 
 
 def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
@@ -437,9 +442,65 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     ]
     assert screenshot_sec_uid == "sec_uid_x"
     assert screenshot_profile == {"uid": "uid-1", "sec_uid": "sec_uid_x", "nickname": "tester"}
-    assert (
-        screenshot_path == (tmp_path / "Downloaded" / "tester_sec_uid_x" / "主页截图.png").resolve()
+    author_root = tmp_path / "Downloaded" / "tester_sec_uid_x"
+    assert screenshot_path == (author_root / "主页截图.png").resolve()
+    author_url_path = author_root / "author_url.txt"
+    assert author_url_path.exists()
+    assert author_url_path.read_text(encoding="utf-8") == (
+        "https://www.douyin.com/user/sec_uid_x\n"
     )
+    assert screenshot_path.parent == author_url_path.parent.resolve()
+
+
+def test_author_url_overwrites_existing_file(tmp_path):
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+    target = tmp_path / "Downloaded" / "tester" / "author_url.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("stale\n", encoding="utf-8")
+
+    asyncio.run(
+        downloader._save_author_home_url(
+            "sec_uid_x",
+            {"sec_uid": "sec_uid_x", "nickname": "tester"},
+            ["post"],
+        )
+    )
+
+    assert target.read_text(encoding="utf-8") == (
+        "https://www.douyin.com/user/sec_uid_x\n"
+    )
+
+
+def test_author_url_skips_collect_only_context(tmp_path):
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+
+    asyncio.run(
+        downloader._save_author_home_url(
+            "sec_uid_x",
+            {"sec_uid": "sec_uid_x", "nickname": "tester"},
+            ["collect"],
+        )
+    )
+
+    assert not (tmp_path / "Downloaded" / "tester" / "author_url.txt").exists()
+
+
+def test_author_url_write_failure_does_not_raise(tmp_path, monkeypatch, caplog):
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+
+    def _fail_open(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("core.user_downloader.aiofiles.open", _fail_open)
+    asyncio.run(
+        downloader._save_author_home_url(
+            "sec_uid_x",
+            {"sec_uid": "sec_uid_x", "nickname": "tester"},
+            ["post"],
+        )
+    )
+
+    assert "Author homepage URL failed" in caplog.text
 
 
 def test_homepage_screenshot_failure_does_not_fail_download(tmp_path, monkeypatch):
