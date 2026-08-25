@@ -475,15 +475,15 @@ def test_author_url_overwrites_existing_file(tmp_path):
 def test_author_url_skips_collect_only_context(tmp_path):
     downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
 
-    asyncio.run(
-        downloader._save_author_home_url(
-            "sec_uid_x",
-            {"sec_uid": "sec_uid_x", "nickname": "tester"},
-            ["collect"],
+    for mode in ("collect", "collectmix"):
+        asyncio.run(
+            downloader._save_author_home_url(
+                "sec_uid_x",
+                {"sec_uid": "sec_uid_x", "nickname": "tester"},
+                [mode],
+            )
         )
-    )
-
-    assert not (tmp_path / "Downloaded" / "tester" / "author_url.txt").exists()
+        assert not (tmp_path / "Downloaded" / "tester" / "author_url.txt").exists()
 
 
 def test_author_url_write_failure_does_not_raise(tmp_path, monkeypatch, caplog):
