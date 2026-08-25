@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import time
@@ -46,6 +47,36 @@ _DOWNLOAD_PROGRESS_INTERVAL_S = 2.0
 
 # 模块级时钟别名，便于测试注入假时钟（真实 sleep 会让用例慢到不可接受）。
 _monotonic = time.monotonic
+
+
+def _build_httpx_client(proxy: Optional[str]) -> httpx.AsyncClient:
+    """Build HTTPX's synchronous SSL/transport stack outside the event loop."""
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            _DOWNLOAD_TOTAL_TIMEOUT_S,
+            connect=_DOWNLOAD_CONNECT_TIMEOUT_S,
+            read=_DOWNLOAD_READ_STALL_TIMEOUT_S,
+        ),
+        proxy=proxy or None,
+        follow_redirects=True,
+    )
+
+
+async def _create_httpx_client(proxy: Optional[str]) -> httpx.AsyncClient:
+    pending = asyncio.get_running_loop().run_in_executor(
+        None,
+        _build_httpx_client,
+        proxy,
+    )
+    try:
+        return await asyncio.shield(pending)
+    except asyncio.CancelledError:
+        try:
+            client = await pending
+            await client.aclose()
+        except Exception as exc:
+            logger.debug("HTTPX client cleanup after cancellation failed: %s", exc)
+        raise
 
 
 class SlowDownloadError(Exception):
@@ -468,17 +499,8 @@ class FileManager:
         CDN accepts when aiohttp's is rejected (403). Mirrors aiohttp's
         redirect-following and streaming-to-disk behaviour."""
         try:
-            async with httpx.AsyncClient(
-                # httpx 没有 aiohttp 那样的整体 wall-clock 上限：位置参数只作为
-                # write/pool 的默认值，connect/read 为逐操作超时。
-                timeout=httpx.Timeout(
-                    _DOWNLOAD_TOTAL_TIMEOUT_S,
-                    connect=_DOWNLOAD_CONNECT_TIMEOUT_S,
-                    read=_DOWNLOAD_READ_STALL_TIMEOUT_S,
-                ),
-                proxy=proxy or None,
-                follow_redirects=True,
-            ) as client:
+            client = await _create_httpx_client(proxy)
+            async with client:
                 async with client.stream("GET", url, headers=headers) as response:
                     if response.status_code != 200:
                         logger.debug(

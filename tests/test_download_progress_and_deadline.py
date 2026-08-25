@@ -8,8 +8,6 @@ UI 停在 97% 不动。同时 ``_download_video_with_fallback`` 的超时预算�
 
 import asyncio
 
-import pytest
-
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
@@ -59,13 +57,6 @@ def _build_downloader(tmp_path, *, reporter=None, max_retries: int = 3):
         queue_manager=QueueManager(max_workers=1),
         progress_reporter=reporter,
     )
-
-
-@pytest.fixture(autouse=True)
-def _clear_local_index_cache():
-    downloader_base._LOCAL_AWEME_INDEX_CACHE.clear()
-    yield
-    downloader_base._LOCAL_AWEME_INDEX_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------

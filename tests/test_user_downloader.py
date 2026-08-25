@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Any, Dict, List
 
 from control.queue_manager import QueueManager
@@ -111,10 +112,11 @@ def _build_downloader(
     number_post: int = 0,
     homepage_screenshot: bool = False,
     author_dir: str = "nickname",
+    increase_post: bool = True,
 ) -> UserDownloader:
     config_data = {
         "number": {"post": number_post},
-        "increase": {"post": False},
+        "increase": {"post": increase_post},
         "mode": ["post"],
         "thread": 2,
         "homepage_screenshot": homepage_screenshot,
@@ -141,6 +143,64 @@ def _build_downloader(
     )
     downloader.progress_reporter = progress_reporter
     return downloader
+
+
+def test_increment_disabled_redownloads_existing_item(tmp_path, monkeypatch):
+    aweme_id = "7412345678901234567"
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        increase_post=False,
+    )
+    media_path = tmp_path / "Downloaded" / f"2026-08-21_demo_{aweme_id}.mp4"
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"existing-media")
+    downloaded_ids: List[str] = []
+
+    async def _record_download(item, *_args, **_kwargs):
+        downloaded_ids.append(str(item.get("aweme_id")))
+        return True
+
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _record_download)
+
+    result = asyncio.run(
+        downloader._download_mode_items(
+            "post",
+            [_make_aweme(aweme_id)],
+            "tester",
+        )
+    )
+
+    assert downloaded_ids == [aweme_id]
+    assert result.success == 1
+    assert result.skipped == 0
+
+
+def test_unconfigured_mode_keeps_disk_dedupe(tmp_path, monkeypatch):
+    aweme_id = "7412345678901234568"
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+    downloader.config._data["increase"] = {}
+    media_path = tmp_path / "Downloaded" / f"2026-08-21_demo_{aweme_id}.mp4"
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"existing-media")
+
+    async def _unexpected_download(*_args, **_kwargs):
+        raise AssertionError("unconfigured modes must keep disk dedupe")
+
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _unexpected_download)
+
+    result = asyncio.run(
+        downloader._download_mode_items(
+            "collect",
+            [_make_aweme(aweme_id)],
+            "tester",
+        )
+    )
+
+    assert result.skipped == 1
+    assert result.success == 0
 
 
 def test_user_post_browser_fallback_recovers_missing_pages(tmp_path, monkeypatch):
@@ -309,7 +369,7 @@ def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):
         progress_reporter=reporter,
     )
 
-    async def _fake_should_download(aweme_id):
+    async def _fake_should_download(aweme_id, **_kwargs):
         return aweme_id != "222"
 
     async def _fake_download_aweme_assets(item, *_args, **_kwargs):
@@ -353,6 +413,11 @@ def test_homepage_screenshot_disabled_does_not_call_api(tmp_path, monkeypatch):
 
     assert result.success == 1
     assert api_client.homepage_screenshot_calls == []
+    author_url_path = tmp_path / "Downloaded" / "tester" / "author_url.txt"
+    assert author_url_path.exists()
+    assert author_url_path.read_text(encoding="utf-8") == (
+        "https://www.douyin.com/user/sec_uid_x\n"
+    )
 
 
 def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
@@ -378,9 +443,67 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     ]
     assert screenshot_sec_uid == "sec_uid_x"
     assert screenshot_profile == {"uid": "uid-1", "sec_uid": "sec_uid_x", "nickname": "tester"}
-    assert (
-        screenshot_path == (tmp_path / "Downloaded" / "tester_sec_uid_x" / "主页截图.png").resolve()
+    author_root = tmp_path / "Downloaded" / "tester_sec_uid_x"
+    assert screenshot_path == (author_root / "主页截图.png").resolve()
+    author_url_path = author_root / "author_url.txt"
+    assert author_url_path.exists()
+    assert author_url_path.read_text(encoding="utf-8") == (
+        "https://www.douyin.com/user/sec_uid_x\n"
     )
+    assert screenshot_path.parent == author_url_path.parent.resolve()
+
+
+def test_author_url_overwrites_existing_file(tmp_path):
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+    target = tmp_path / "Downloaded" / "tester" / "author_url.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("stale\n", encoding="utf-8")
+
+    asyncio.run(
+        downloader._save_author_home_url(
+            "sec_uid_x",
+            {"sec_uid": "sec_uid_x", "nickname": "tester"},
+            ["post"],
+        )
+    )
+
+    assert target.read_text(encoding="utf-8") == (
+        "https://www.douyin.com/user/sec_uid_x\n"
+    )
+
+
+def test_author_url_skips_collect_only_context(tmp_path):
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+
+    for mode in ("collect", "collectmix"):
+        asyncio.run(
+            downloader._save_author_home_url(
+                "sec_uid_x",
+                {"sec_uid": "sec_uid_x", "nickname": "tester"},
+                [mode],
+            )
+        )
+        assert not (tmp_path / "Downloaded" / "tester" / "author_url.txt").exists()
+
+
+def test_author_url_write_failure_does_not_raise(tmp_path, monkeypatch, caplog):
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+
+    def _fail_open(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("core.user_downloader.aiofiles.open", _fail_open)
+    monkeypatch.setattr(logging.getLogger("UserDownloader"), "propagate", True)
+    with caplog.at_level(logging.WARNING, logger="UserDownloader"):
+        asyncio.run(
+            downloader._save_author_home_url(
+                "sec_uid_x",
+                {"sec_uid": "sec_uid_x", "nickname": "tester"},
+                ["post"],
+            )
+        )
+
+    assert "Author homepage URL failed" in caplog.text
 
 
 def test_homepage_screenshot_failure_does_not_fail_download(tmp_path, monkeypatch):

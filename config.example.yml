@@ -48,12 +48,14 @@ number:
   collect: 0
   collectmix: 0
 
+# 增量下载只看当前下载目录：true 时已有主文件会跳过，文件缺失或为空会补下；
+# false 时重新下载并覆盖当前筛选范围内的作品。
 increase:
-  post: false
-  like: false
-  allmix: false
-  mix: false
-  music: false
+  post: true
+  like: true
+  allmix: true
+  mix: true
+  music: true
 
 thread: 5
 retry_times: 3

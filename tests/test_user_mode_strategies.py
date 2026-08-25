@@ -52,7 +52,7 @@ def test_like_strategy_collects_items_from_api():
     assert [item["aweme_id"] for item in items] == ["111"]
 
 
-def test_like_strategy_increment_stops_at_first_downloaded_aweme():
+def test_like_strategy_increment_scans_all_pages_without_database_checkpoint():
     class _API:
         def __init__(self):
             self.calls = []
@@ -73,10 +73,10 @@ def test_like_strategy_increment_stops_at_first_downloaded_aweme():
 
     class _Database:
         async def get_latest_aweme_time(self, _author_id):
-            return None
+            raise AssertionError("disk-based incremental mode must not query history timestamps")
 
         async def is_downloaded(self, aweme_id):
-            return aweme_id == "old-1"
+            raise AssertionError("disk-based incremental mode must not query download history")
 
     class _Downloader:
         def __init__(self):
@@ -100,8 +100,8 @@ def test_like_strategy_increment_stops_at_first_downloaded_aweme():
     strategy = LikeUserModeStrategy(downloader)
     items = asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
 
-    assert [item["aweme_id"] for item in items] == ["new-1"]
-    assert downloader.api_client.calls == [0]
+    assert [item["aweme_id"] for item in items] == ["new-1", "old-1", "older-1"]
+    assert downloader.api_client.calls == [0, 1]
 
 
 def test_user_mode_media_filter_applies_before_number_limit():

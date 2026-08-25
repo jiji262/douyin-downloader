@@ -40,12 +40,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "collect": 0,
         "collectmix": 0,
     },
+    # 增量下载只按磁盘主文件判断；False 会强制重下并原子覆盖当前筛选范围。
     "increase": {
-        "post": False,
-        "like": False,
-        "allmix": False,
-        "mix": False,
-        "music": False,
+        "post": True,
+        "like": True,
+        "allmix": True,
+        "mix": True,
+        "music": True,
     },
     "thread": 5,
     "retry_times": 3,
