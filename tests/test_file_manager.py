@@ -1,3 +1,5 @@
+import asyncio
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -413,6 +415,26 @@ class _FakeHttpxClient:
         return self._response
 
 
+class _CloseTrackingHttpxClient(_FakeHttpxClient):
+    def __init__(self, response, closed):
+        super().__init__(response, [])
+        self._closed = closed
+
+    async def aclose(self):
+        self._closed.set()
+
+
+_THREAD_EVENT_TIMEOUT_S = 5.0
+
+
+async def _wait_for_thread_event(event, timeout=_THREAD_EVENT_TIMEOUT_S):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not event.is_set():
+        if asyncio.get_running_loop().time() >= deadline:
+            pytest.fail("worker thread event was not set before timeout")
+        await asyncio.sleep(0.001)
+
+
 @pytest.mark.asyncio
 async def test_download_file_falls_back_to_httpx_on_403(tmp_path, monkeypatch):
     """Douyin's image CDN 403s aiohttp's TLS fingerprint for some assets
@@ -442,6 +464,83 @@ async def test_download_file_falls_back_to_httpx_on_403(tmp_path, monkeypatch):
     assert save_path.read_bytes() == content
     assert not save_path.with_suffix(".jpg.tmp").exists()
     assert len(calls) == 1  # httpx was actually used
+
+
+@pytest.mark.asyncio
+async def test_httpx_fallback_keeps_event_loop_responsive_during_client_setup(
+    tmp_path, monkeypatch
+):
+    """Slow synchronous HTTPX setup must not starve sidecar health requests."""
+    fm = FileManager(str(tmp_path))
+    response = _FakeHttpxResponse(
+        200,
+        b"cover",
+        {"Content-Type": "image/jpeg", "Content-Length": "5"},
+    )
+    setup_started = threading.Event()
+    release_setup = threading.Event()
+    released_while_setting_up = []
+
+    def _slow_client(*args, **kwargs):
+        setup_started.set()
+        released_while_setting_up.append(
+            release_setup.wait(timeout=_THREAD_EVENT_TIMEOUT_S)
+        )
+        return _FakeHttpxClient(response, [])
+
+    async def _heartbeat():
+        while not setup_started.is_set():
+            await asyncio.sleep(0)
+        release_setup.set()
+
+    monkeypatch.setattr("storage.file_manager.httpx.AsyncClient", _slow_client)
+    heartbeat = asyncio.create_task(_heartbeat())
+
+    result = await fm.download_file(
+        "https://p3-pc-sign.douyinpic.com/cover.jpg",
+        tmp_path / "cover.jpg",
+        session=_aiohttp_session_returning_status(403),
+    )
+    await heartbeat
+
+    assert result is True
+    assert released_while_setting_up == [True]
+
+
+@pytest.mark.asyncio
+async def test_httpx_fallback_closes_client_when_cancelled_during_setup(tmp_path, monkeypatch):
+    """Cancellation must not orphan a client that the worker finishes constructing."""
+    fm = FileManager(str(tmp_path))
+    response = _FakeHttpxResponse(200, b"cover", {"Content-Type": "image/jpeg"})
+    setup_started = threading.Event()
+    release_setup = threading.Event()
+    setup_finished = threading.Event()
+    client_closed = threading.Event()
+
+    def _blocking_client(*args, **kwargs):
+        setup_started.set()
+        release_setup.wait(timeout=_THREAD_EVENT_TIMEOUT_S)
+        client = _CloseTrackingHttpxClient(response, client_closed)
+        setup_finished.set()
+        return client
+
+    monkeypatch.setattr("storage.file_manager.httpx.AsyncClient", _blocking_client)
+    task = asyncio.create_task(
+        fm.download_file(
+            "https://p3-pc-sign.douyinpic.com/cover.jpg",
+            tmp_path / "cover.jpg",
+            session=_aiohttp_session_returning_status(403),
+        )
+    )
+
+    await _wait_for_thread_event(setup_started)
+    task.cancel()
+    release_setup.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await _wait_for_thread_event(setup_finished)
+
+    assert client_closed.is_set()
 
 
 @pytest.mark.asyncio
