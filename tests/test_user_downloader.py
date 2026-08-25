@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Any, Dict, List
 
 from control.queue_manager import QueueManager
@@ -492,13 +493,15 @@ def test_author_url_write_failure_does_not_raise(tmp_path, monkeypatch, caplog):
         raise OSError("disk full")
 
     monkeypatch.setattr("core.user_downloader.aiofiles.open", _fail_open)
-    asyncio.run(
-        downloader._save_author_home_url(
-            "sec_uid_x",
-            {"sec_uid": "sec_uid_x", "nickname": "tester"},
-            ["post"],
+    monkeypatch.setattr(logging.getLogger("UserDownloader"), "propagate", True)
+    with caplog.at_level(logging.WARNING, logger="UserDownloader"):
+        asyncio.run(
+            downloader._save_author_home_url(
+                "sec_uid_x",
+                {"sec_uid": "sec_uid_x", "nickname": "tester"},
+                ["post"],
+            )
         )
-    )
 
     assert "Author homepage URL failed" in caplog.text
 
