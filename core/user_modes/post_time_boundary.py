@@ -32,13 +32,13 @@ class PostTimeBoundary:
         timestamps = self._timestamps(regular)
         if timestamps is None:
             return self._degrade("missing_or_invalid_create_time")
+        if self._boundary_seen and any(value >= self._start_ts for value in timestamps):
+            return self._degrade("time_range_reentry")
         if self._order_increased(timestamps):
             return self._degrade("time_order_increased")
         self._last_timestamp = timestamps[-1]
         if self._boundary_seen:
-            if all(value < self._start_ts for value in timestamps):
-                return TimeBoundaryDecision(should_stop=True)
-            return self._degrade("time_range_reentry")
+            return TimeBoundaryDecision(should_stop=True)
         self._boundary_seen = any(value < self._start_ts for value in timestamps)
         return TimeBoundaryDecision()
 
