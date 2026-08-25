@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 from urllib.parse import urlparse
@@ -315,24 +315,29 @@ class BaseDownloader(ABC):
             self._local_aweme_ids = set()
         self._local_aweme_ids.add(aweme_id)
 
-    def _filter_by_time(self, aweme_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _time_range_bounds(self) -> Tuple[Optional[int], Optional[int]]:
         start_time = self.config.get("start_time")
         end_time = self.config.get("end_time")
-
-        if not start_time and not end_time:
-            return aweme_list
-
         start_ts = (
             int(datetime.strptime(start_time, "%Y-%m-%d").timestamp()) if start_time else None
         )
-        end_ts = int(datetime.strptime(end_time, "%Y-%m-%d").timestamp()) if end_time else None
+        end_ts = None
+        if end_time:
+            end_date = datetime.strptime(end_time, "%Y-%m-%d") + timedelta(days=1)
+            end_ts = int(end_date.timestamp())
+        return start_ts, end_ts
+
+    def _filter_by_time(self, aweme_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        start_ts, end_ts = self._time_range_bounds()
+        if start_ts is None and end_ts is None:
+            return aweme_list
 
         filtered: List[Dict[str, Any]] = []
         for aweme in aweme_list:
             create_time = aweme.get("create_time", 0)
             if start_ts is not None and create_time < start_ts:
                 continue
-            if end_ts is not None and create_time > end_ts:
+            if end_ts is not None and create_time >= end_ts:
                 continue
             filtered.append(aweme)
 
