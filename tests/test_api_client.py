@@ -925,7 +925,10 @@ async def test_gated_methods_fall_back_to_request_json_without_bridge():
     client._request_json = _fake_request_json
     await client.get_user_like("sec-1")
     await client.get_user_collection("self")
-    assert seen == [("/aweme/v1/web/aweme/favorite/", "GET"), ("/aweme/v1/web/aweme/listcollection/", "POST")]
+    assert seen == [
+        ("/aweme/v1/web/aweme/favorite/", "GET"),
+        ("/aweme/v1/web/aweme/listcollection/", "POST"),
+    ]
     await client.close()
 
 
@@ -974,7 +977,9 @@ async def test_bridge_other_failures_propagate_unchanged():
 
 
 async def test_bridge_403_returns_empty_without_retry():
-    bridge = _FakeBridge(_BridgeResult(403, None, "Blocked by ArgusSecurityPlugin Signature Not Found"))
+    bridge = _FakeBridge(
+        _BridgeResult(403, None, "Blocked by ArgusSecurityPlugin Signature Not Found")
+    )
     client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
     page = await client.get_user_like("sec-1")
     assert page["raw"] == {}

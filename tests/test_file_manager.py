@@ -483,9 +483,7 @@ async def test_httpx_fallback_keeps_event_loop_responsive_during_client_setup(
 
     def _slow_client(*args, **kwargs):
         setup_started.set()
-        released_while_setting_up.append(
-            release_setup.wait(timeout=_THREAD_EVENT_TIMEOUT_S)
-        )
+        released_while_setting_up.append(release_setup.wait(timeout=_THREAD_EVENT_TIMEOUT_S))
         return _FakeHttpxClient(response, [])
 
     async def _heartbeat():

@@ -558,9 +558,7 @@ class DouyinAPIClient:
         )
         return {}
 
-    def _payload_from_bridge_result(
-        self, result: Any, path: str, started: float
-    ) -> Dict[str, Any]:
+    def _payload_from_bridge_result(self, result: Any, path: str, started: float) -> Dict[str, Any]:
         """把 bridge 200 响应折算成与 ``_request_json`` 一致的 payload。
 
         body 非 dict(如反爬 HTML challenge 页)按 Non-JSON 200 记警告并降级为
