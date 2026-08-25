@@ -109,7 +109,8 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                 next_cursor=max_cursor,
                 request_cursor=request_cursor,
                 limit_reached=limit_reached,
-                time_boundary_reached=time_decision.should_stop,
+                time_boundary_confirmed=time_decision.should_stop,
+                time_boundary_reached=time_decision.boundary_reached,
                 raw_page_count=raw_page_count,
                 raw_items_seen=raw_items_seen,
                 user_info=user_info,
@@ -172,6 +173,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         next_cursor: int,
         request_cursor: int,
         limit_reached: bool,
+        time_boundary_confirmed: bool,
         time_boundary_reached: bool,
         raw_page_count: int,
         raw_items_seen: int,
@@ -179,10 +181,12 @@ class PostUserModeStrategy(BaseUserModeStrategy):
     ) -> Tuple[bool, bool]:
         if self._cursor_stalled(has_more, next_cursor, request_cursor):
             return True, True
-        if time_boundary_reached:
+        if time_boundary_confirmed:
             return True, False
         if has_more:
             return limit_reached, False
+        if time_boundary_reached:
+            return True, False
 
         ended_early = raw_page_count >= _POST_PAGE_SIZE or self._profile_reports_more(
             user_info, raw_items_seen

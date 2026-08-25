@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 @dataclass(frozen=True)
 class TimeBoundaryDecision:
     should_stop: bool = False
+    boundary_reached: bool = False
     degraded_reason: Optional[str] = None
 
 
@@ -38,9 +39,9 @@ class PostTimeBoundary:
             return self._degrade("time_order_increased")
         self._last_timestamp = timestamps[-1]
         if self._boundary_seen:
-            return TimeBoundaryDecision(should_stop=True)
+            return TimeBoundaryDecision(should_stop=True, boundary_reached=True)
         self._boundary_seen = any(value < self._start_ts for value in timestamps)
-        return TimeBoundaryDecision()
+        return TimeBoundaryDecision(boundary_reached=self._boundary_seen)
 
     @staticmethod
     def _is_pinned(item, checker) -> bool:

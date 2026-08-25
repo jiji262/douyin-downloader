@@ -182,6 +182,21 @@ def test_boundary_on_last_page_ends_naturally_without_browser_recovery():
     assert downloader.api_client.calls == [0]
 
 
+def test_full_sized_last_boundary_page_ends_without_browser_recovery():
+    in_range = [_item(f"in-{index}", _ts("2026-08-23 12:00:00")) for index in range(19)]
+    pages = {
+        0: _page(
+            [*in_range, _item("old", _ts("2026-08-22 12:00:00"))],
+            next_cursor=0,
+            has_more=False,
+        )
+    }
+    strategy, downloader = _strategy(pages)
+    items = asyncio.run(strategy.collect_items("sec", {"aweme_count": 3000}))
+    assert len(strategy.apply_filters(items)) == 19
+    assert downloader.api_client.calls == [0]
+
+
 def test_missing_confirmation_time_degrades_and_scans_to_natural_end():
     pages = {
         0: _page(
