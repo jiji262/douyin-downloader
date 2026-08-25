@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.user_modes.base_strategy import BaseUserModeStrategy
+from core.user_modes.post_time_boundary import PostTimeBoundary, TimeBoundaryDecision
 from utils.logger import setup_logger
 
 logger = setup_logger("PostUserModeStrategy")
@@ -72,11 +73,9 @@ class PostUserModeStrategy(BaseUserModeStrategy):
 
     async def _collect_api_items(self, sec_uid: str, user_info: Dict[str, Any]) -> _PostPageResult:
         aweme_list: List[Dict[str, Any]] = []
-        max_cursor = 0
-        raw_items_seen = 0
-        page_number = 0
+        max_cursor = raw_items_seen = page_number = candidate_count = 0
         number_limit = int(self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0)
-        media_filter_enabled = self._media_type_filter_enabled()
+        time_boundary = self._time_boundary_for_config()
         self.downloader._progress_update_step("拉取作品列表", "分页抓取中")
 
         while True:
@@ -91,35 +90,71 @@ class PostUserModeStrategy(BaseUserModeStrategy):
             if page_data is None:
                 return aweme_list, True
             page = self._normalize_page_data(page_data)
+            page_items = self.select_items(page)
             raw_page_count = self._append_page_items(page, aweme_list)
             if raw_page_count == 0:
                 return aweme_list, self._empty_page_is_restricted(page, request_cursor)
             raw_items_seen += raw_page_count
+            candidate_count += self._count_page_candidates(page_items)
             has_more = bool(page.get("has_more", False))
             max_cursor = int(page.get("max_cursor", 0) or 0)
-            limit_reached = self._number_limit_reached(
-                aweme_list,
-                number_limit=number_limit,
-                media_filter_enabled=media_filter_enabled,
+            time_decision = self._observe_time_boundary(
+                time_boundary,
+                page_items,
+                page_number,
             )
+            limit_reached = number_limit > 0 and candidate_count >= number_limit
             should_stop, pagination_restricted = self._page_stop_decision(
                 has_more=has_more,
                 next_cursor=max_cursor,
                 request_cursor=request_cursor,
                 limit_reached=limit_reached,
+                time_boundary_reached=time_decision.should_stop,
                 raw_page_count=raw_page_count,
                 raw_items_seen=raw_items_seen,
                 user_info=user_info,
             )
             if should_stop:
-                if (
-                    limit_reached
-                    and has_more
-                    and not pagination_restricted
-                    and not media_filter_enabled
-                ):
-                    aweme_list = aweme_list[:number_limit]
+                if time_decision.should_stop and not pagination_restricted:
+                    self._report_time_boundary_stop(page_number, raw_items_seen)
                 return aweme_list, pagination_restricted
+
+    def _time_boundary_for_config(self) -> PostTimeBoundary:
+        bounds_getter = getattr(self.downloader, "_time_range_bounds", None)
+        start_ts = bounds_getter()[0] if callable(bounds_getter) else None
+        return PostTimeBoundary(start_ts)
+
+    def _observe_time_boundary(
+        self,
+        boundary: PostTimeBoundary,
+        page_items: List[Dict[str, Any]],
+        page_number: int,
+    ) -> TimeBoundaryDecision:
+        decision = boundary.observe_page(
+            page_items,
+            is_pinned=getattr(self.downloader, "_is_pinned_aweme", None),
+        )
+        if decision.degraded_reason:
+            logger.warning(
+                "Post time early-stop disabled: page=%s reason=%s",
+                page_number,
+                decision.degraded_reason,
+            )
+        return decision
+
+    def _count_page_candidates(self, items: List[Dict[str, Any]]) -> int:
+        filtered = self._filter_pinned_items(items)
+        filtered = self.downloader._filter_by_time(filtered)
+        return len(self._filter_by_media_type(filtered))
+
+    def _report_time_boundary_stop(self, page_number: int, raw_items_seen: int) -> None:
+        detail = f"已到达起始日期，提前结束翻页（检查 {page_number} 页，共 {raw_items_seen} 条）"
+        self.downloader._progress_update_step("拉取作品列表", detail)
+        logger.info(
+            "User post pagination stopped at time boundary: pages=%s raw_items=%s",
+            page_number,
+            raw_items_seen,
+        )
 
     def _append_page_items(self, page: Dict[str, Any], aweme_list: List[Dict[str, Any]]) -> int:
         page_items = self.select_items(page)
@@ -137,12 +172,15 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         next_cursor: int,
         request_cursor: int,
         limit_reached: bool,
+        time_boundary_reached: bool,
         raw_page_count: int,
         raw_items_seen: int,
         user_info: Dict[str, Any],
     ) -> Tuple[bool, bool]:
         if self._cursor_stalled(has_more, next_cursor, request_cursor):
             return True, True
+        if time_boundary_reached:
+            return True, False
         if has_more:
             return limit_reached, False
 
@@ -237,19 +275,6 @@ class PostUserModeStrategy(BaseUserModeStrategy):
             next_cursor,
         )
         return True
-
-    def _number_limit_reached(
-        self,
-        items: List[Dict[str, Any]],
-        *,
-        number_limit: int,
-        media_filter_enabled: bool,
-    ) -> bool:
-        if number_limit <= 0:
-            return False
-        if media_filter_enabled:
-            return len(self._filter_by_media_type(items)) >= number_limit
-        return len(items) >= number_limit
 
     @staticmethod
     def _profile_reports_more(user_info: Dict[str, Any], raw_items_seen: int) -> bool:
