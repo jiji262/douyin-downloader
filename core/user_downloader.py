@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Dict, List, Optional, Set
 
+import aiofiles
+
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.metadata import build_author_home_url
 from core.user_mode_registry import UserModeRegistry
 from utils.logger import setup_logger
 
@@ -59,6 +62,7 @@ class UserDownloader(BaseDownloader):
             nickname=user_info.get("nickname"),
             sec_uid=user_info.get("sec_uid") or sec_uid,
         )
+        await self._save_author_home_url(sec_uid, user_info, modes)
         await self._save_homepage_screenshot(sec_uid, user_info, modes)
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
@@ -112,6 +116,36 @@ class UserDownloader(BaseDownloader):
             )
         logger.info("Resolved /user/self alias: sec_uid=%s", resolved)
         return resolved
+
+    async def _save_author_home_url(
+        self,
+        sec_uid: str,
+        user_info: Dict[str, Any],
+        modes: List[str],
+    ) -> None:
+        normalized_modes = {str(mode or "").strip() for mode in modes}
+        if sec_uid == "self" or normalized_modes.issubset(self.SELF_COLLECT_MODES):
+            return
+
+        effective_sec_uid = str(user_info.get("sec_uid") or sec_uid).strip()
+        author_url = build_author_home_url(effective_sec_uid)
+        if not author_url or effective_sec_uid == "self":
+            logger.warning("Author homepage URL skipped because sec_uid is unavailable")
+            return
+
+        author_name = str(user_info.get("nickname") or "unknown")
+        try:
+            author_dir = self.file_manager.get_author_dir(
+                author_name,
+                author_sec_uid=effective_sec_uid,
+                author_dir_style=self.config.get("author_dir") or "nickname",
+            )
+            async with aiofiles.open(
+                (author_dir / "author_url.txt").resolve(), "w", encoding="utf-8"
+            ) as output:
+                await output.write(f"{author_url}\n")
+        except Exception as exc:
+            logger.warning("Author homepage URL failed for %s: %s", effective_sec_uid, exc)
 
     async def _save_homepage_screenshot(
         self,
@@ -364,10 +398,19 @@ class UserDownloader(BaseDownloader):
         # Accumulate per-aweme DB records and flush in a single transaction
         # at the end — avoids one fsync per item across the whole batch.
         db_batch: Optional[List[Dict[str, Any]]] = [] if self.database else None
+        increase_config = self.config.get("increase", {})
+        force_download = (
+            isinstance(increase_config, dict)
+            and mode in increase_config
+            and not bool(increase_config.get(mode))
+        )
 
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
-            if not await self._should_download(str(aweme_id or "")):
+            if not await self._should_download(
+                str(aweme_id or ""),
+                force=force_download,
+            ):
                 saved = await self._collect_comments_for_existing_aweme(
                     item,
                     author_name,

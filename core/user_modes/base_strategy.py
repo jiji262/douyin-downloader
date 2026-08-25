@@ -82,7 +82,7 @@ class BaseUserModeStrategy(ABC):
         return [item for item in items if detector(item) in selected]
 
     async def _collect_paged_aweme(
-        self, sec_uid: str, user_info: Dict[str, Any]
+        self, sec_uid: str, _user_info: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         fetcher = getattr(self.downloader.api_client, self.api_method_name, None)
         if not callable(fetcher):
@@ -99,16 +99,6 @@ class BaseUserModeStrategy(ABC):
 
         number_limit = int(self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0)
         media_filter_enabled = self._media_type_filter_enabled()
-        increase_enabled = bool(
-            self.downloader.config.get("increase", {}).get(self.mode_name, False)
-        )
-        stop_at_downloaded_aweme = (
-            increase_enabled and self.mode_name == "like" and self.downloader.database
-        )
-        latest_time = None
-        if increase_enabled and self.downloader.database and not stop_at_downloaded_aweme:
-            latest_time = await self.downloader.database.get_latest_aweme_time(user_info.get("uid"))
-
         while has_more:
             await self.downloader.rate_limiter.acquire()
             request_cursor = max_cursor
@@ -118,22 +108,7 @@ class BaseUserModeStrategy(ABC):
             if not page_items:
                 break
 
-            if stop_at_downloaded_aweme:
-                new_items = []
-                for item in page_items:
-                    if await self._is_downloaded_aweme(item):
-                        break
-                    new_items.append(item)
-                aweme_list.extend(new_items)
-                if len(new_items) < len(page_items):
-                    break
-            elif increase_enabled and latest_time:
-                new_items = [a for a in page_items if a.get("create_time", 0) > latest_time]
-                aweme_list.extend(new_items)
-                if len(new_items) < len(page_items):
-                    break
-            else:
-                aweme_list.extend(page_items)
+            aweme_list.extend(page_items)
 
             if number_limit > 0:
                 if media_filter_enabled:
@@ -154,12 +129,6 @@ class BaseUserModeStrategy(ABC):
                 break
 
         return aweme_list
-
-    async def _is_downloaded_aweme(self, item: Dict[str, Any]) -> bool:
-        aweme_id = str(item.get("aweme_id") or "").strip()
-        if not aweme_id or not self.downloader.database:
-            return False
-        return await self.downloader.database.is_downloaded(aweme_id)
 
     def select_items(self, page_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         items = page_data.get("items")

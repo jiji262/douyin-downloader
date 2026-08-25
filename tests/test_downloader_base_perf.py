@@ -5,8 +5,8 @@
 1. ``_download_first_available`` 多镜像时每个镜像只尝试一次——镜像列表
    本身就是重试机制，不再对每个死镜像做多轮退避重试（旧行为单个封面
    最多空等 20+ 秒）。单一 URL 时保留退避重试。
-2. 本地作品索引跨 downloader 实例（即跨 job）缓存，批量任务不再每个
-   job 都 rglob 全库；一个 job 标记的已下载 id 对后续 job 立即可见。
+2. 本地作品索引在单个 downloader 实例内只扫描一次；新 job 使用新实例
+   重新扫描磁盘，因此能发现用户在任务之间删除或补回的文件。
 3. ``_download_aweme_assets`` 中封面/音乐/头像并行下载且互不阻塞，
    任一可选资产失败不影响主视频成功。
 """
@@ -20,7 +20,6 @@ import pytest
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
-from core import downloader_base
 from core.api_client import DouyinAPIClient
 from core.video_downloader import VideoDownloader
 from storage import FileManager
@@ -49,13 +48,6 @@ def _build_downloader(tmp_path, max_retries: int = 3):
         queue_manager=QueueManager(max_workers=1),
     )
     return downloader, api_client
-
-
-@pytest.fixture(autouse=True)
-def _clear_local_index_cache():
-    downloader_base._LOCAL_AWEME_INDEX_CACHE.clear()
-    yield
-    downloader_base._LOCAL_AWEME_INDEX_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -148,21 +140,21 @@ async def test_first_available_stops_at_first_success(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 2. 本地索引跨实例缓存
+# 2. 本地索引单任务缓存、跨任务重扫
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_local_index_shared_across_instances(tmp_path):
+async def test_new_instance_rescans_after_disk_change(tmp_path):
     downloader_a, api_a = _build_downloader(tmp_path)
-    downloader_b, api_b = _build_downloader(tmp_path)
-
     aweme_id = "7346971177114611826"
     assert downloader_a._is_locally_downloaded(aweme_id) is False
 
-    # A 标记下载完成后，B（同一下载根目录的新实例，模拟下一个批量 job）
-    # 不重扫磁盘即可看到该 id。
-    downloader_a._mark_local_aweme_downloaded(aweme_id)
+    (tmp_path / f"2026-08-21_title_{aweme_id}.mp4").write_bytes(b"media")
+    downloader_b, api_b = _build_downloader(tmp_path)
+
+    # 当前 job 保持自己的快照；下一个 job 必须重扫并看到外部磁盘变化。
+    assert downloader_a._is_locally_downloaded(aweme_id) is False
     assert downloader_b._is_locally_downloaded(aweme_id) is True
 
     await api_a.close()
@@ -170,22 +162,28 @@ async def test_local_index_shared_across_instances(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_local_index_scans_disk_once_per_base_path(tmp_path, monkeypatch):
+async def test_local_index_scans_once_per_downloader_instance(tmp_path, monkeypatch):
     media = tmp_path / "author" / "post"
     media.mkdir(parents=True)
     (media / "2026-01-01_title_7346971177114611001.mp4").write_bytes(b"x")
 
     downloader_a, api_a = _build_downloader(tmp_path)
     downloader_b, api_b = _build_downloader(tmp_path)
+    scan_count = 0
+    path_type = type(tmp_path)
+    original_rglob = path_type.rglob
 
+    def _counting_rglob(path, pattern):
+        nonlocal scan_count
+        scan_count += 1
+        return original_rglob(path, pattern)
+
+    monkeypatch.setattr(path_type, "rglob", _counting_rglob)
     assert downloader_a._is_locally_downloaded("7346971177114611001") is True
-
-    # 缓存命中后，第二个实例不应再走磁盘扫描。
-    def _fail_rglob(*_args, **_kwargs):  # pragma: no cover — 防御断言
-        raise AssertionError("second instance must not rescan the library")
-
-    monkeypatch.setattr(type(tmp_path), "rglob", _fail_rglob, raising=False)
+    assert downloader_a._is_locally_downloaded("7346971177114611001") is True
     assert downloader_b._is_locally_downloaded("7346971177114611001") is True
+
+    assert scan_count == 2
 
     await api_a.close()
     await api_b.close()
@@ -198,8 +196,7 @@ async def test_local_index_not_shared_across_base_paths(tmp_path):
     downloader_a, api_a = _build_downloader(root_a)
     downloader_b, api_b = _build_downloader(root_b)
 
-    # 先触发 A 建索引（写入缓存），再标记——若实现错误地全局共享
-    # 单一集合，下面 B 的断言会看到 True 而失败。
+    # 两个下载根目录始终拥有独立索引。
     assert downloader_a._is_locally_downloaded("7346971177114611002") is False
     downloader_a._mark_local_aweme_downloaded("7346971177114611002")
     assert downloader_a._is_locally_downloaded("7346971177114611002") is True
@@ -210,17 +207,17 @@ async def test_local_index_not_shared_across_base_paths(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_mark_before_index_build_reaches_shared_cache(tmp_path):
+async def test_mark_before_index_build_stays_within_current_job(tmp_path):
     """retry_executor 直接调 _download_aweme_assets（不经过 _should_download），
-    实例 mark 时索引还未建。标记必须先绑定共享缓存集合，否则该 id 落入
-    实例私有集合，同进程后续 job 会把已下载的作品当缺失重新下载。"""
+    实例 mark 时索引还未建。标记应更新当前 job，后续 job 仍以磁盘为准。"""
     downloader_a, api_a = _build_downloader(tmp_path)
     downloader_b, api_b = _build_downloader(tmp_path)
 
     assert downloader_a._local_aweme_ids is None
     downloader_a._mark_local_aweme_downloaded("7346971177114611005")
 
-    assert downloader_b._is_locally_downloaded("7346971177114611005") is True
+    assert downloader_a._is_locally_downloaded("7346971177114611005") is True
+    assert downloader_b._is_locally_downloaded("7346971177114611005") is False
 
     await api_a.close()
     await api_b.close()
