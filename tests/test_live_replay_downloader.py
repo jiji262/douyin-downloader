@@ -82,8 +82,8 @@ async def test_live_replay_downloader_downloads_tracks_and_remuxes(tmp_path):
 
     downloads = []
 
-    async def fake_download_track(url, target_path):
-        downloads.append((url, target_path.name))
+    async def fake_download_track(url, target_path, **kwargs):
+        downloads.append((url, target_path.name, kwargs.get("aweme_id")))
         target_path.write_bytes(url.encode("utf-8"))
         return True
 
@@ -102,8 +102,8 @@ async def test_live_replay_downloader_downloads_tracks_and_remuxes(tmp_path):
     assert result.success == 1
     assert result.failed == 0
     assert downloads == [
-        ("https://cdn/video.mp4", "2024-02-03_1945_直播回放标题_ep-1.video.mp4"),
-        ("https://cdn/audio.mp4", "2024-02-03_1945_直播回放标题_ep-1.audio.mp4"),
+        ("https://cdn/video.mp4", "2024-02-03_1945_直播回放标题_ep-1.video.mp4", "ep-1"),
+        ("https://cdn/audio.mp4", "2024-02-03_1945_直播回放标题_ep-1.audio.mp4", "ep-1"),
     ]
     outputs = [
         p for p in tmp_path.rglob("*.mp4") if not p.name.endswith((".video.mp4", ".audio.mp4"))
@@ -158,7 +158,7 @@ async def test_live_replay_downloader_preserves_tracks_when_remux_fails(tmp_path
             },
         }
 
-    async def fake_download_track(url, target_path):
+    async def fake_download_track(url, target_path, **_kwargs):
         target_path.write_bytes(url.encode("utf-8"))
         return True
 
@@ -246,7 +246,7 @@ async def test_live_replay_downloader_preserves_video_when_audio_download_fails(
             },
         }
 
-    async def fake_download_track(url, target_path):
+    async def fake_download_track(url, target_path, **_kwargs):
         if "audio" in url:
             return False
         target_path.write_bytes(url.encode("utf-8"))

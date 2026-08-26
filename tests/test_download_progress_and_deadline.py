@@ -13,6 +13,7 @@ from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core import downloader_base
 from core.api_client import DouyinAPIClient
+from core.live_replay_downloader import LiveReplayDownloader
 from core.video_downloader import VideoDownloader
 from storage import FileManager
 
@@ -32,6 +33,9 @@ class _RecordingReporter:
     def advance_item(self, status, detail=""):
         self.events.append(("advance_item", status, detail))
 
+    def on_item_start(self, *, aweme_id, index, total, title):
+        self.events.append(("on_item_start", aweme_id, index, total, title))
+
     def on_item_progress(self, *, aweme_id, bytes_read, bytes_total):
         self.events.append(("on_item_progress", aweme_id, bytes_read, bytes_total))
 
@@ -39,14 +43,16 @@ class _RecordingReporter:
         return [e for e in self.events if e[0] == "on_item_progress"]
 
 
-def _build_downloader(tmp_path, *, reporter=None, max_retries: int = 3):
+def _build_downloader(
+    tmp_path, *, reporter=None, max_retries: int = 3, downloader_type=VideoDownloader
+):
     config = ConfigLoader()
     config.update(path=str(tmp_path))
 
     retry_handler = RetryHandler(max_retries=max_retries)
     retry_handler.retry_delays = [0]
 
-    return VideoDownloader(
+    return downloader_type(
         config,
         DouyinAPIClient({}),
         FileManager(str(tmp_path)),
@@ -135,6 +141,46 @@ async def test_aweme_assets_pass_aweme_id_into_video_download(tmp_path, monkeypa
     await downloader._download_aweme_assets(aweme, "悦润禾", mode="post")
 
     assert seen["aweme_id"] == "7670780733078248626"
+
+
+async def test_live_replay_streams_progress_for_matching_episode_item(tmp_path, monkeypatch):
+    reporter = _RecordingReporter()
+    downloader = _build_downloader(
+        tmp_path, reporter=reporter, max_retries=1, downloader_type=LiveReplayDownloader
+    )
+
+    async def _fake_episode(episode_id):
+        return {"attach_room_id_str": "room-1", "owner": {"nickname": "主播甲"}}
+
+    async def _fake_replay(_episode_id, _room_id, replay_id=None):
+        return {
+            "title": "直播回放标题",
+            "video_info": {
+                "unfold_play_info": {
+                    "play_urls": [{"height": 720, "main": "https://cdn/video.mp4"}]
+                }
+            },
+        }
+
+    async def _fake_download_file(_url, save_path, _session, **kwargs):
+        on_progress = kwargs.get("on_progress")
+        assert on_progress is not None, "直播回放必须把字节进度透传给 FileManager"
+        save_path.write_bytes(b"video")
+        on_progress(1024, 4096)
+        return True
+
+    monkeypatch.setattr(downloader.api_client, "get_live_replay_episode", _fake_episode)
+    monkeypatch.setattr(downloader.api_client, "get_live_replay_info", _fake_replay)
+    monkeypatch.setattr(downloader.file_manager, "download_file", _fake_download_file)
+
+    result = await downloader.download({"episode_id": "ep-1"})
+    await downloader.api_client.close()
+
+    starts = [event for event in reporter.events if event[0] == "on_item_start"]
+    assert [(event[1], event[2], event[3]) for event in starts] == [("ep-1", 0, 1)]
+    assert reporter.progress_events() == [("on_item_progress", "ep-1", 1024, 4096)]
+    assert reporter.events.index(starts[0]) < reporter.events.index(reporter.progress_events()[0])
+    assert result.success == 1
 
 
 async def _noop_session():

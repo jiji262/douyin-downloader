@@ -76,8 +76,16 @@ class LiveReplayDownloader(BaseDownloader):
         video_path = save_dir / f"{file_stem}.video.mp4"
         audio_path = save_dir / f"{file_stem}.audio.mp4"
 
+        if self.progress_reporter:
+            emit_start = getattr(self.progress_reporter, "on_item_start", None)
+            if callable(emit_start):
+                try:
+                    emit_start(aweme_id=episode_id, index=0, total=1, title=final_path.name)
+                except Exception as exc:
+                    logger.debug("Progress on_item_start failed: %s", exc)
+
         self._progress_update_step("下载回放视频", final_path.name)
-        if not await self._download_track(video_url, video_path):
+        if not await self._download_track(video_url, video_path, aweme_id=episode_id):
             result.failed += 1
             self._progress_advance_item("failed", episode_id)
             return result
@@ -86,7 +94,7 @@ class LiveReplayDownloader(BaseDownloader):
         remux_status = "merged"
         if audio_url:
             self._progress_update_step("下载回放音频", final_path.name)
-            if not await self._download_track(audio_url, audio_path):
+            if not await self._download_track(audio_url, audio_path, aweme_id=episode_id):
                 logger.warning(
                     "Live replay audio download failed; keeping video track: %s", episode_id
                 )
@@ -206,7 +214,7 @@ class LiveReplayDownloader(BaseDownloader):
         except (OSError, OverflowError, TypeError, ValueError):
             return datetime.now(LIVE_REPLAY_TIMEZONE)
 
-    async def _download_track(self, url: str, target_path: Path) -> bool:
+    async def _download_track(self, url: str, target_path: Path, *, aweme_id: str) -> bool:
         target_path.parent.mkdir(parents=True, exist_ok=True)
         session = await self.api_client.get_session()
         return bool(
@@ -215,6 +223,7 @@ class LiveReplayDownloader(BaseDownloader):
                 target_path,
                 session,
                 headers=self._download_headers(),
+                on_progress=self._make_item_progress(aweme_id),
             )
         )
 
