@@ -489,9 +489,7 @@ def test_author_url_overwrites_existing_file(tmp_path):
         )
     )
 
-    assert target.read_text(encoding="utf-8") == (
-        "https://www.douyin.com/user/sec_uid_x\n"
-    )
+    assert target.read_text(encoding="utf-8") == ("https://www.douyin.com/user/sec_uid_x\n")
 
 
 def test_author_url_skips_collect_only_context(tmp_path):
