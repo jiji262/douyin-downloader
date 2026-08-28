@@ -110,6 +110,7 @@ def _build_downloader(
     browser_enabled: bool,
     progress_reporter=None,
     number_post: int = 0,
+    author_url: bool = False,
     homepage_screenshot: bool = False,
     author_dir: str = "nickname",
     increase_post: bool = True,
@@ -119,6 +120,7 @@ def _build_downloader(
         "increase": {"post": increase_post},
         "mode": ["post"],
         "thread": 2,
+        "author_url": author_url,
         "homepage_screenshot": homepage_screenshot,
         "author_dir": author_dir,
         "browser_fallback": {
@@ -397,7 +399,7 @@ def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):
     assert statuses.count("failed") == 1
 
 
-def test_homepage_screenshot_disabled_does_not_call_api(tmp_path, monkeypatch):
+def test_homepage_artifacts_disabled_do_not_save(tmp_path, monkeypatch):
     api_client = _FakeAPIClient()
     downloader = _build_downloader(tmp_path, api_client, browser_enabled=False)
 
@@ -413,8 +415,27 @@ def test_homepage_screenshot_disabled_does_not_call_api(tmp_path, monkeypatch):
 
     assert result.success == 1
     assert api_client.homepage_screenshot_calls == []
+    assert not (tmp_path / "Downloaded" / "tester" / "author_url.txt").exists()
+
+
+def test_author_url_enabled_saves_without_screenshot(tmp_path, monkeypatch):
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        author_url=True,
+    )
+
+    async def _mode_result(*_args, **_kwargs):
+        return DownloadResult()
+
+    monkeypatch.setattr(downloader, "_download_mode_logged", _mode_result)
+
+    asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
+
+    assert api_client.homepage_screenshot_calls == []
     author_url_path = tmp_path / "Downloaded" / "tester" / "author_url.txt"
-    assert author_url_path.exists()
     assert author_url_path.read_text(encoding="utf-8") == (
         "https://www.douyin.com/user/sec_uid_x\n"
     )
@@ -445,17 +466,18 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     assert screenshot_profile == {"uid": "uid-1", "sec_uid": "sec_uid_x", "nickname": "tester"}
     author_root = tmp_path / "Downloaded" / "tester_sec_uid_x"
     assert screenshot_path == (author_root / "主页截图.png").resolve()
-    author_url_path = author_root / "author_url.txt"
-    assert author_url_path.exists()
-    assert author_url_path.read_text(encoding="utf-8") == (
-        "https://www.douyin.com/user/sec_uid_x\n"
-    )
-    assert screenshot_path.parent == author_url_path.parent.resolve()
+    assert not (author_root / "author_url.txt").exists()
 
 
 def test_author_url_overwrites_existing_file(tmp_path):
-    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
-    target = tmp_path / "Downloaded" / "tester" / "author_url.txt"
+    downloader = _build_downloader(
+        tmp_path,
+        _FakeAPIClient(),
+        browser_enabled=False,
+        author_url=True,
+        author_dir="nickname_uid",
+    )
+    target = tmp_path / "Downloaded" / "tester_sec_uid_x" / "author_url.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("stale\n", encoding="utf-8")
 
@@ -473,7 +495,12 @@ def test_author_url_overwrites_existing_file(tmp_path):
 
 
 def test_author_url_skips_collect_only_context(tmp_path):
-    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+    downloader = _build_downloader(
+        tmp_path,
+        _FakeAPIClient(),
+        browser_enabled=False,
+        author_url=True,
+    )
 
     for mode in ("collect", "collectmix"):
         asyncio.run(
@@ -487,7 +514,12 @@ def test_author_url_skips_collect_only_context(tmp_path):
 
 
 def test_author_url_write_failure_does_not_raise(tmp_path, monkeypatch, caplog):
-    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+    downloader = _build_downloader(
+        tmp_path,
+        _FakeAPIClient(),
+        browser_enabled=False,
+        author_url=True,
+    )
 
     def _fail_open(*_args, **_kwargs):
         raise OSError("disk full")

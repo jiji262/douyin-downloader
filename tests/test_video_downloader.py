@@ -110,16 +110,65 @@ async def test_new_downloader_rescans_disk_after_external_file_deletion(tmp_path
     await second_api.close()
 
 
-@pytest.mark.asyncio
-async def test_disk_check_does_not_query_download_history(tmp_path):
-    class _HistoryDatabase:
-        async def is_downloaded(self, _aweme_id):
-            raise AssertionError("disk is the only incremental skip source")
+class _HistoryDatabase:
+    def __init__(self, downloaded: bool):
+        self.downloaded = downloaded
+        self.calls = 0
 
+    async def is_downloaded(self, _aweme_id):
+        self.calls += 1
+        return self.downloaded
+
+
+@pytest.mark.asyncio
+async def test_missing_file_redownloads_by_default_without_history_lookup(tmp_path):
     downloader, api_client = _build_downloader(tmp_path)
-    downloader.database = _HistoryDatabase()
+    history = _HistoryDatabase(downloaded=True)
+    downloader.database = history
 
     assert await downloader._should_download("7412345678901234567") is True
+    assert history.calls == 0
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_file_skips_when_download_history_is_trusted(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(redownload_missing_files=False)
+    history = _HistoryDatabase(downloaded=True)
+    downloader.database = history
+
+    assert await downloader._should_download("7412345678901234567") is False
+    assert history.calls == 1
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_file_downloads_when_history_record_was_deleted(tmp_path):
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(redownload_missing_files=False)
+    history = _HistoryDatabase(downloaded=False)
+    downloader.database = history
+
+    assert await downloader._should_download("7412345678901234567") is True
+    assert history.calls == 1
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_existing_file_skips_before_deleted_history_is_checked(tmp_path):
+    aweme_id = "7412345678901234567"
+    (tmp_path / f"2026-08-21_demo_{aweme_id}.mp4").write_bytes(b"existing-media")
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(redownload_missing_files=False)
+    history = _HistoryDatabase(downloaded=False)
+    downloader.database = history
+
+    assert await downloader._should_download(aweme_id) is False
+    assert history.calls == 0
 
     await api_client.close()
 

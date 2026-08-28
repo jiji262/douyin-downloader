@@ -245,7 +245,32 @@ class BaseDownloader(ABC):
             logger.info("Aweme %s already exists locally, skipping", aweme_id)
             return False
 
+        if self._redownload_missing_files_enabled() or self.database is None:
+            return True
+
+        try:
+            if await self.database.is_downloaded(aweme_id):
+                logger.info(
+                    "Aweme %s exists in download history; skipping missing local file",
+                    aweme_id,
+                )
+                return False
+        except Exception as exc:
+            # 历史库只是增量判定的可选兜底；状态不明时宁可补下，不能把作品
+            # 永久误判为已下载。
+            logger.warning(
+                "Download history lookup failed for aweme %s, downloading it: %s",
+                aweme_id,
+                exc,
+            )
+
         return True
+
+    def _redownload_missing_files_enabled(self) -> bool:
+        value = self.config.get("redownload_missing_files", True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
 
     async def _ensure_local_aweme_index(self) -> None:
         """在工作线程中完成首次全库扫描建索引。

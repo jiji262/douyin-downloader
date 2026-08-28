@@ -123,6 +123,9 @@ class UserDownloader(BaseDownloader):
         user_info: Dict[str, Any],
         modes: List[str],
     ) -> None:
+        if not self._as_bool(self.config.get("author_url", False)):
+            return
+
         normalized_modes = {str(mode or "").strip() for mode in modes}
         if sec_uid == "self" or normalized_modes.issubset(self.SELF_COLLECT_MODES):
             return
