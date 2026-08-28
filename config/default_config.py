@@ -28,6 +28,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     #   False - 不分模式层，文件直接落在作者目录下（复刻 legacy 布局，无 POST 文件夹）
     "group_by_mode": True,
     "download_pinned": False,
+    # 下载博主作品时，是否在作者根目录覆盖保存主页地址文本。
+    "author_url": False,
     # 下载博主作品时，是否在作者根目录覆盖保存一张主页首屏截图。
     "homepage_screenshot": False,
     "mode": ["post"],
@@ -40,7 +42,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "collect": 0,
         "collectmix": 0,
     },
-    # 增量下载只按磁盘主文件判断；False 会强制重下并原子覆盖当前筛选范围。
+    # 增量下载首先检查磁盘主文件。磁盘缺失时，True 会重新下载；False 会在数据库
+    # 存在有效下载记录（file_path 非空）时继续跳过。默认 True 保持历史行为。
+    "redownload_missing_files": True,
+    # 各模式是否启用增量下载；False 会强制重下并原子覆盖当前筛选范围。
     "increase": {
         "post": True,
         "like": True,

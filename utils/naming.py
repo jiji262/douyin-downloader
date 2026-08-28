@@ -108,10 +108,9 @@ def validate_template(template: str, *, field_name: str = "template") -> None:
       - 引用的变量必须在 ``ALLOWED_VARIABLES`` 白名单内
 
     注意：``{id}`` **不再强制**。用户可选择不含作品 ID 的模板（例如用
-    ``{date} {hour}.{minute}.{second}_{title}_{type}`` 复刻 legacy 布局），靠
-    发布时间精确到秒来保证唯一性。代价是基于文件名的「磁盘级去重」
-    （``downloader_base`` 从文件名抠 15–20 位 aweme_id）会失效，跨作品去重只能
-    依赖数据库——这是用户的显式取舍，校验层不再代为阻止。
+    ``{date} {hour}.{minute}.{second}_{title}_{type}`` 复刻 legacy 布局）。代价是
+    基于文件名的磁盘判重会失效：默认 ``redownload_missing_files=true`` 时会再次下载；
+    关闭该开关后，才会在数据库仍有有效下载记录时继续跳过。
     """
     if not isinstance(template, str):
         raise TemplateValidationError(f"{field_name} must be a string")

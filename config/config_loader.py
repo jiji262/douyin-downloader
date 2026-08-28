@@ -166,6 +166,7 @@ class ConfigLoader:
         "avatar",
         "json",
         "download_pinned",
+        "author_url",
         "homepage_screenshot",
         "proxy",
         "retry_times",
