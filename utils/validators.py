@@ -121,6 +121,12 @@ def parse_url_type(url: str) -> Optional[str]:
     if host == "live.douyin.com":
         return "live" if re.fullmatch(r"/\d+/?", path) else None
 
+    # 放映厅长视频（版权影视）。识别出来只为给用户一条明确的拒绝理由——
+    # 内容整轨 MPEG-CENC(AES-CTR) 加密，且抖音作品详情接口对这类 id 直接回
+    # filter_reason=lvideo_not_support，任何解析路径都拿不到可播放的成片。
+    # 必须放在 /video/ 之前：以后若有人给这里加宽松正则，先撞上这条拒绝。
+    if "/lvdetail/" in path:
+        return "lvdetail"
     if "/video/" in path:
         return "video"
     if "/user/" in path:

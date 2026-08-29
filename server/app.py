@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
-from core import DouyinAPIClient, DownloaderFactory, URLParser
+from core import UNSUPPORTED_URL_TYPE_DETAIL, DouyinAPIClient, DownloaderFactory, URLParser
 from server.jobs import JobManager
 from storage import FileManager
 from utils.logger import setup_logger
@@ -97,6 +97,10 @@ async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:
         parsed = URLParser.parse(url)
         if not parsed:
             raise RuntimeError(f"Unsupported URL: {url}")
+        # 能力门禁：解析得出来但永远不会有下载器的类型，给出真实原因。
+        gated_detail = UNSUPPORTED_URL_TYPE_DETAIL.get(str(parsed.get("type") or ""))
+        if gated_detail:
+            raise RuntimeError(gated_detail)
 
         downloader = DownloaderFactory.create(
             parsed["type"],
