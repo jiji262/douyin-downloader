@@ -350,6 +350,15 @@ class BaseDownloader(ABC):
         if end_time:
             end_date = datetime.strptime(end_time, "%Y-%m-%d") + timedelta(days=1)
             end_ts = int(end_date.timestamp())
+        # per-job 增量窗口(订阅自动下载注入;语义:min 排除等于、max 保留等于,
+        # 与 _filter_by_time 的「start 保留等于 / end 排除等于」拼合后正好是
+        # (watermark, window_top] 区间)。0/缺失 = 不启用。
+        min_ct = int(self.config.get("min_create_time", 0) or 0)
+        if min_ct > 0:
+            start_ts = max(start_ts or 0, min_ct + 1)
+        max_ct = int(self.config.get("max_create_time", 0) or 0)
+        if max_ct > 0:
+            end_ts = min(end_ts, max_ct + 1) if end_ts else max_ct + 1
         return start_ts, end_ts
 
     def _filter_by_time(self, aweme_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
