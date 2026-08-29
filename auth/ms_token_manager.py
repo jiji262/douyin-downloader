@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import string
@@ -7,7 +8,7 @@ import time
 import urllib.request
 from http.cookies import SimpleCookie
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import yaml
 
@@ -29,15 +30,28 @@ class MsTokenManager:
     _cache_ttl_seconds: int = 3600
     _lock = Lock()
 
+    # Token generation is optional: every caller already has a random-token
+    # fallback. Keep this dependency on GitHub + mssdk inside a small latency
+    # budget so an unavailable upstream cannot hold an API request past the
+    # renderer's timeout. The cross-instance lock prevents short-lived API
+    # clients from stampeding those two endpoints; after one failed attempt,
+    # all callers use the fallback during the cooldown.
+    _default_timeout_seconds: float = 3.0
+    _failure_backoff_seconds: float = 300.0
+    _generation_retry_after: float = 0.0
+    _generated_token_ttl_seconds: float = 60.0
+    _generated_tokens: Dict[str, Tuple[float, str]] = {}
+    _generation_lock = Lock()
+
     def __init__(
         self,
         user_agent: str,
         conf_url: Optional[str] = None,
-        timeout_seconds: int = 15,
+        timeout_seconds: float = _default_timeout_seconds,
     ):
         self.user_agent = user_agent
         self.conf_url = conf_url or self.F2_CONF_URL
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = max(0.1, float(timeout_seconds))
 
     @classmethod
     def _is_valid_ms_token(cls, token: Optional[str]) -> bool:
@@ -54,16 +68,52 @@ class MsTokenManager:
         logger.debug("Generated fallback msToken")
         return token
 
+    def _cookie_scope_key(self, cookies: Dict[str, str]) -> str:
+        payload = json.dumps(
+            {"cookies": cookies or {}, "user_agent": self.user_agent},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
     def ensure_ms_token(self, cookies: Dict[str, str]) -> str:
         current = (cookies or {}).get("msToken", "").strip()
         if current:
             return current
 
-        real = self.gen_real_ms_token()
-        if real:
-            return real
+        # ``DouyinAPIClient`` instances are intentionally short-lived in the
+        # sidecar. Serialize generation across them and re-check shared state
+        # after taking the lock, otherwise a burst of cache/list requests can
+        # launch one slow remote probe per instance.
+        scope_key = self._cookie_scope_key(cookies)
+        with self._generation_lock:
+            now = time.monotonic()
+            expired_keys = [
+                key for key, (expires_at, _token) in self._generated_tokens.items()
+                if expires_at <= now
+            ]
+            for key in expired_keys:
+                self._generated_tokens.pop(key, None)
 
-        return self.gen_false_ms_token()
+            cached = self._generated_tokens.get(scope_key)
+            if cached is not None:
+                return cached[1]
+            if now < self._generation_retry_after:
+                return self.gen_false_ms_token()
+
+            real = self.gen_real_ms_token()
+            if real:
+                type(self)._generation_retry_after = 0.0
+                self._generated_tokens[scope_key] = (
+                    time.monotonic() + self._generated_token_ttl_seconds,
+                    real,
+                )
+                return real
+
+            type(self)._generation_retry_after = (
+                time.monotonic() + self._failure_backoff_seconds
+            )
+            return self.gen_false_ms_token()
 
     def gen_real_ms_token(self) -> Optional[str]:
         conf = self._load_f2_ms_token_conf()
