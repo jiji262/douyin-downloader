@@ -732,3 +732,29 @@ def test_collect_mix_strategy_expansion_does_not_apply_number_limit_or_increase_
     strategy = CollectMixUserModeStrategy(_Downloader())
     items = asyncio.run(strategy.collect_items("self", {"uid": "self"}))
     assert [item["aweme_id"] for item in items] == ["mix-aweme-1", "mix-aweme-2"]
+
+
+def test_collect_strategy_extract_collects_id_prefers_string_id_over_lossy_int():
+    """``collects_id`` arrives as int64 and is rounded once JSON passes
+    through the Electron page bridge; ``collects_id_str`` keeps every digit."""
+    extract = CollectUserModeStrategy._extract_collects_id
+    assert (
+        extract({"collects_id": 7288947735614046000, "collects_id_str": "7288947735614046258"})
+        == "7288947735614046258"
+    )
+    assert (
+        extract(
+            {
+                "collects_info": {
+                    "collects_id": 7288947735614046000,
+                    "collects_id_str": "7288947735614046258",
+                }
+            }
+        )
+        == "7288947735614046258"
+    )
+    # Numeric-only payloads still work.
+    assert extract({"collects_id": 123}) == "123"
+    assert extract({"collects_info": {"collects_id": 456}}) == "456"
+    assert extract({}) == ""
+    assert extract(None) == ""

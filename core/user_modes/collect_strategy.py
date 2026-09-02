@@ -142,13 +142,15 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
 
     @staticmethod
     def _extract_collects_id(item: Any) -> str:
+        """Prefer ``collects_id_str``: the numeric ``collects_id`` is an int64 that
+        loses its low digits once the desktop page bridge parses it in JavaScript."""
         if not isinstance(item, dict):
             return ""
-        return str(
-            item.get("collects_id")
-            or item.get("collects_id_str")
-            or item.get("id")
-            or ((item.get("collects_info") or {}).get("collects_id"))
-            or ((item.get("collects_info") or {}).get("collects_id_str"))
-            or ""
-        )
+        info = item.get("collects_info")
+        sources = [item, info] if isinstance(info, dict) else [item]
+        for source in sources:
+            for key in ("collects_id_str", "collects_id", "id"):
+                value = source.get(key)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
