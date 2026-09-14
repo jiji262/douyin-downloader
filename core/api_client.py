@@ -45,6 +45,12 @@ _LOGIN_REQUIRED_STATUS_CODES = {2483}
 # that walk many pages degrade gracefully on an exhausted fetch instead.
 _RISK_CONTROL_HTTP_STATUSES = frozenset({403, 429})
 
+# 每次尝试之间的退避秒数（第 N 次失败后等 delays[N-1]）。aiohttp 与 page
+# bridge 两条路共用同一档预算，理由见上面那段注释。
+_RETRY_DELAYS_SECONDS = (1, 2, 5)
+_MAX_ATTEMPTS = 3
+_SERVER_ERROR_MIN_STATUS = 500
+
 _HOMEPAGE_SCREENSHOT_BRIDGE_ENV = "DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE"
 _HOMEPAGE_SCREENSHOT_MESSAGE_PREFIX = "DOUYIN_HOMEPAGE_SCREENSHOT_REQUEST "
 _HOMEPAGE_PROFILE_READY_SCRIPT = r"""(expected) => {
@@ -401,7 +407,7 @@ class DouyinAPIClient:
         params: Dict[str, Any],
         *,
         suppress_error: bool = False,
-        max_retries: int = 3,
+        max_retries: int = _MAX_ATTEMPTS,
         base_url: Optional[str] = None,
         request_headers: Optional[Dict[str, str]] = None,
         method: str = "GET",
@@ -411,7 +417,7 @@ class DouyinAPIClient:
         method = method.upper()
         if method not in {"GET", "POST"}:
             raise ValueError(f"unsupported request method: {method}")
-        delays = [1, 2, 5]
+        delays = _RETRY_DELAYS_SECONDS
         last_exc: Optional[Exception] = None
         risk_control_hit = False
 
@@ -590,17 +596,23 @@ class DouyinAPIClient:
         method: str = "GET",
         data: Optional[Dict[str, Any]] = None,
         request_headers: Optional[Dict[str, str]] = None,
+        suppress_error: bool = False,
     ) -> Dict[str, Any]:
         """被 ArgusSecurityPlugin 门禁的端点入口。
 
         有 ``page_bridge`` 时交给 Electron 隐藏登录窗口发(页面 SDK 补
         uifid / timestamp / x-secsdk-web-signature),否则与 ``_request_json``
         完全一致。经 bridge 的 403/429 不重试:Argus 拒绝是确定性的,重试只会
-        加速触发验证码。
+        加速触发验证码。5xx 与反爬空 200 是瞬时的,与 aiohttp 路径同档重试。
         """
         if self.page_bridge is None:
             return await self._request_json(
-                path, params, method=method, data=data, request_headers=request_headers
+                path,
+                params,
+                method=method,
+                data=data,
+                request_headers=request_headers,
+                suppress_error=suppress_error,
             )
         started = time.monotonic()
         logger.info(
@@ -609,16 +621,25 @@ class DouyinAPIClient:
             method.upper(),
             ",".join(sorted(str(key) for key in params)),
         )
-        try:
-            result = await self.page_bridge.fetch(path, params, method=method.upper(), data=data)
-        except Exception as exc:
-            if getattr(exc, "page_bridge_code", None) == "NOT_LOGGED_IN":
-                raise LoginRequiredError(0, "page bridge: not logged in", path) from exc
-            raise
-        status = int(getattr(result, "http_status", 0) or 0)
+        for attempt in range(_MAX_ATTEMPTS):
+            result = await self._fetch_via_page_bridge(path, params, method=method, data=data)
+            status = int(getattr(result, "http_status", 0) or 0)
+            if not self._bridge_answer_is_transient(result, status):
+                break
+            logger.warning(
+                "Douyin API transient failure via page bridge: path=%s attempt=%d/%d status=%s",
+                path,
+                attempt + 1,
+                _MAX_ATTEMPTS,
+                status,
+            )
+            if attempt == _MAX_ATTEMPTS - 1:
+                break
+            await asyncio.sleep(_RETRY_DELAYS_SECONDS[min(attempt, len(_RETRY_DELAYS_SECONDS) - 1)])
         if status == 200:
             return self._payload_from_bridge_result(result, path, started)
-        logger.error(
+        log_fn = logger.info if suppress_error else logger.error
+        log_fn(
             "Douyin API HTTP failure via page bridge: path=%s status=%s duration_ms=%d body=%r",
             path,
             status,
@@ -626,6 +647,46 @@ class DouyinAPIClient:
             str(getattr(result, "text", "") or "")[:80],
         )
         return {}
+
+    async def _fetch_via_page_bridge(
+        self,
+        path: str,
+        params: Dict[str, Any],
+        *,
+        method: str,
+        data: Optional[Dict[str, Any]],
+    ) -> Any:
+        try:
+            return await self.page_bridge.fetch(path, params, method=method.upper(), data=data)
+        except Exception as exc:
+            if getattr(exc, "page_bridge_code", None) == "NOT_LOGGED_IN":
+                raise LoginRequiredError(0, "page bridge: not logged in", path) from exc
+            raise
+
+    @staticmethod
+    def _bridge_answer_is_transient(result: Any, status: int) -> bool:
+        """只有服务端 5xx 与「空 200」值得重试。
+
+        403/429 是 Argus 的确定性拒绝;其余 4xx 同样不会自愈;非空但非 JSON
+        的 200 是验证码/挑战页,重试只是白烧这个窗口。
+        """
+        if status >= _SERVER_ERROR_MIN_STATUS:
+            return True
+        if status != 200 or isinstance(getattr(result, "body", None), dict):
+            return False
+        return not str(getattr(result, "text", "") or "").strip()
+
+    @classmethod
+    def _unavailable_paged_response(cls, *, item_keys: List[str]) -> Dict[str, Any]:
+        """「这个端点对当前参数不适用」而不是「请求失败」。
+
+        故意给一个非空 ``raw``：调用方靠空 ``raw`` 判定请求失败
+        (见 ``BaseUserModeStrategy._page_request_failed``)，这里直接返回
+        空列表却带着空 ``raw`` 会被误报成限流。
+        """
+        return cls._normalize_paged_response(
+            {"status_code": 0, "has_more": 0}, item_keys=item_keys, source="api"
+        )
 
     @staticmethod
     def _normalize_paged_response(
@@ -639,11 +700,19 @@ class DouyinAPIClient:
         keys = ["items", *keys, "aweme_list", "mix_list", "music_list"]
 
         items: List[Dict[str, Any]] = []
+        # 显式的 ``"aweme_list": null`` 与真 ``[]`` 归一化后都是空 items，但只有
+        # 后者可信：docs/spec/gotchas.md 记着 0.11.2 把 null 当空收藏夹，清空了
+        # 用户的自定义收藏夹。这里留下痕迹，让分页走查能判成失败而不是到底。
+        items_missing = False
         for key in keys:
-            value = raw.get(key)
+            if key not in raw:
+                continue
+            value = raw[key]
             if isinstance(value, list):
                 items = value
+                items_missing = False
                 break
+            items_missing = True
 
         has_more_value = raw.get("has_more", False)
         try:
@@ -676,6 +745,7 @@ class DouyinAPIClient:
 
         normalized = {
             "items": items,
+            "items_missing": items_missing,
             "aweme_list": items,  # 兼容旧调用方
             "has_more": has_more,
             "max_cursor": max_cursor,
@@ -719,7 +789,7 @@ class DouyinAPIClient:
                 }
             )
 
-            data = await self._request_json(
+            data = await self._request_json_gated(
                 "/aweme/v1/web/aweme/detail/",
                 params,
                 suppress_error=(suppress_error or aid != self._DETAIL_AID_CANDIDATES[-1]),
@@ -762,7 +832,7 @@ class DouyinAPIClient:
                 "publish_video_strategy_type": "2",
             }
         )
-        raw = await self._request_json("/aweme/v1/web/aweme/post/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/aweme/post/", params)
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def get_user_like(
@@ -776,14 +846,14 @@ class DouyinAPIClient:
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
     ) -> Dict[str, Any]:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
-        raw = await self._request_json("/aweme/v1/web/mix/list/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/mix/list/", params)
         return self._normalize_paged_response(raw, item_keys=["mix_infos", "mix_list"])
 
     async def get_user_music(
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
     ) -> Dict[str, Any]:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
-        raw = await self._request_json("/aweme/v1/web/music/list/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/music/list/", params)
         return self._normalize_paged_response(raw, item_keys=["music_list"])
 
     async def get_following_page(
@@ -853,7 +923,7 @@ class DouyinAPIClient:
         """
         if sec_uid and sec_uid != "self":
             logger.warning("Account collection currently requires self sec_uid, got=%s", sec_uid)
-            return self._normalize_paged_response({}, item_keys=["aweme_list"], source="api")
+            return self._unavailable_paged_response(item_keys=["aweme_list"])
 
         params = await self._default_query()
         params.update(
@@ -880,7 +950,7 @@ class DouyinAPIClient:
     ) -> Dict[str, Any]:
         if sec_uid and sec_uid != "self":
             logger.warning("Collect folders currently require self sec_uid, got=%s", sec_uid)
-            return self._normalize_paged_response({}, item_keys=["collects_list"], source="api")
+            return self._unavailable_paged_response(item_keys=["collects_list"])
 
         params = await self._build_collect_page_params(max_cursor, count)
         raw = await self._request_json_gated("/aweme/v1/web/collects/list/", params)
@@ -899,7 +969,7 @@ class DouyinAPIClient:
     ) -> Dict[str, Any]:
         if sec_uid and sec_uid != "self":
             logger.warning("Collect mix currently require self sec_uid, got=%s", sec_uid)
-            return self._normalize_paged_response({}, item_keys=["mix_infos"], source="api")
+            return self._unavailable_paged_response(item_keys=["mix_infos"])
 
         params = await self._build_collect_page_params(max_cursor, count)
         raw = await self._request_json_gated("/aweme/v1/web/mix/listcollection/", params)
@@ -935,21 +1005,25 @@ class DouyinAPIClient:
     async def get_mix_detail(self, mix_id: str) -> Optional[Dict[str, Any]]:
         params = await self._default_query()
         params.update({"mix_id": mix_id})
-        data = await self._request_json("/aweme/v1/web/mix/detail/", params)
+        data = await self._request_json_gated("/aweme/v1/web/mix/detail/", params)
         if not data:
             return None
         return data.get("mix_info") or data.get("mix_detail") or data
 
     async def get_mix_aweme(self, mix_id: str, cursor: int = 0, count: int = 20) -> Dict[str, Any]:
+        # 2026-09-10 起 ``mix/aweme/`` 也被 ArgusSecurityPlugin 门禁(aiohttp 恒
+        # 403 ``Uifid Not Found`` → 补 uifid 后 ``Signature Not Found``),与
+        # favorite / collects 同档。2026-09-14 起名单扩到 aweme/detail、
+        # aweme/post、mix/detail、mix/list、music/detail、music/aweme、music/list。
         params = await self._default_query()
         params.update({"mix_id": mix_id, "cursor": cursor, "count": count})
-        raw = await self._request_json("/aweme/v1/web/mix/aweme/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/mix/aweme/", params)
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def get_music_detail(self, music_id: str) -> Optional[Dict[str, Any]]:
         params = await self._default_query()
         params.update({"music_id": music_id})
-        data = await self._request_json("/aweme/v1/web/music/detail/", params)
+        data = await self._request_json_gated("/aweme/v1/web/music/detail/", params)
         if not data:
             return None
         return data.get("music_info") or data.get("music_detail") or data
@@ -959,7 +1033,7 @@ class DouyinAPIClient:
     ) -> Dict[str, Any]:
         params = await self._default_query()
         params.update({"music_id": music_id, "cursor": cursor, "count": count})
-        raw = await self._request_json("/aweme/v1/web/music/aweme/", params)
+        raw = await self._request_json_gated("/aweme/v1/web/music/aweme/", params)
         return self._normalize_paged_response(raw, item_keys=["aweme_list"])
 
     async def _build_live_room_request(

@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+import sys
 import time
+from importlib.util import find_spec
 from typing import Any, Callable, Dict, List, Optional, Set
 
 import aiofiles
 
+from core.api_client import DouyinAPIClient
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.metadata import build_author_home_url
 from core.user_mode_registry import UserModeRegistry
+from core.user_modes.base_strategy import PageRequestFailedError
 from utils.logger import setup_logger
 
 logger = setup_logger("UserDownloader")
+
+_BROWSER_DISABLED_REASON = "已在设置中关闭"
+# 打包版用 ``--exclude-module=playwright`` 裁掉了浏览器组件，用户装不上；源码
+# 运行（含 CLI）时 playwright 只是没装的可选依赖，装上就能用。两句话不能混。
+_BROWSER_BACKEND_MISSING_REASON = "当前版本未内置浏览器组件"
+_BROWSER_BACKEND_UNINSTALLED_REASON = "未安装浏览器组件（pip install playwright 后重试）"
 
 
 def _user_info_summary(user_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -39,14 +49,13 @@ class UserDownloader(BaseDownloader):
 
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         download_started = time.monotonic()
-        result = DownloadResult()
         sec_uid = parsed_url.get("sec_uid")
         if not sec_uid:
             raise RuntimeError("无法从链接中解析出用户 ID，请确认链接是否完整")
 
         modes = self._configured_modes()
         if not self._validate_mode_scope(sec_uid, modes):
-            return result
+            return DownloadResult()
 
         sec_uid = await self._resolve_self_alias(sec_uid, modes)
 
@@ -66,11 +75,7 @@ class UserDownloader(BaseDownloader):
         await self._save_homepage_screenshot(sec_uid, user_info, modes)
         self._progress_update_step("下载模式", f"模式: {', '.join(modes)}")
 
-        seen_aweme_ids: Set[str] = set()
-        for mode in modes:
-            mode_result = await self._download_mode_logged(mode, sec_uid, user_info, seen_aweme_ids)
-            if mode_result is not None:
-                self._merge_result(result, mode_result)
+        result = await self._download_all_modes(modes, sec_uid, user_info)
 
         logger.info(
             "User download finished: duration_ms=%s total=%s success=%s failed=%s skipped=%s",
@@ -80,6 +85,38 @@ class UserDownloader(BaseDownloader):
             result.failed,
             result.skipped,
         )
+        return result
+
+    async def _download_all_modes(
+        self, modes: List[str], sec_uid: str, user_info: Dict[str, Any]
+    ) -> DownloadResult:
+        """依次跑完每个模式；中途某个模式翻页失败时保住前面模式的成果。
+
+        让异常穿过 ``download()`` 等于把整个 ``result`` 丢掉：server/jobs.py
+        只在正常返回分支写计数（docs/spec/gotchas.md「计数器恒为 0」），用户会
+        在 500 个文件已经落盘的情况下看到「失败 · 0 项」。改成记下原因后收工，
+        与 post 走查的软信号（``incomplete_reason``）语义一致。
+        第一个模式就失败时没有成果可保，照旧抛出去按失败结案——否则就成了
+        更糟的「成功 0 项」。
+        """
+        result = DownloadResult()
+        seen_aweme_ids: Set[str] = set()
+        for mode in modes:
+            try:
+                mode_result = await self._download_mode_logged(
+                    mode, sec_uid, user_info, seen_aweme_ids
+                )
+            except PageRequestFailedError as exc:
+                logger.warning("User mode aborted by a failed page: mode=%s reason=%s", mode, exc)
+                if result.total <= 0 and not result.incomplete_reason:
+                    raise
+                # 硬失败的原因要盖过前面模式的软提示（后者只是「没取全」，
+                # 前者是「这个模式整个没跑成」），但仍继续跑剩下的模式：
+                # 一个模式被限流不代表另一个模式也拿不到。
+                result.incomplete_reason = str(exc)
+                continue
+            if mode_result is not None:
+                self._merge_result(result, mode_result)
         return result
 
     async def _resolve_self_alias(self, sec_uid: str, modes: List[str]) -> str:
@@ -225,6 +262,16 @@ class UserDownloader(BaseDownloader):
         started = time.monotonic()
         logger.info("User mode started: mode=%s strategy=%s", mode, type(strategy).__name__)
         result = await strategy.download_mode(sec_uid, user_info, seen_aweme_ids=seen_aweme_ids)
+        # 列表被限流截断时 failed 恒为 0，任务会被判成 SUCCESS；把策略记下
+        # 的原因搬到结果上，让宿主任务有机会告诉用户「这次没取全」。
+        incomplete_reason = getattr(strategy, "incomplete_reason", None)
+        if incomplete_reason:
+            result.incomplete_reason = str(incomplete_reason)
+            logger.warning(
+                "User mode returned an incomplete listing: mode=%s reason=%s",
+                mode,
+                incomplete_reason,
+            )
         logger.info(
             "User mode finished: mode=%s duration_ms=%s total=%s success=%s "
             "failed=%s skipped=%s unique_seen=%s",
@@ -244,6 +291,8 @@ class UserDownloader(BaseDownloader):
         target.success += source.success
         target.failed += source.failed
         target.skipped += source.skipped
+        if source.incomplete_reason and not target.incomplete_reason:
+            target.incomplete_reason = source.incomplete_reason
 
     def _validate_mode_scope(self, sec_uid: str, modes: List[str]) -> bool:
         normalized_modes = {str(mode or "").strip() for mode in modes}
@@ -472,11 +521,13 @@ class UserDownloader(BaseDownloader):
         *,
         item_filter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
     ) -> None:
-        browser_cfg = self.config.get("browser_fallback", {}) or {}
-        if not browser_cfg.get("enabled", True):
-            logger.info("Browser fallback skipped: disabled by config")
+        unavailable_reason = self._browser_recovery_unavailable_reason()
+        if unavailable_reason:
+            self._progress_update_step("拉取作品列表", f"浏览器回补不可用（{unavailable_reason}）")
+            logger.warning("Browser fallback skipped: %s", unavailable_reason)
             return
 
+        browser_cfg = self.config.get("browser_fallback", {}) or {}
         number_limit = self.config.get("number", {}).get("post", 0)
         # 在分页受限场景下，user_info.aweme_count 常常不可靠（经常只返回 20）
         # 媒体筛选需要先拿到详情才能判断，不能用原始 ID 数提前截断。
@@ -617,6 +668,30 @@ class UserDownloader(BaseDownloader):
                 detail_failed,
                 total_missing,
             )
+
+    def _browser_recovery_unavailable_reason(self) -> Optional[str]:
+        """浏览器回补不可用时给出人话原因，可用时返回 None。"""
+        browser_cfg = self.config.get("browser_fallback", {}) or {}
+        if not browser_cfg.get("enabled", True):
+            return _BROWSER_DISABLED_REASON
+        if self._browser_backend_missing():
+            return self._browser_backend_missing_reason()
+        return None
+
+    @staticmethod
+    def _browser_backend_missing_reason() -> str:
+        if getattr(sys, "frozen", False):
+            return _BROWSER_BACKEND_MISSING_REASON
+        return _BROWSER_BACKEND_UNINSTALLED_REASON
+
+    def _browser_backend_missing(self) -> bool:
+        """真实 api_client 的回补依赖 playwright，发行版构建用
+        ``--exclude-module=playwright`` 把它裁掉了，运行时只会 ImportError
+        后返回空列表。测试 / 自定义客户端自带采集实现，不受此限。
+        """
+        if not isinstance(self.api_client, DouyinAPIClient):
+            return False
+        return find_spec("playwright") is None
 
     @staticmethod
     def _post_recovery_limit_reached(
