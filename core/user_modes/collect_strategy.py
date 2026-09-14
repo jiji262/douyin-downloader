@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from core.user_modes.base_strategy import BaseUserModeStrategy
+from core.user_modes.base_strategy import (
+    PAGE_SIZE,
+    BaseUserModeStrategy,
+    fetch_page_folding_bridge_failure,
+)
 from utils.logger import setup_logger
 
 logger = setup_logger("CollectUserModeStrategy")
@@ -43,17 +47,35 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
             logger.warning("API client missing get_collect_aweme")
             return []
 
-        expanded: List[Dict[str, Any]] = []
-        seen_aweme: set[str] = set()
+        return await self._walk_folder_awemes(fetch_collect_aweme, collects_id, set())
 
+    async def _walk_folder_awemes(
+        self,
+        fetch_collect_aweme,
+        collects_id: str,
+        seen_aweme: set[str],
+    ) -> List[Dict[str, Any]]:
+        """分页抓取单个收藏夹的作品；``seen_aweme`` 跨收藏夹共享用于去重。
+
+        失败页(``raw`` 为空)必须报错而不是 ``break``：两者的 ``items`` 都是
+        空列表，当成「翻到底了」会让 200 条的收藏夹只下 20 条还报成功。
+        """
+        collected: List[Dict[str, Any]] = []
         cursor = 0
         has_more = True
+        page_index = 0
         while has_more:
             await self.downloader.rate_limiter.acquire()
-            page_data = await fetch_collect_aweme(str(collects_id), max_cursor=cursor, count=20)
+            page_index += 1
+            page_data = await fetch_page_folding_bridge_failure(
+                fetch_collect_aweme, str(collects_id), max_cursor=cursor, count=PAGE_SIZE
+            )
             page = self._normalize_page_data(page_data)
             page_items = page.get("items", [])
             if not page_items:
+                self._raise_if_page_request_failed(
+                    page, scope=f"收藏夹 {collects_id}", page_index=page_index
+                )
                 break
 
             for item in page_items:
@@ -64,7 +86,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
                 if not aweme_id or aweme_id in seen_aweme:
                     continue
                 seen_aweme.add(aweme_id)
-                expanded.append(aweme)
+                collected.append(aweme)
 
             has_more = bool(page.get("has_more", False))
             next_cursor = int(page.get("max_cursor", 0) or 0)
@@ -73,7 +95,7 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
                 break
             cursor = next_cursor
 
-        return expanded
+        return collected
 
     async def _collect_all_folders(self, sec_uid: str) -> List[Dict[str, Any]]:
         """Collect the account-level feed plus every custom folder."""
@@ -94,7 +116,9 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
         # custom folders. Older API doubles may not implement it, so keep the
         # custom-folder path backward-compatible while real clients include it.
         if callable(fetch_account_collection):
-            account_items = await self._collect_paged_entries(fetch_account_collection, "self")
+            account_items = await self._collect_paged_entries(
+                fetch_account_collection, "self", scope="全部收藏"
+            )
             for item in account_items:
                 aweme = self._extract_aweme_from_item(item)
                 if not aweme:
@@ -105,38 +129,16 @@ class CollectUserModeStrategy(BaseUserModeStrategy):
                 seen_aweme.add(aweme_id)
                 expanded.append(aweme)
 
-        raw_collects = await self._collect_paged_entries(fetch_collects, sec_uid)
+        raw_collects = await self._collect_paged_entries(
+            fetch_collects, sec_uid, scope="收藏夹列表"
+        )
         for collect_item in raw_collects:
             collects_id = self._extract_collects_id(collect_item)
             if not collects_id:
                 continue
-
-            cursor = 0
-            has_more = True
-            while has_more:
-                await self.downloader.rate_limiter.acquire()
-                page_data = await fetch_collect_aweme(str(collects_id), max_cursor=cursor, count=20)
-                page = self._normalize_page_data(page_data)
-                page_items = page.get("items", [])
-                if not page_items:
-                    break
-
-                for item in page_items:
-                    aweme = self._extract_aweme_from_item(item)
-                    if not aweme:
-                        continue
-                    aweme_id = str(aweme.get("aweme_id") or "")
-                    if not aweme_id or aweme_id in seen_aweme:
-                        continue
-                    seen_aweme.add(aweme_id)
-                    expanded.append(aweme)
-
-                has_more = bool(page.get("has_more", False))
-                next_cursor = int(page.get("max_cursor", 0) or 0)
-                if has_more and next_cursor == cursor:
-                    logger.warning("Collect folder %s cursor did not advance", collects_id)
-                    break
-                cursor = next_cursor
+            expanded.extend(
+                await self._walk_folder_awemes(fetch_collect_aweme, collects_id, seen_aweme)
+            )
 
         return expanded
 

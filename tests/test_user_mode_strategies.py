@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from core.user_modes import post_strategy as post_strategy_module
 from core.user_modes.collect_mix_strategy import CollectMixUserModeStrategy
 from core.user_modes.collect_strategy import CollectUserModeStrategy
@@ -758,3 +760,139 @@ def test_collect_strategy_extract_collects_id_prefers_string_id_over_lossy_int()
     assert extract({"collects_info": {"collects_id": 456}}) == "456"
     assert extract({}) == ""
     assert extract(None) == ""
+
+
+def _mix_expansion_downloader(get_mix_aweme):
+    class _API:
+        async def get_user_mix(self, _sec_uid, max_cursor=0, count=20):
+            return {
+                "items": [{"mix_info": {"mix_id": "mix-1"}}],
+                "has_more": False,
+                "max_cursor": 0,
+            }
+
+    _API.get_mix_aweme = get_mix_aweme
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = _API()
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"mix": 0},
+                        "increase": {"mix": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    return _Downloader()
+
+
+def test_mix_expansion_surfaces_bridge_transport_failure_as_page_failure():
+    """``get_mix_aweme`` 走 page bridge 后可能直接抛传输异常(TIMEOUT 等)。
+    以前被 ``except Exception: break`` 吞成「合集没有作品」→ 任务成功 0 项；
+    现在必须按硬失败上抛,和空页判定同档。"""
+    import pytest
+
+    from core.user_modes.base_strategy import PageRequestFailedError
+
+    async def _get_mix_aweme(self, _mix_id, cursor=0, count=20):
+        raise RuntimeError("page bridge TIMEOUT: in-page fetch timed out")
+
+    strategy = MixUserModeStrategy(_mix_expansion_downloader(_get_mix_aweme))
+    with pytest.raises(PageRequestFailedError, match="mix-1 第 1 页请求失败"):
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+
+def test_mix_expansion_lets_login_required_propagate():
+    """bridge 的 NOT_LOGGED_IN 映射成 ``LoginRequiredError``,上层靠它判定
+    Cookie 失效;不能被包装成普通页失败。"""
+    import pytest
+
+    from core.api_client import LoginRequiredError
+
+    async def _get_mix_aweme(self, _mix_id, cursor=0, count=20):
+        raise LoginRequiredError(0, "page bridge: not logged in", "/aweme/v1/web/mix/aweme/")
+
+    strategy = MixUserModeStrategy(_mix_expansion_downloader(_get_mix_aweme))
+    with pytest.raises(LoginRequiredError):
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+
+class _BridgeTransportError(Exception):
+    """鸭子类型的 page bridge 传输失败(真实类型 ``core.page_bridge.PageBridgeError``)。"""
+
+    def __init__(self, code):
+        super().__init__(f"page bridge {code}")
+        self.page_bridge_code = code
+
+
+def test_mix_list_walk_folds_bridge_transport_failure_into_page_failure():
+    """``mix/list`` 在 2026-09-14 进了 Argus 名单、改走 bridge。列表主循环遇到
+    bridge TIMEOUT 要与 aiohttp 403 的空 raw 同档,抛 ``PageRequestFailedError``
+    交给 ``UserDownloader`` 按模式兜底,不能让原始异常把整个主页任务打成 0 计数。"""
+    import pytest
+
+    from core.user_modes.base_strategy import PageRequestFailedError
+
+    async def _unused(self, _mix_id, cursor=0, count=20):
+        raise AssertionError("expansion must not run when the list walk failed")
+
+    downloader = _mix_expansion_downloader(_unused)
+
+    async def _get_user_mix(_sec_uid, max_cursor=0, count=20):
+        raise _BridgeTransportError("TIMEOUT")
+
+    downloader.api_client.get_user_mix = _get_user_mix
+    strategy = MixUserModeStrategy(downloader)
+    with pytest.raises(PageRequestFailedError, match="第 1 页请求失败"):
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+
+def test_mix_list_walk_lets_login_required_propagate():
+    import pytest
+
+    from core.api_client import LoginRequiredError
+
+    async def _unused(self, _mix_id, cursor=0, count=20):
+        raise AssertionError("expansion must not run when the list walk failed")
+
+    downloader = _mix_expansion_downloader(_unused)
+
+    async def _get_user_mix(_sec_uid, max_cursor=0, count=20):
+        raise LoginRequiredError(0, "page bridge: not logged in", "/aweme/v1/web/mix/list/")
+
+    downloader.api_client.get_user_mix = _get_user_mix
+    strategy = MixUserModeStrategy(downloader)
+    with pytest.raises(LoginRequiredError):
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+
+@pytest.mark.parametrize(
+    ("error", "folded"),
+    [
+        (_BridgeTransportError("TIMEOUT"), True),
+        (_BridgeTransportError("PAGE_LOAD_FAILED"), True),
+        # bridge 服务没起来是确定性故障,折成「请求失败」只会误导用户去重试 / 重新登录。
+        (_BridgeTransportError("UNAVAILABLE"), False),
+        # 非 bridge 异常(CLI 永远只有这类)行为不变。
+        (RuntimeError("boom"), False),
+    ],
+)
+def test_fetch_page_folding_bridge_failure_only_folds_transient_bridge_errors(error, folded):
+    from core.user_modes.base_strategy import fetch_page_folding_bridge_failure
+
+    async def _fetcher(*_args, **_kwargs):
+        raise error
+
+    if folded:
+        assert asyncio.run(fetch_page_folding_bridge_failure(_fetcher, "sec", 0, 20)) == {}
+    else:
+        with pytest.raises(type(error)):
+            asyncio.run(fetch_page_folding_bridge_failure(_fetcher, "sec", 0, 20))

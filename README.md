@@ -36,6 +36,8 @@ _Screenshots were captured from the current desktop `main` build. Demonstration 
 
 ## Feature Overview
 
+> **⚠️ Douyin's anti-bot gate blocks the CLI from downloading likes / favorites / favorite collections (since 2026-08) and single videos / notes, collections and music (since 2026-09); profile posts can only rely on the browser fallback.** See [Current Limitations](#current-limitations) for the cause and what still works; use the Douzy desktop app for these downloads.
+
 ### Supported
 
 | Feature | Description |
@@ -70,6 +72,21 @@ _Screenshots were captured from the current desktop `main` build. Demonstration 
 
 ### Current Limitations
 
+- **Douyin Argus gate:** Douyin's edge `ArgusSecurityPlugin` answers every non-browser request to these endpoints with
+  HTTP 403 `Blocked by ArgusSecurityPlugin Uifid Not Found`, with or without cookies and no matter how often you retry:
+  - since 2026-08: `aweme/favorite`, `collects/*`, `aweme/listcollection`, `mix/listcollection` (likes / favorites / favorite collections)
+  - since 2026-09-10: `mix/aweme` (collection items)
+  - since 2026-09-14: `aweme/detail` (single video / note), `aweme/post` (profile posts), `mix/detail`, `mix/list`,
+    `music/detail`, `music/aweme`, `music/list`
+
+  The required `x-secsdk-web-signature` can only be produced by the SDK inside a real Douyin web page, which the CLI's
+  direct API requests cannot carry, so single videos / notes, collections, music and likes / favorites **cannot be
+  downloaded** in the CLI. Profile-post (`post`) API paging is rejected as well; with `playwright` installed and
+  `browser_fallback` left on (headed by default), the browser fallback reads the page's own post-list requests and may
+  still work, but it has not been tested against this gate. The Douzy desktop app sends these requests through its
+  built-in login window and is not affected.
+  Endpoints still reachable directly as of 2026-09-14: user profile, following list, comments, live rooms (webcast),
+  hot board and search.
 - Browser fallback is fully validated for `post`; `like/mix/music` currently relies on API pagination
 - `number.allmix` / `increase.allmix` are retained as compatibility aliases and normalized to `mix`
 - `collect` / `collectmix` currently work for the account represented by the logged-in cookies only

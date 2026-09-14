@@ -57,6 +57,10 @@ class DownloadResult:
         self.success = 0
         self.failed = 0
         self.skipped = 0
+        # 「列表没取全」的人话原因；只在有确凿证据（请求失败 / 受限空页）
+        # 时填写。四个计数字段表达不了这件事——分页被限流截断时 failed
+        # 恒为 0，任务会被 server/jobs.py 判成 SUCCESS。
+        self.incomplete_reason: Optional[str] = None
 
     def __str__(self):
         return f"Total: {self.total}, Success: {self.success}, Failed: {self.failed}, Skipped: {self.skipped}"

@@ -125,6 +125,7 @@ def parse_url_type(url: str) -> Optional[str]:
     # 内容整轨 MPEG-CENC(AES-CTR) 加密，且抖音作品详情接口对这类 id 直接回
     # filter_reason=lvideo_not_support，任何解析路径都拿不到可播放的成片。
     # 必须放在 /video/ 之前：以后若有人给这里加宽松正则，先撞上这条拒绝。
+    # 详见 docs/research/douyin-lvdetail-long-video.md。
     if "/lvdetail/" in path:
         return "lvdetail"
     if "/video/" in path:
