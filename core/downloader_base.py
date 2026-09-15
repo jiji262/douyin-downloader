@@ -61,6 +61,10 @@ class DownloadResult:
         # 时填写。四个计数字段表达不了这件事——分页被限流截断时 failed
         # 恒为 0，任务会被 server/jobs.py 判成 SUCCESS。
         self.incomplete_reason: Optional[str] = None
+        # 条目失败的人话原因；只在失败点确知原因时填写。计数表达不了「为什么
+        # 失败」，不填时任务中心只能显示「原因未知」。只有一个值，目前只给单条目
+        # 下载器用；批量下载器要用得先改成按条目记录，否则会显示成「1 个条目失败」。
+        self.failure_reason: Optional[str] = None
 
     def __str__(self):
         return f"Total: {self.total}, Success: {self.success}, Failed: {self.failed}, Skipped: {self.skipped}"

@@ -5,6 +5,13 @@ from utils.logger import setup_logger
 
 logger = setup_logger("VideoDownloader")
 
+# get_video_detail 在「请求被拒 / 空响应」与「作品已删除 / 不可见」时都只回 None，
+# 这里分不清是哪一种，所以两种可能都写上。
+DETAIL_UNAVAILABLE_REASON = (
+    "抖音未返回作品详情（可能触发了风控验证，或作品已删除 / 不可见），"
+    "请确认作品能在抖音打开后重试，或重新登录"
+)
+
 
 class VideoDownloader(BaseDownloader):
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
@@ -32,6 +39,7 @@ class VideoDownloader(BaseDownloader):
         if not aweme_data:
             logger.error("Failed to get video detail: %s", aweme_id)
             result.failed += 1
+            result.failure_reason = DETAIL_UNAVAILABLE_REASON
             self._progress_advance_item("failed", str(aweme_id))
             return result
 
