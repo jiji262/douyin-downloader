@@ -10,7 +10,7 @@ from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
 from core.metadata import extract_video_cover_urls
-from core.video_downloader import VideoDownloader
+from core.video_downloader import DETAIL_UNAVAILABLE_REASON, VideoDownloader
 from storage import FileManager
 
 
@@ -199,6 +199,28 @@ async def test_video_downloader_reports_item_progress(tmp_path, monkeypatch):
     assert reporter.item_totals == [(1, "单作品下载")]
     assert ("下载作品", "单作品资源下载中") in reporter.step_updates
     assert reporter.item_events == [("success", "123")]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_detail_failure_records_failure_reason(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+
+    async def _fake_should_download(self, _aweme_id):
+        return True
+
+    async def _fake_get_video_detail(_aweme_id: str):
+        return None
+
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
+    monkeypatch.setattr(api_client, "get_video_detail", _fake_get_video_detail)
+
+    result = await downloader.download({"aweme_id": "123"})
+
+    assert result.failed == 1
+    # 任务中心靠它显示失败原因；为空时只能显示「原因未知」。
+    assert result.failure_reason == DETAIL_UNAVAILABLE_REASON
 
     await api_client.close()
 
