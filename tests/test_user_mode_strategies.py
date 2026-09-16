@@ -980,3 +980,69 @@ def test_mix_list_bridge_transport_failure_names_the_bridge_code():
     message = str(info.value)
     assert "TIMEOUT" in message
     assert "可能被限流" not in message and "重新登录" not in message
+
+
+def _series_only_client(monkeypatch, fetched_mix_ids):
+    """真实 ``DouyinAPIClient``：mix/list 空、合集全在 series/list（橙子说漫形态）。"""
+
+    from core.api_client import DouyinAPIClient
+
+    client = DouyinAPIClient({"msToken": "t"})
+
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
+        if path == "/aweme/v1/web/mix/list/":
+            return {"status_code": 0, "mix_infos": None, "has_more": 0, "cursor": 0}
+        if path == "/aweme/v1/web/series/list/":
+            return {
+                "status_code": 0,
+                "series_infos": [
+                    {
+                        "series_id": "7678767724759091209",
+                        "series_name": "山海小司命",
+                        "stats": {"updated_to_episode": 11},
+                    }
+                ],
+                "has_more": 0,
+                "cursor": 0,
+            }
+        raise AssertionError(f"unexpected path {path}")
+
+    async def _fake_get_mix_aweme(mix_id, cursor=0, count=20):  # noqa: ARG001
+        fetched_mix_ids.append(mix_id)
+        return {"items": [_make_aweme("A1")], "has_more": False, "max_cursor": 0, "raw": {"x": 1}}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    client.get_mix_aweme = _fake_get_mix_aweme
+    return client
+
+
+def test_mix_mode_downloads_series_sourced_compilations(monkeypatch):
+    """合集下载模式端到端：series 来源的合集也要被展开成作品。"""
+
+    fetched: list[str] = []
+    client = _series_only_client(monkeypatch, fetched)
+
+    class _Downloader:
+        def __init__(self):
+            self.api_client = client
+            self.rate_limiter = _NoopRateLimiter()
+            self.database = None
+            self.config = type(
+                "Cfg",
+                (),
+                {
+                    "get": lambda _self, key, default=None: {
+                        "number": {"mix": 0},
+                        "increase": {"mix": False},
+                    }.get(key, default)
+                },
+            )()
+            self._filter_by_time = lambda items: items
+            self._limit_count = lambda items, _mode: items
+
+    strategy = MixUserModeStrategy(_Downloader())
+    items = asyncio.run(strategy.collect_items("SEC_AUTHOR", {}))
+
+    assert fetched == ["7678767724759091209"]
+    assert [item["aweme_id"] for item in items] == ["A1"]
+    assert strategy.incomplete_reason is None

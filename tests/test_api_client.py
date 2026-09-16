@@ -562,10 +562,12 @@ async def test_user_mode_endpoints_use_shared_paged_normalization(monkeypatch):
     assert [path for path, _params in called_requests] == [
         "/aweme/v1/web/aweme/favorite/",
         "/aweme/v1/web/mix/list/",
+        # 合集的第二个来源，见 get_user_mix 的文档串。
+        "/aweme/v1/web/series/list/",
         "/aweme/v1/web/music/list/",
     ]
     mix_params = called_requests[1][1]
-    music_params = called_requests[2][1]
+    music_params = called_requests[3][1]
     for forbidden_key in (
         "show_live_replay_strategy",
         "need_time_list",
@@ -898,6 +900,7 @@ _GATED_CALLS = [
     ("get_video_detail", ("aweme-1",), "/aweme/v1/web/aweme/detail/", "GET"),
     ("get_user_post", ("sec-1",), "/aweme/v1/web/aweme/post/", "GET"),
     ("get_user_mix", ("sec-1",), "/aweme/v1/web/mix/list/", "GET"),
+    ("get_user_series", ("sec-1",), "/aweme/v1/web/series/list/", "GET"),
     ("get_user_music", ("sec-1",), "/aweme/v1/web/music/list/", "GET"),
     ("get_mix_detail", ("mix-1",), "/aweme/v1/web/mix/detail/", "GET"),
     ("get_music_detail", ("music-1",), "/aweme/v1/web/music/detail/", "GET"),
@@ -920,7 +923,8 @@ async def test_gated_methods_use_page_bridge_when_present(method_name, args, pat
 
     client._request_json = _must_not_run
     await getattr(client, method_name)(*args)
-    assert len(bridge.calls) == 1
+    # 合集第一页会多发一次 series/list（同样必须走 bridge）。
+    assert len(bridge.calls) == (2 if method_name == "get_user_mix" else 1)
     assert bridge.calls[0]["path"] == path
     assert bridge.calls[0]["method"] == http_method
     if http_method == "POST":
@@ -1275,3 +1279,378 @@ async def test_bridge_non_rejection_failure_stays_a_plain_empty_payload(monkeypa
     assert page["raw"] == {}
     assert not isinstance(page["raw"], FailedPayload)
     await client.close()
+
+
+# ---------------------------------------------------------------------------
+# 作者主页「合集」= mix/list + series/list 两个来源的并集
+# ---------------------------------------------------------------------------
+
+
+def _series_entry(series_id: str = "7678767724759091209", name: str = "山海小司命"):
+    return {
+        "series_id": series_id,
+        "series_name": name,
+        "stats": {"updated_to_episode": 11, "play_vv": 14948320},
+        "author": {"nickname": "橙子说漫", "sec_uid": "SEC_AUTHOR"},
+        "cover_url": {"url_list": ["https://cover/1.jpeg"]},
+        "series_type": 10,
+    }
+
+
+def _route_mix_and_series(mix_payload, series_pages, calls):
+    """按 path 分发的 ``_request_json`` 替身；``series_pages`` 按请求顺序返回。"""
+
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
+        calls.append((path, dict(params)))
+        if path == "/aweme/v1/web/mix/list/":
+            return mix_payload
+        if path == "/aweme/v1/web/series/list/":
+            index = min(len([c for c in calls if c[0] == path]) - 1, len(series_pages) - 1)
+            return series_pages[index]
+        raise AssertionError(f"unexpected path {path}")
+
+    return _fake_request_json
+
+
+async def test_get_user_mix_merges_series_list_entries(monkeypatch):
+    """mix_infos 为 null、合集全在 series_infos 里的作者（橙子说漫形态）。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": None, "has_more": 0, "cursor": 0},
+            [{"status_code": 0, "series_infos": [_series_entry()], "has_more": 0, "cursor": 0}],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert [path for path, _ in calls] == [
+        "/aweme/v1/web/mix/list/",
+        "/aweme/v1/web/series/list/",
+    ]
+    series_params = calls[1][1]
+    assert series_params["sec_user_id"] == "SEC_AUTHOR"
+    # 少了 read_new_mix=true，抖音恒回 series_infos=null（2026-09-16 实测）。
+    assert series_params["read_new_mix"] == "true"
+    assert series_params["cursor"] == 0
+    assert series_params["count"] == 20
+    assert "max_cursor" not in series_params
+
+    assert data["items"] == [
+        {
+            "mix_id": "7678767724759091209",
+            "mix_name": "山海小司命",
+            "statis": {"updated_to_episode": 11, "play_vv": 14948320},
+            "author": {"nickname": "橙子说漫", "sec_uid": "SEC_AUTHOR"},
+        }
+    ]
+    assert data["aweme_list"] == data["items"]
+    assert data["items_missing"] is False
+
+
+async def test_get_user_mix_dedupes_series_entries_already_in_mix_list(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {
+                "status_code": 0,
+                "mix_infos": [{"mix_info": {"mix_id": "DUP", "mix_name": "已在 mix/list"}}],
+                "has_more": 0,
+                "cursor": 0,
+            },
+            [
+                {
+                    "status_code": 0,
+                    "series_infos": [_series_entry("DUP", "重复"), _series_entry("NEW", "新的")],
+                    "has_more": 0,
+                    "cursor": 0,
+                }
+            ],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert [item.get("mix_id") or item["mix_info"]["mix_id"] for item in data["items"]] == [
+        "DUP",
+        "NEW",
+    ]
+
+
+async def test_get_user_mix_skips_series_list_on_later_pages(monkeypatch):
+    """series/list 只在第一页取一次：翻页游标属于 mix/list，混用会重复拉取。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": [{"mix_id": "M2"}], "has_more": 0, "cursor": 0},
+            [{"status_code": 0, "series_infos": [_series_entry()], "has_more": 0, "cursor": 0}],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=20, count=20)
+
+    assert [path for path, _ in calls] == ["/aweme/v1/web/mix/list/"]
+    assert data["items"] == [{"mix_id": "M2"}]
+
+
+async def test_get_user_mix_walks_every_series_page(monkeypatch):
+    """series/list 的下一页游标是时间戳，必须原样回传（2026-09-16 实测）。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": [], "has_more": 0, "cursor": 0},
+            [
+                {
+                    "status_code": 0,
+                    "series_infos": [_series_entry("S1", "第一页")],
+                    "has_more": 1,
+                    "cursor": 1787287757,
+                },
+                {
+                    "status_code": 0,
+                    "series_infos": [_series_entry("S2", "第二页")],
+                    "has_more": 0,
+                    "cursor": 0,
+                },
+            ],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    series_calls = [params for path, params in calls if path == "/aweme/v1/web/series/list/"]
+    assert [params["cursor"] for params in series_calls] == [0, 1787287757]
+    assert [item["mix_id"] for item in data["items"]] == ["S1", "S2"]
+
+
+async def test_get_user_mix_stops_series_walk_at_page_cap(monkeypatch):
+    """has_more 恒为 1 时不能无限翻，页数上限兜住。"""
+
+    from core.api_client import _SERIES_LIST_MAX_PAGES
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
+        calls.append((path, dict(params)))
+        if path == "/aweme/v1/web/mix/list/":
+            return {"status_code": 0, "mix_infos": [], "has_more": 0, "cursor": 0}
+        index = len([c for c in calls if c[0] == path])
+        return {
+            "status_code": 0,
+            "series_infos": [_series_entry(f"S{index}", f"第 {index} 页")],
+            "has_more": 1,
+            "cursor": 1000 + index,
+        }
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    series_calls = [c for c in calls if c[0] == "/aweme/v1/web/series/list/"]
+    assert len(series_calls) == _SERIES_LIST_MAX_PAGES
+    assert len(data["items"]) == _SERIES_LIST_MAX_PAGES
+
+
+async def test_get_user_mix_keeps_series_items_when_mix_list_request_fails(monkeypatch):
+    """mix/list 失败但 series/list 有内容时，返回已拿到的部分而不是空页。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {},
+            [{"status_code": 0, "series_infos": [_series_entry()], "has_more": 0, "cursor": 0}],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert [item["mix_id"] for item in data["items"]] == ["7678767724759091209"]
+
+
+async def test_get_user_mix_keeps_empty_page_shape_when_both_sources_empty(monkeypatch):
+    """两个来源都真空时仍是「翻到底了」，不能伪造失败。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": [], "has_more": 0, "cursor": 0},
+            [{"status_code": 0, "series_infos": None, "has_more": 0, "cursor": 0}],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert data["items"] == []
+    assert data["raw"]
+    assert data["status_code"] == 0
+
+
+async def test_get_user_mix_keeps_mix_items_when_series_list_raises(monkeypatch):
+    """series/list 超时不能把已经拿到的 mix/list 合集一起丢掉。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
+        if path == "/aweme/v1/web/mix/list/":
+            return {"status_code": 0, "mix_infos": [{"mix_id": "M1"}], "has_more": 0, "cursor": 0}
+        raise RuntimeError("bridge timeout")
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert data["items"] == [{"mix_id": "M1"}]
+
+
+async def test_get_user_mix_propagates_series_failure_when_mix_list_is_empty(monkeypatch):
+    """两个来源都没内容时失败必须上抛，不能被当成「没有公开合集」。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
+        if path == "/aweme/v1/web/mix/list/":
+            return {"status_code": 0, "mix_infos": None, "has_more": 0, "cursor": 0}
+        raise RuntimeError("bridge timeout")
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+
+    with pytest.raises(RuntimeError, match="bridge timeout"):
+        await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+
+@pytest.mark.parametrize(
+    ("series_payload", "label"),
+    [
+        ({}, "HTTP 失败回空 dict"),
+        ({"status_code": 2154, "series_infos": None}, "服务端报错码"),
+    ],
+)
+async def test_get_user_mix_surfaces_series_failure_when_nothing_else_found(
+    monkeypatch, series_payload, label
+):
+    """series/list 的失败大多不是异常而是空 payload，不能被当成「没有合集」。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": None, "has_more": 0, "cursor": 0},
+            [series_payload],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    from core.api_client import page_request_failed
+
+    assert data["items"] == [], label
+    assert page_request_failed(data), label
+
+
+async def test_get_user_mix_surfaces_argus_rejection_from_series_list(monkeypatch):
+    from core.api_client import FailedPayload, page_request_failed
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    rejected = FailedPayload(FailedPayload.REJECTED, status=403, via_bridge=True)
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": None, "has_more": 0, "cursor": 0},
+            [rejected],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert page_request_failed(data)
+    assert data["raw"] is rejected
+
+
+async def test_get_user_mix_keeps_mix_items_when_series_page_fails(monkeypatch):
+    """mix/list 已经有合集时，series/list 的失败只记日志，不能清空结果。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": [{"mix_id": "M1"}], "has_more": 0, "cursor": 0},
+            [{}],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    assert data["items"] == [{"mix_id": "M1"}]
+
+
+async def test_get_user_mix_series_cursor_is_not_shadowed_by_max_cursor(monkeypatch):
+    """series/list 真出现 max_cursor=0 时，翻页必须继续用 cursor。"""
+
+    client = DouyinAPIClient({"msToken": "token-1"})
+    calls = []
+    monkeypatch.setattr(
+        client,
+        "_request_json",
+        _route_mix_and_series(
+            {"status_code": 0, "mix_infos": [], "has_more": 0, "cursor": 0},
+            [
+                {
+                    "status_code": 0,
+                    "series_infos": [_series_entry("S1", "第一页")],
+                    "has_more": 1,
+                    "cursor": 1787287757,
+                    "max_cursor": 0,
+                },
+                {
+                    "status_code": 0,
+                    "series_infos": [_series_entry("S2", "第二页")],
+                    "has_more": 0,
+                    "cursor": 0,
+                },
+            ],
+            calls,
+        ),
+    )
+
+    data = await client.get_user_mix("SEC_AUTHOR", max_cursor=0, count=20)
+
+    series_calls = [params for path, params in calls if path == "/aweme/v1/web/series/list/"]
+    assert [params["cursor"] for params in series_calls] == [0, 1787287757]
+    assert [item["mix_id"] for item in data["items"]] == ["S1", "S2"]
