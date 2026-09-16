@@ -8,9 +8,10 @@ import pytest
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
+from core import item_reasons
 from core.api_client import DouyinAPIClient
 from core.metadata import extract_video_cover_urls
-from core.video_downloader import DETAIL_UNAVAILABLE_REASON, VideoDownloader
+from core.video_downloader import VideoDownloader
 from storage import FileManager
 
 
@@ -19,6 +20,7 @@ class _FakeProgressReporter:
         self.step_updates = []
         self.item_totals = []
         self.item_events = []
+        self.item_outcomes = []
 
     def update_step(self, step: str, detail: str = "") -> None:
         self.step_updates.append((step, detail))
@@ -26,8 +28,9 @@ class _FakeProgressReporter:
     def set_item_total(self, total: int, detail: str = "") -> None:
         self.item_totals.append((total, detail))
 
-    def advance_item(self, status: str, detail: str = "") -> None:
+    def advance_item(self, status: str, detail: str = "", reason: str = "") -> None:
         self.item_events.append((status, detail))
+        self.item_outcomes.append((status, detail, reason))
 
 
 def _build_downloader(tmp_path):
@@ -204,7 +207,7 @@ async def test_video_downloader_reports_item_progress(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_detail_failure_records_failure_reason(tmp_path, monkeypatch):
+async def test_detail_failure_records_item_reason(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
 
     async def _fake_should_download(self, _aweme_id):
@@ -220,7 +223,54 @@ async def test_detail_failure_records_failure_reason(tmp_path, monkeypatch):
 
     assert result.failed == 1
     # 任务中心靠它显示失败原因；为空时只能显示「原因未知」。
-    assert result.failure_reason == DETAIL_UNAVAILABLE_REASON
+    assert downloader.item_reason_summary() == {
+        "failed": [{"reason": item_reasons.FAIL_DETAIL_UNAVAILABLE, "count": 1}]
+    }
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+async def test_existing_video_skip_row_carries_local_file_reason(tmp_path):
+    aweme_id = "7552196871758843145"
+    (tmp_path / f"2026-02-18_demo_{aweme_id}.mp4").write_bytes(b"1")
+    downloader, api_client = _build_downloader(tmp_path)
+    reporter = _FakeProgressReporter()
+    downloader.progress_reporter = reporter
+
+    result = await downloader.download({"aweme_id": aweme_id})
+
+    assert result.skipped == 1
+    assert reporter.item_outcomes == [("skipped", aweme_id, item_reasons.SKIP_LOCAL_FILE_EXISTS)]
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("via_history", [False, True])
+async def test_existing_video_detail_failure_reports_detail_reason(
+    tmp_path, monkeypatch, via_history
+):
+    """已下载 + 开启评论时仍会取详情；取详情失败的行必须写真实原因，不能沿用跳过原因。"""
+    aweme_id = "7552196871758843145"
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(comments={"enabled": True})
+    if via_history:
+        downloader.config.update(redownload_missing_files=False)
+        downloader.database = _HistoryDatabase(downloaded=True)
+    else:
+        (tmp_path / f"2026-02-18_demo_{aweme_id}.mp4").write_bytes(b"1")
+    reporter = _FakeProgressReporter()
+    downloader.progress_reporter = reporter
+    monkeypatch.setattr(api_client, "get_video_detail", AsyncMock(return_value=None))
+
+    result = await downloader.download({"aweme_id": aweme_id})
+
+    assert result.failed == 1
+    assert reporter.item_outcomes == [("failed", aweme_id, item_reasons.FAIL_DETAIL_UNAVAILABLE)]
+    assert downloader.item_reason_summary() == {
+        "failed": [{"reason": item_reasons.FAIL_DETAIL_UNAVAILABLE, "count": 1}]
+    }
 
     await api_client.close()
 

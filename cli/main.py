@@ -69,6 +69,8 @@ async def _run_with_relogin(make_coro, cookie_manager, *, serve=False):
                 display.print_error("重新登录未完成，已中止。")
                 raise
             cookie_manager.set_cookies(new_cookies)
+            # 整条 URL 会重跑，上一轮已结算条目的原因不能再计一遍。
+            display.rollback_url_item_reasons()
             display.print_success("已更新登录态，正在重试…")
 
 
@@ -316,6 +318,7 @@ async def main_async(args):
 
         display.print_success("\n=== Overall Summary ===")
         display.show_result(total_result)
+        display.show_item_reasons()
 
         await _dispatch_notifications(config, total_result, len(urls))
     else:

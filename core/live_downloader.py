@@ -27,6 +27,7 @@ from typing import Any, Dict, Optional, Tuple
 import aiofiles
 import aiohttp
 
+from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
 from utils.naming import (
@@ -76,7 +77,7 @@ class LiveDownloader(BaseDownloader):
         if not info:
             logger.error("Live room not available or fetch failed: %s", room_id)
             result.failed += 1
-            self._progress_advance_item("failed", str(room_id))
+            self._progress_advance_item("failed", str(room_id), item_reasons.FAIL_LIVE_ROOM_INFO)
             return result
 
         room = info.get("room") or {}
@@ -87,14 +88,16 @@ class LiveDownloader(BaseDownloader):
             # 2 = 正在直播；其他状态不录
             logger.warning("Room %s not live (status=%s); skipping", room_id, status)
             result.skipped += 1
-            self._progress_advance_item("skipped", str(room_id))
+            self._progress_advance_item(
+                "skipped", str(room_id), item_reasons.SKIP_LIVE_NOT_STREAMING
+            )
             return result
 
         stream_url, quality = self._select_best_stream_url(room)
         if not stream_url:
             logger.error("No playable live stream URL for room %s", room_id)
             result.failed += 1
-            self._progress_advance_item("failed", str(room_id))
+            self._progress_advance_item("failed", str(room_id), item_reasons.FAIL_LIVE_NO_STREAM)
             return result
 
         author_name = (user.get("nickname") or "unknown").strip() or "unknown"
@@ -134,6 +137,7 @@ class LiveDownloader(BaseDownloader):
         ok = await self._record_stream(
             stream_url,
             target_path,
+            room_id=str(room_id),
             max_duration=max_duration,
             chunk_size=chunk_size,
             idle_timeout=idle_timeout,
@@ -235,6 +239,7 @@ class LiveDownloader(BaseDownloader):
         url: str,
         target_path: Path,
         *,
+        room_id: str,
         max_duration: float,
         chunk_size: int,
         idle_timeout: float,
@@ -244,6 +249,8 @@ class LiveDownloader(BaseDownloader):
         **数据保留策略**：主播下播、网络空闲、payload 截断等场景下，只要已经写入
         > 0 字节，就把 .tmp 提升为正式文件（录到一半的直播也比零字节有用）。
         仅 HTTP 4xx / 从未开始写入的情况下才会丢弃。
+
+        返回 False 前按 ``room_id`` 记下失败原因。
         """
         target_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
@@ -256,20 +263,22 @@ class LiveDownloader(BaseDownloader):
         headers["Referer"] = "https://live.douyin.com/"
         headers["Origin"] = "https://live.douyin.com"
 
-        def _promote_if_nonempty(reason: str) -> bool:
+        def _promote_if_nonempty(
+            reason: str, empty_reason: str = item_reasons.FAIL_LIVE_NO_DATA
+        ) -> bool:
             if bytes_written <= 0:
                 # 零字节也尝试清理 .tmp
                 try:
                     tmp_path.unlink(missing_ok=True)
                 except Exception:
                     pass
-                return False
+                return self._note_item_reason(room_id, empty_reason)
             try:
                 os.replace(str(tmp_path), str(target_path))
             except Exception as exc:
                 # 捕获所有异常：理论上只会是 OSError，但 rename 失败时宁可多兜底也别泄漏。
                 logger.error("Live tmp → final rename failed: %s", exc)
-                return False
+                return self._note_item_reason(room_id, item_reasons.FAIL_LIVE_SAVE)
             logger.info(
                 "Live stream recorded (%s): %s (%.1fs, %.1f MiB)",
                 reason,
@@ -288,7 +297,7 @@ class LiveDownloader(BaseDownloader):
             ) as resp:
                 if resp.status != 200:
                     logger.error("Live stream HTTP %s for %s", resp.status, target_path.name)
-                    return False
+                    return self._note_item_reason(room_id, item_reasons.FAIL_LIVE_STREAM_REJECTED)
                 async with aiofiles.open(tmp_path, "wb") as f:
                     async for chunk in resp.content.iter_chunked(chunk_size):
                         if not chunk:
@@ -318,5 +327,7 @@ class LiveDownloader(BaseDownloader):
             return _promote_if_nonempty("idle timeout")
         except Exception as exc:
             logger.error("Live stream recording failed: %s", exc)
-            # 其它未知异常也尽量保留已写入的数据
-            return _promote_if_nonempty("unexpected error")
+            # 其它未知异常也尽量保留已写入的数据；一个字节都没录到时原因是异常本身，不是「没有数据」
+            return _promote_if_nonempty(
+                "unexpected error", empty_reason=item_reasons.reason_for_exception(exc)
+            )

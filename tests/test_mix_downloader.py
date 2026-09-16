@@ -1,8 +1,11 @@
+import errno
+
 import pytest
 
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
+from core import item_reasons
 from core.mix_downloader import MixDownloader, derive_mix_collection_dir
 from storage import FileManager
 
@@ -338,8 +341,8 @@ async def _real_client_downloader(tmp_path, monkeypatch, bridge):
 
 async def test_mix_downloader_argus_403_via_bridge_fails_loudly(tmp_path, monkeypatch):
     """用户日志里的真实形态：``mix/aweme/`` 经 bridge 回 403(Argus 拒绝，不重试)
-    → ``_request_json_gated`` 回 ``{}`` → 归一化成空 ``raw`` → 必须按失败结案，
-    而不是「全部成功 0 项」。"""
+    → ``_request_json_gated`` 回空 payload → 归一化成空 ``raw`` → 必须按失败结案，
+    而不是「全部成功 0 项」;文案要说「被拒绝」,不能叫用户稍后重试 / 重新登录。"""
     from core.user_modes.base_strategy import PageRequestFailedError
 
     bridge = _ScriptedBridge(
@@ -347,8 +350,9 @@ async def test_mix_downloader_argus_403_via_bridge_fails_loudly(tmp_path, monkey
     )
     client, downloader = await _real_client_downloader(tmp_path, monkeypatch, bridge)
     try:
-        with pytest.raises(PageRequestFailedError, match="合集 第 1 页请求失败"):
+        with pytest.raises(PageRequestFailedError, match="合集 第 1 页被抖音拒绝") as info:
             await downloader.download({"mix_id": "123"})
+        assert "可能被限流" not in str(info.value)
         assert [c["path"] for c in bridge.calls] == ["/aweme/v1/web/mix/aweme/"]
     finally:
         await client.close()
@@ -448,3 +452,120 @@ async def test_mix_downloader_login_required_still_propagates(tmp_path, monkeypa
 
     with pytest.raises(LoginRequiredError):
         await downloader.download({"mix_id": "123"})
+
+
+class _RecordingReporter:
+    def __init__(self):
+        self.outcomes = []
+
+    def update_step(self, step, detail=""):
+        return None
+
+    def set_item_total(self, total, detail=""):
+        return None
+
+    def advance_item(self, status, detail="", reason=""):
+        self.outcomes.append((status, detail, reason))
+
+
+def _make_reporting_mix_downloader(tmp_path, items):
+    downloader = _make_mix_downloader(tmp_path, _ScriptedMixAPIClient({0: _page(items)}))
+    downloader.progress_reporter = _RecordingReporter()
+    return downloader
+
+
+async def test_mix_downloader_missing_id_reports_reason(tmp_path, monkeypatch):
+    downloader = _make_reporting_mix_downloader(tmp_path, [])
+
+    async def _items_without_id(_mix_id):
+        return [{"desc": "no-id"}], None
+
+    monkeypatch.setattr(downloader, "_collect_mix_aweme_list", _items_without_id)
+
+    result = await downloader.download({"mix_id": "123"})
+
+    assert result.failed == 1
+    assert downloader.progress_reporter.outcomes == [
+        ("failed", "missing_aweme_id", item_reasons.FAIL_MISSING_ID)
+    ]
+
+
+async def test_mix_downloader_failed_asset_download_reports_recorded_reason(tmp_path, monkeypatch):
+    downloader = _make_reporting_mix_downloader(tmp_path, [_ITEM])
+
+    async def _always_true(*_a, **_k):
+        return True
+
+    async def _fail_with_reason(item, *_a, **_k):
+        return downloader._note_item_reason(item["aweme_id"], item_reasons.FAIL_VIDEO_DEADLINE)
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _fail_with_reason)
+
+    result = await downloader.download({"mix_id": "123"})
+
+    assert result.failed == 1
+    assert downloader.progress_reporter.outcomes == [
+        ("failed", _ITEM["aweme_id"], item_reasons.FAIL_VIDEO_DEADLINE)
+    ]
+
+
+async def test_mix_downloader_exception_emits_item_complete_with_reason(tmp_path, monkeypatch):
+    """gather 回异常时以前只计失败、不发 item-complete，事件流里这一条凭空消失。"""
+    downloader = _make_reporting_mix_downloader(tmp_path, [_ITEM])
+
+    async def _always_true(*_a, **_k):
+        return True
+
+    async def _raise(*_a, **_k):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(downloader, "_should_download", _always_true)
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _raise)
+
+    result = await downloader.download({"mix_id": "123"})
+
+    assert result.failed == 1
+    assert downloader.progress_reporter.outcomes == [
+        ("failed", _ITEM["aweme_id"], item_reasons.FAIL_WRITE_ERROR)
+    ]
+    assert downloader.item_reason_summary() == {
+        "failed": [{"reason": item_reasons.FAIL_WRITE_ERROR, "count": 1}]
+    }
+
+
+async def test_mix_downloader_rejection_on_a_later_page_names_the_rejection(tmp_path, monkeypatch):
+    """第 2 页被拒绝:保住第 1 页的成果,原因写「被抖音拒绝」而不是「请稍后重试」。"""
+    bridge = _ScriptedBridge(
+        [
+            _BridgeAnswer(
+                200,
+                {"status_code": 0, "aweme_list": [_ITEM], "has_more": 1, "cursor": 1},
+            ),
+            _BridgeAnswer(403, None, "Blocked by ArgusSecurityPlugin Sign Invalid"),
+        ]
+    )
+    client, downloader = await _real_client_downloader(tmp_path, monkeypatch, bridge)
+    try:
+        result = await downloader.download({"mix_id": "123"})
+        assert result.success == 1
+        reason = result.incomplete_reason or ""
+        assert "第 2 页被抖音拒绝" in reason and "不完整" in reason
+        assert "请稍后重试" not in reason
+    finally:
+        await client.close()
+
+
+async def test_mix_downloader_bridge_failure_message_names_the_bridge_code(tmp_path, monkeypatch):
+    from core.user_modes.base_strategy import PageRequestFailedError
+
+    api = _RaisingMixAPIClient({}, raise_at=0, error=_BridgeTransportError("PAGE_LOAD_FAILED"))
+    downloader = _make_mix_downloader(tmp_path, api)
+    _stub_downloads(downloader, monkeypatch)
+
+    with pytest.raises(PageRequestFailedError) as info:
+        await downloader.download({"mix_id": "123"})
+
+    message = str(info.value)
+    assert "PAGE_LOAD_FAILED" in message
+    assert "可能被限流" not in message and "重新登录" not in message

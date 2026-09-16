@@ -90,17 +90,19 @@ class UserDownloader(BaseDownloader):
     async def _download_all_modes(
         self, modes: List[str], sec_uid: str, user_info: Dict[str, Any]
     ) -> DownloadResult:
-        """依次跑完每个模式；中途某个模式翻页失败时保住前面模式的成果。
+        """依次跑完每个模式；某个模式翻页失败时保住其余模式的成果。
 
         让异常穿过 ``download()`` 等于把整个 ``result`` 丢掉：server/jobs.py
         只在正常返回分支写计数（docs/spec/gotchas.md「计数器恒为 0」），用户会
         在 500 个文件已经落盘的情况下看到「失败 · 0 项」。改成记下原因后收工，
         与 post 走查的软信号（``incomplete_reason``）语义一致。
-        第一个模式就失败时没有成果可保，照旧抛出去按失败结案——否则就成了
-        更糟的「成功 0 项」。
+        失败的是第一个模式也照样跑剩下的：一个模式被拒绝 / 限流不代表另一个
+        模式也拿不到（2026-09-15 日志里 post 失败让 55 条合集根本没跑）。
+        全部跑完仍一条没拿到才抛第一个硬失败——否则就成了更糟的「成功 0 项」。
         """
         result = DownloadResult()
         seen_aweme_ids: Set[str] = set()
+        first_failure: Optional[PageRequestFailedError] = None
         for mode in modes:
             try:
                 mode_result = await self._download_mode_logged(
@@ -108,15 +110,16 @@ class UserDownloader(BaseDownloader):
                 )
             except PageRequestFailedError as exc:
                 logger.warning("User mode aborted by a failed page: mode=%s reason=%s", mode, exc)
-                if result.total <= 0 and not result.incomplete_reason:
-                    raise
-                # 硬失败的原因要盖过前面模式的软提示（后者只是「没取全」，
-                # 前者是「这个模式整个没跑成」），但仍继续跑剩下的模式：
-                # 一个模式被限流不代表另一个模式也拿不到。
-                result.incomplete_reason = str(exc)
+                first_failure = first_failure or exc
                 continue
             if mode_result is not None:
                 self._merge_result(result, mode_result)
+        if first_failure is None:
+            return result
+        if result.total <= 0:
+            raise first_failure
+        # 硬失败的原因要盖过软提示（后者只是「没取全」，前者是「这个模式整个没跑成」）。
+        result.incomplete_reason = str(first_failure)
         return result
 
     async def _resolve_self_alias(self, sec_uid: str, modes: List[str]) -> str:
@@ -492,7 +495,8 @@ class UserDownloader(BaseDownloader):
         if db_batch:
             await self.database.add_aweme_batch(db_batch)
 
-        for entry in download_results:
+        # download_batch 按 items 顺序回结果，异常条目只剩异常对象，靠 zip 找回 id。
+        for item, entry in zip(deduped_items, download_results):
             status = entry.get("status") if isinstance(entry, dict) else None
             if status == "success":
                 result.success += 1
@@ -502,7 +506,7 @@ class UserDownloader(BaseDownloader):
                 result.skipped += 1
             else:
                 result.failed += 1
-                self._progress_advance_item("failed", "unknown")
+                self._settle_crashed_item(item, entry)
 
         return result
 

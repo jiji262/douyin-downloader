@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
+from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.metadata import build_author_home_url, extract_author_sec_uid
 from utils.logger import setup_logger
@@ -41,10 +42,11 @@ class MusicDownloader(BaseDownloader):
                 self._progress_advance_item("success", str(music_id))
             else:
                 result.failed += 1
-                self._progress_advance_item("failed", str(music_id))
+                self._progress_advance_item("failed", str(music_id), item_reasons.FAIL_MUSIC_AUDIO)
             return result
 
-        # 回退：音乐详情无法直接拿到音频链接时，尝试下载该音乐下的首条作品
+        # 回退：音乐详情无法直接拿到音频链接时，尝试下载该音乐下的首条作品。
+        # 这条作品的跳过 / 失败原因由 _should_download / _download_aweme_assets 记下。
         aweme = await self._get_first_music_aweme(str(music_id))
         if aweme and aweme.get("aweme_id"):
             if not await self._should_download(str(aweme.get("aweme_id"))):
@@ -74,7 +76,7 @@ class MusicDownloader(BaseDownloader):
 
         logger.error("No playable music source found for music_id=%s", music_id)
         result.failed += 1
-        self._progress_advance_item("failed", str(music_id))
+        self._progress_advance_item("failed", str(music_id), item_reasons.FAIL_MUSIC_NO_SOURCE)
         return result
 
     async def _download_music_asset(

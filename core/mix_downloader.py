@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.user_modes.base_strategy import (
     _HARD_PAGE_FAILURE_CAUSES,
     BaseUserModeStrategy,
     PageRequestFailedError,
     fetch_page_folding_bridge_failure,
+    hard_page_failure_message,
+    page_failure_advice,
 )
 from utils.logger import setup_logger
 
@@ -59,7 +62,9 @@ class MixDownloader(BaseDownloader):
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
             if not aweme_id:
-                self._progress_advance_item("failed", "missing_aweme_id")
+                self._progress_advance_item(
+                    "failed", "missing_aweme_id", item_reasons.FAIL_MISSING_ID
+                )
                 return {"status": "failed", "aweme_id": None}
 
             if not await self._should_download(str(aweme_id)):
@@ -81,7 +86,8 @@ class MixDownloader(BaseDownloader):
             return {"status": status, "aweme_id": aweme_id}
 
         download_results = await self.queue_manager.download_batch(_process_aweme, aweme_list)
-        for entry in download_results:
+        # download_batch 按 items 顺序回结果，异常条目只剩异常对象，靠 zip 找回 id。
+        for item, entry in zip(aweme_list, download_results):
             status = entry.get("status") if isinstance(entry, dict) else None
             if status == "success":
                 result.success += 1
@@ -89,6 +95,8 @@ class MixDownloader(BaseDownloader):
                 result.skipped += 1
             else:
                 result.failed += 1
+                if not isinstance(entry, dict):
+                    self._settle_crashed_item(item, entry)
         return result
 
     async def _collect_mix_aweme_list(
@@ -159,8 +167,11 @@ class MixDownloader(BaseDownloader):
         detail = f"{_SCOPE_LABEL} 第 {page_index} 页{cause}"
         if cause in _HARD_PAGE_FAILURE_CAUSES and collected <= 0:
             logger.warning("%s page %d %s, aborting", _SCOPE_LABEL, page_index, cause)
-            raise PageRequestFailedError(f"{detail}（可能被限流或需要重新登录），请稍后重试")
+            raise PageRequestFailedError(hard_page_failure_message(page, detail))
         logger.warning("%s page %d %s, stopping walk", _SCOPE_LABEL, page_index, cause)
+        advice = page_failure_advice(page)
+        if advice:
+            return f"{detail}：{advice}；内容可能不完整"
         return f"{detail}，内容可能不完整，请稍后重试"
 
     async def _get_mix_detail(self, mix_id: str) -> Optional[Dict[str, Any]]:

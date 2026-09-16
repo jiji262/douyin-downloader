@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.user_modes.base_strategy import (
     BaseUserModeStrategy,
+    PageRequestFailedError,
     fetch_page_folding_bridge_failure,
+    page_failure_advice,
 )
 from core.user_modes.post_time_boundary import PostTimeBoundary, TimeBoundaryDecision
 from utils.logger import setup_logger
@@ -26,6 +28,10 @@ _POST_PAGE_RETRY_BACKOFF_SECONDS = (2.0, 5.0)
 # 闸门的 3 次 135s 短一截；它不是 60s 的硬上限，别照字面理解。
 _POST_PAGE_RETRY_BUDGET_SECONDS = 60.0
 _PostPageResult = Tuple[List[Dict[str, Any]], bool]
+# 一条作品都没拿到、又说不出更具体原因时的兜底文案。
+_EMPTY_POST_LIST_MESSAGE = (
+    "抖音接口未返回作品列表（可能触发了反爬限制），请稍后重试或尝试重新登录抖音刷新 Cookie"
+)
 
 
 def _log_page_response(
@@ -64,6 +70,8 @@ class PostUserModeStrategy(BaseUserModeStrategy):
     # aweme_count 之类的启发式一律不写这里——它不足以把任务判成不完整。
     _raw_items_seen = 0
     _hard_truncation: Optional[str] = None
+    # 失败页说得出具体原因(被拒绝 / 页面通道错误码)时的完整文案,否则 None。
+    _failure_message: Optional[str] = None
 
     async def collect_items(self, sec_uid: str, user_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         self.incomplete_reason = None
@@ -76,10 +84,8 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         if pagination_restricted:
             recovered = await self._recover_with_browser(sec_uid, user_info, aweme_list)
             if not aweme_list:
-                raise RuntimeError(
-                    "抖音接口未返回作品列表（可能触发了反爬限制），"
-                    "请稍后重试或尝试重新登录抖音刷新 Cookie"
-                )
+                # PageRequestFailedError 让 UserDownloader 接着跑剩下的模式。
+                raise PageRequestFailedError(self._failure_message or _EMPTY_POST_LIST_MESSAGE)
             if self._hard_truncation and not recovered:
                 self.incomplete_reason = self._hard_truncation
                 logger.warning("User post walk incomplete: %s", self.incomplete_reason)
@@ -152,6 +158,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         self.pinned_excluded = 0
         self._raw_items_seen = 0
         self._hard_truncation = None
+        self._failure_message = None
         number_limit = int(self.downloader.config.get("number", {}).get(self.mode_name, 0) or 0)
         time_boundary = self._time_boundary_for_config()
         self.downloader._progress_update_step("拉取作品列表", "分页抓取中")
@@ -178,9 +185,12 @@ class PostUserModeStrategy(BaseUserModeStrategy):
                 # 尝试浏览器回补；只有确凿证据才把这一轮标成「不完整」。
                 cause = self._empty_page_failure_cause(page)
                 if cause:
+                    advice = page_failure_advice(page)
                     self._hard_truncation = self._truncation_reason(
-                        page_number, raw_items_seen, cause
+                        page_number, raw_items_seen, cause, advice
                     )
+                    if advice:
+                        self._failure_message = f"作品列表 第 {page_number} 页{cause}：{advice}"
                 self._log_empty_page(request_cursor, cause)
                 return aweme_list, True
             raw_items_seen += raw_page_count
@@ -354,10 +364,14 @@ class PostUserModeStrategy(BaseUserModeStrategy):
 
     def _page_needs_retry(self, page_data: Optional[Dict[str, Any]]) -> bool:
         """None = 超时；其余带失败证据的空页（请求失败 / 接口报错 / 列表缺失）
-        都可能只是瞬时限流，值得再试一次。"""
+        都可能只是瞬时限流，值得再试一次。被抖音确定性拒绝的例外：api_client
+        已经不重试它，这里再整页重发只会更快撞上验证码。"""
         if page_data is None:
             return True
-        return self._empty_page_failure_cause(self._normalize_page_data(page_data)) is not None
+        page = self._normalize_page_data(page_data)
+        if self._page_rejected(page):
+            return False
+        return self._empty_page_failure_cause(page) is not None
 
     async def _attempt_post_page(
         self,
@@ -440,7 +454,13 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         return True
 
     @staticmethod
-    def _truncation_reason(page_number: int, raw_items_seen: int, cause: str) -> str:
+    def _truncation_reason(
+        page_number: int, raw_items_seen: int, cause: str, advice: Optional[str] = None
+    ) -> str:
+        if advice:
+            return (
+                f"第 {page_number} 页{cause}：{advice}；仅取到 {raw_items_seen} 条，作品列表不完整"
+            )
         return (
             f"第 {page_number} 页{cause}（可能被限流），"
             f"仅取到 {raw_items_seen} 条，作品列表不完整，请稍后重试"

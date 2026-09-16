@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import logging
 import sys
 from typing import Any, Dict, List
@@ -6,9 +7,11 @@ from typing import Any, Dict, List
 import pytest
 
 from control.queue_manager import QueueManager
+from core import item_reasons
 from core.api_client import DouyinAPIClient
 from core.downloader_base import DownloadResult
 from core.user_downloader import UserDownloader
+from core.user_modes import post_strategy as post_strategy_module
 from core.user_modes.base_strategy import PageRequestFailedError
 from storage.file_manager import FileManager
 
@@ -47,6 +50,8 @@ class _FakeProgressReporter:
         self.step_updates: List[tuple[str, str]] = []
         self.item_totals: List[tuple[int, str]] = []
         self.item_events: List[tuple[str, str]] = []
+        # (status, detail, reason)，只给断言原因的用例用
+        self.item_outcomes: List[tuple[str, str, str]] = []
 
     def update_step(self, step: str, detail: str = "") -> None:
         self.step_updates.append((step, detail))
@@ -54,8 +59,9 @@ class _FakeProgressReporter:
     def set_item_total(self, total: int, detail: str = "") -> None:
         self.item_totals.append((total, detail))
 
-    def advance_item(self, status: str, detail: str = "") -> None:
+    def advance_item(self, status: str, detail: str = "", reason: str = "") -> None:
         self.item_events.append((status, detail))
+        self.item_outcomes.append((status, detail, reason))
 
 
 class _FakeAPIClient:
@@ -404,6 +410,104 @@ def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):
     assert statuses.count("failed") == 1
 
 
+def _seed_local_media(tmp_path, aweme_id: str) -> None:
+    media_path = tmp_path / "Downloaded" / f"2026-08-21_demo_{aweme_id}.mp4"
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"existing-media")
+
+
+def test_mode_items_skip_reports_local_file_reason(tmp_path):
+    aweme_id = "7412345678901234571"
+    reporter = _FakeProgressReporter()
+    downloader = _build_downloader(
+        tmp_path, _FakeAPIClient(), browser_enabled=False, progress_reporter=reporter
+    )
+    _seed_local_media(tmp_path, aweme_id)
+
+    result = asyncio.run(downloader._download_mode_items("post", [_make_aweme(aweme_id)], "tester"))
+
+    assert result.skipped == 1
+    assert reporter.item_outcomes == [("skipped", aweme_id, item_reasons.SKIP_LOCAL_FILE_EXISTS)]
+
+
+class _SessionAPIClient(_FakeAPIClient):
+    async def get_session(self):
+        return None
+
+
+def test_mode_items_failed_asset_download_reports_recorded_reason(tmp_path):
+    aweme_id = "7412345678901234572"
+    reporter = _FakeProgressReporter()
+    downloader = _build_downloader(
+        tmp_path, _SessionAPIClient(), browser_enabled=False, progress_reporter=reporter
+    )
+
+    result = asyncio.run(
+        downloader._download_mode_items(
+            "post", [_make_aweme(aweme_id, video={"play_addr": {"url_list": []}})], "tester"
+        )
+    )
+
+    assert result.failed == 1
+    assert reporter.item_outcomes == [("failed", aweme_id, item_reasons.FAIL_NO_VIDEO_URL)]
+
+
+def test_mode_items_exception_keeps_item_id_and_reason(tmp_path, monkeypatch):
+    """条目抛异常时 gather 只回异常对象；按顺序找回作品 ID，不能报成 unknown。"""
+    reporter = _FakeProgressReporter()
+    downloader = _build_downloader(
+        tmp_path, _FakeAPIClient(), browser_enabled=False, progress_reporter=reporter
+    )
+    errors = {
+        "7412345678901234573": OSError(errno.ENOSPC, "No space left on device"),
+        "7412345678901234574": RuntimeError("boom"),
+    }
+
+    async def _raise(item, *_args, **_kwargs):
+        raise errors[item["aweme_id"]]
+
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _raise)
+
+    result = asyncio.run(
+        downloader._download_mode_items(
+            "post", [_make_aweme(aweme_id) for aweme_id in errors], "tester"
+        )
+    )
+
+    assert result.failed == 2
+    assert sorted(reporter.item_outcomes) == [
+        ("failed", "7412345678901234573", item_reasons.FAIL_WRITE_ERROR),
+        ("failed", "7412345678901234574", item_reasons.FAIL_UNEXPECTED),
+    ]
+    assert downloader.item_reason_summary() == {
+        "failed": [
+            {"reason": item_reasons.FAIL_WRITE_ERROR, "count": 1},
+            {"reason": item_reasons.FAIL_UNEXPECTED, "count": 1},
+        ]
+    }
+
+
+def test_mode_items_exception_overrides_earlier_skip_reason(tmp_path, monkeypatch):
+    """判定为已存在后补抓评论抛异常：条目按失败结算，原因不能沿用「已有该作品」。"""
+    aweme_id = "7412345678901234575"
+    reporter = _FakeProgressReporter()
+    downloader = _build_downloader(
+        tmp_path, _FakeAPIClient(), browser_enabled=False, progress_reporter=reporter
+    )
+    _seed_local_media(tmp_path, aweme_id)
+
+    async def _raise(*_args, **_kwargs):
+        raise RuntimeError("comments exploded")
+
+    monkeypatch.setattr(downloader, "_collect_comments_for_existing_aweme", _raise)
+
+    result = asyncio.run(downloader._download_mode_items("post", [_make_aweme(aweme_id)], "tester"))
+
+    assert result.failed == 1
+    assert reporter.item_outcomes == [("failed", aweme_id, item_reasons.FAIL_UNEXPECTED)]
+    assert "skipped" not in downloader.item_reason_summary()
+
+
 def test_homepage_artifacts_disabled_do_not_save(tmp_path, monkeypatch):
     api_client = _FakeAPIClient()
     downloader = _build_downloader(tmp_path, api_client, browser_enabled=False)
@@ -721,6 +825,68 @@ def test_first_mode_page_failure_still_fails_the_job(tmp_path, monkeypatch):
 
     with pytest.raises(PageRequestFailedError):
         _run_multi_mode_download(tmp_path, monkeypatch, api_client, ["like"])
+
+
+def _paged(raw: Dict[str, Any]) -> Dict[str, Any]:
+    return DouyinAPIClient._normalize_paged_response(raw, item_keys=["aweme_list"])
+
+
+class _ScriptedModesAPI(_PostThenFailingLikeAPI):
+    """按模式给定原始响应;``{}`` = 请求失败(空 raw)。"""
+
+    def __init__(self, *, post_raw: Dict[str, Any], like_raw: Dict[str, Any]):
+        super().__init__()
+        self.post_calls = 0
+        self._post_raw = post_raw
+        self._like_raw = like_raw
+
+    async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, count: int = 20):
+        self.post_calls += 1
+        return _paged(self._post_raw)
+
+    async def get_user_like(self, _sec_uid: str, max_cursor: int = 0, count: int = 20):
+        self.like_calls += 1
+        return _paged(self._like_raw)
+
+
+_LIKE_OK_RAW = {
+    "status_code": 0,
+    "aweme_list": [_make_aweme("222")],
+    "has_more": 0,
+    "max_cursor": 0,
+}
+
+
+def test_first_mode_page_failure_does_not_skip_later_modes(tmp_path, monkeypatch):
+    """2026-09-15 用户日志:post 第 1 页失败后直接抛出,mix 模式(55 条)根本没跑。"""
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api_client = _ScriptedModesAPI(post_raw={}, like_raw=_LIKE_OK_RAW)
+
+    result = _run_multi_mode_download(tmp_path, monkeypatch, api_client, ["post", "like"])
+
+    assert api_client.like_calls == 1
+    assert result.total == 1 and result.success == 1
+    assert result.incomplete_reason and "作品列表" in result.incomplete_reason
+
+
+def test_every_mode_failing_raises_the_first_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api_client = _ScriptedModesAPI(post_raw={}, like_raw={})
+
+    with pytest.raises(PageRequestFailedError, match="作品列表"):
+        _run_multi_mode_download(tmp_path, monkeypatch, api_client, ["post", "like"])
+
+    assert api_client.like_calls == 1, "前面的模式失败也要把后面的模式跑完"
+
+
+def test_hard_failure_with_nothing_collected_fails_even_after_a_soft_stop(tmp_path, monkeypatch):
+    """like 只是软中断(``aweme_list: null``)且 0 条、post 硬失败:什么都没下到,
+    不能报成「已完成(不完整) · 0 项」,与模式顺序无关。"""
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api_client = _ScriptedModesAPI(post_raw={}, like_raw={"status_code": 0, "aweme_list": None})
+
+    with pytest.raises(PageRequestFailedError, match="作品列表"):
+        _run_multi_mode_download(tmp_path, monkeypatch, api_client, ["like", "post"])
 
 
 def test_browser_backend_missing_reason_matches_the_runtime(tmp_path, monkeypatch):
