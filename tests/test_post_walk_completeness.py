@@ -7,8 +7,11 @@
 import asyncio
 from typing import Any, Dict, List, Optional
 
-from core.api_client import DouyinAPIClient
+import pytest
+
+from core.api_client import DouyinAPIClient, FailedPayload
 from core.user_modes import post_strategy as post_strategy_module
+from core.user_modes.base_strategy import PageRequestFailedError
 from core.user_modes.post_strategy import PostUserModeStrategy
 
 
@@ -409,3 +412,130 @@ def test_login_required_during_post_walk_still_propagates(monkeypatch):
     except LoginRequiredError:
         return
     raise AssertionError("LoginRequiredError must not be swallowed by the page retry")
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-15 用户日志:aweme/post 第 1 次就被 Argus 403,整页重试 3 轮 × HTTP 重试 3 次
+# 共 9 次请求,最后提示「请稍后重试或尝试重新登录抖音刷新 Cookie」——用户照做后原样失败。
+# ---------------------------------------------------------------------------
+
+
+def _rejected_page(*, via_bridge: bool) -> Dict[str, Any]:
+    failure = FailedPayload(
+        FailedPayload.REJECTED,
+        status=403,
+        detail="Blocked by ArgusSecurityPlugin Uifid Not Found",
+        via_bridge=via_bridge,
+    )
+    return _normalized_page(failure)
+
+
+class _AlwaysRaisingAPI:
+    def __init__(self, error: Exception):
+        self.error = error
+        self.calls: List[int] = []
+
+    async def get_user_post(self, _sec_uid, max_cursor=0, count=20):
+        self.calls.append(max_cursor)
+        raise self.error
+
+
+def test_rejected_first_page_fails_once_without_retry(monkeypatch):
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api = _ScriptedAPI({0: [_rejected_page(via_bridge=True)]})
+    strategy = PostUserModeStrategy(_FakeDownloader(api))
+
+    with pytest.raises(PageRequestFailedError) as info:
+        _run_collect(strategy)
+
+    assert api.calls == [0], "确定性拒绝不该整页重试"
+    message = str(info.value)
+    assert "作品列表 第 1 页被抖音拒绝" in message and "HTTP 403" in message
+    assert "Cookie" not in message and "可能被限流" not in message
+
+
+def test_direct_argus_rejection_on_post_says_retry_and_relogin_are_useless(monkeypatch):
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api = _ScriptedAPI({0: [_rejected_page(via_bridge=False)]})
+    strategy = PostUserModeStrategy(_FakeDownloader(api))
+
+    with pytest.raises(PageRequestFailedError) as info:
+        _run_collect(strategy)
+
+    assert api.calls == [0]
+    assert "重试或重新登录都无效" in str(info.value)
+
+
+def test_rejected_later_page_keeps_items_and_names_the_rejection(monkeypatch):
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api = _ScriptedAPI(
+        {
+            0: [_api_page([_make_aweme("a1")], has_more=True, max_cursor=100)],
+            100: [_rejected_page(via_bridge=True)],
+        }
+    )
+    strategy = PostUserModeStrategy(_FakeDownloader(api))
+
+    items = _run_collect(strategy)
+
+    assert [item["aweme_id"] for item in items] == ["a1"]
+    assert api.calls == [0, 100]
+    reason = strategy.incomplete_reason or ""
+    assert "被抖音拒绝" in reason and "不完整" in reason
+    assert "可能被限流" not in reason
+
+
+def test_bridge_transport_failure_exhausting_retries_names_the_bridge_code(monkeypatch):
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api = _AlwaysRaisingAPI(_BridgeTransportError("TIMEOUT"))
+    strategy = PostUserModeStrategy(_FakeDownloader(api))
+
+    with pytest.raises(PageRequestFailedError) as info:
+        _run_collect(strategy)
+
+    assert api.calls == [0, 0, 0], "bridge 传输失败是瞬时的,仍要整页重试"
+    message = str(info.value)
+    assert "TIMEOUT" in message
+    assert "Cookie" not in message and "可能被限流" not in message
+
+
+def test_failed_first_page_raises_page_request_failed_error(monkeypatch):
+    """必须是 ``PageRequestFailedError``:``UserDownloader`` 靠它继续跑剩下的模式。"""
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    api = _ScriptedAPI({0: [_failed_page()]})
+    strategy = PostUserModeStrategy(_FakeDownloader(api))
+
+    with pytest.raises(PageRequestFailedError):
+        _run_collect(strategy)
+
+    assert api.calls == [0, 0, 0]
+
+
+class _ScriptedBridge:
+    """鸭子类型的 page bridge:按序回放 (http_status, body, text)。"""
+
+    def __init__(self, answers):
+        self._answers = list(answers)
+        self.calls = 0
+
+    async def fetch(self, path, params, *, method="GET", data=None):
+        self.calls += 1
+        status, body, text = self._answers.pop(0)
+        return type("_Answer", (), {"http_status": status, "body": body, "text": text})()
+
+
+def test_plain_bridge_429_still_gets_a_page_retry(monkeypatch):
+    """真实 client 链路:普通限流 429 等一等就能恢复,不能当成确定性拒绝直接放弃。"""
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    ok_body = {"status_code": 0, "aweme_list": [_make_aweme("a1")], "has_more": 0}
+    bridge = _ScriptedBridge([(429, None, "Too Many Requests"), (200, ok_body, "{}")])
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+    strategy = PostUserModeStrategy(_FakeDownloader(client))
+
+    try:
+        items = _run_collect(strategy)
+    finally:
+        asyncio.run(client.close())
+
+    assert [item["aweme_id"] for item in items] == ["a1"]
+    assert bridge.calls == 2

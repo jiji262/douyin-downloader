@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
-from core.api_client import LoginRequiredError
+from core.api_client import FailedPayload, LoginRequiredError
 from core.downloader_base import DownloadResult
 from utils.logger import setup_logger
 
@@ -32,12 +32,16 @@ _MODE_SCOPE_LABELS = {
 }
 
 
-# 空页的三种失败成因。前两种是确凿的「这次请求没成功」,抛异常;
+# 空页的失败成因。除 ``items_missing`` 外都是确凿的「这次请求没成功」,抛异常;
 # ``items_missing`` 见 ``_raise_if_page_request_failed`` 的说明,只软中断。
+# 「被抖音拒绝」是确定性的(Argus 门禁),不再整页重试,文案也不叫用户重试 / 重新登录。
 _CAUSE_REQUEST_FAILED = "请求失败"
 _CAUSE_SERVER_ERROR = "接口报错"
+_CAUSE_REJECTED = "被抖音拒绝"
 _CAUSE_ITEMS_MISSING = "接口未返回列表"
-_HARD_PAGE_FAILURE_CAUSES = frozenset({_CAUSE_REQUEST_FAILED, _CAUSE_SERVER_ERROR})
+_HARD_PAGE_FAILURE_CAUSES = frozenset({_CAUSE_REQUEST_FAILED, _CAUSE_SERVER_ERROR, _CAUSE_REJECTED})
+# 没有更具体原因时硬失败的兜底提示(限速 403 重试耗尽、非 JSON 等)。
+_GENERIC_HARD_FAILURE_HINT = "（可能被限流或需要重新登录），请稍后重试"
 
 # 不折叠成「请求失败」的异常:没有 page_bridge_code(非 bridge 异常,含
 # LoginRequiredError)与 bridge 服务未启动(UNAVAILABLE)。
@@ -66,10 +70,35 @@ async def fetch_page_folding_bridge_failure(fetcher: Any, *args: Any, **kwargs: 
     try:
         return await fetcher(*args, **kwargs)
     except Exception as exc:
-        if getattr(exc, "page_bridge_code", None) in _UNFOLDABLE_BRIDGE_CODES:
+        code = getattr(exc, "page_bridge_code", None)
+        if code in _UNFOLDABLE_BRIDGE_CODES:
             raise
         logger.warning("Page fetch via page bridge failed, treated as request failure: %s", exc)
-        return {}
+        # 带上错误码:重试用尽后告诉用户是页面通道 TIMEOUT,而不是「可能被限流」。
+        return FailedPayload(FailedPayload.BRIDGE_ERROR, detail=str(code), via_bridge=True)
+
+
+def page_failure_advice(page: Dict[str, Any]) -> Optional[str]:
+    """失败页有具体原因时给用户的说明;普通的请求失败返回 None,由调用方用兜底文案。"""
+    failure = page.get("raw")
+    if not isinstance(failure, FailedPayload):
+        return None
+    if failure.kind == FailedPayload.BRIDGE_ERROR:
+        return f"抖音页面通道出错（{failure.detail}），请稍后重试"
+    if failure.kind != FailedPayload.REJECTED:
+        return None
+    if failure.via_bridge:
+        return (
+            f"HTTP {failure.status}，重试无效，"
+            "请在应用内打开抖音登录窗口，完成可能出现的安全验证后再试"
+        )
+    return "抖音安全校验只放行网页内发起的请求，重试或重新登录都无效，当前运行方式不支持该内容"
+
+
+def hard_page_failure_message(page: Dict[str, Any], detail: str) -> str:
+    """硬失败页抛给用户的完整文案;``detail`` 形如「合集列表 第 1 页请求失败」。"""
+    advice = page_failure_advice(page)
+    return f"{detail}：{advice}" if advice else f"{detail}{_GENERIC_HARD_FAILURE_HINT}"
 
 
 class BaseUserModeStrategy(ABC):
@@ -134,6 +163,12 @@ class BaseUserModeStrategy(ABC):
         """
         return "raw" in page and not page.get("raw")
 
+    @staticmethod
+    def _page_rejected(page: Dict[str, Any]) -> bool:
+        """抖音确定性拒绝了这次请求(403 + ArgusSecurityPlugin),重试无效。"""
+        failure = page.get("raw")
+        return isinstance(failure, FailedPayload) and failure.kind == FailedPayload.REJECTED
+
     @classmethod
     def _empty_page_failure_cause(cls, page: Dict[str, Any]) -> Optional[str]:
         """一条都没有的页里，哪些是确凿的失败证据，返回人话原因（否则 None）。
@@ -146,6 +181,8 @@ class BaseUserModeStrategy(ABC):
         if page.get("items"):
             return None
         if cls._page_request_failed(page):
+            if cls._page_rejected(page):
+                return _CAUSE_REJECTED
             return _CAUSE_REQUEST_FAILED
         if page.get("status_code"):
             return _CAUSE_SERVER_ERROR
@@ -175,7 +212,7 @@ class BaseUserModeStrategy(ABC):
             self.incomplete_reason = f"{detail}，内容可能不完整，请稍后重试"
             return
         logger.warning("%s page %d %s, aborting walk", scope, page_index, cause)
-        raise PageRequestFailedError(f"{detail}（可能被限流或需要重新登录），请稍后重试")
+        raise PageRequestFailedError(hard_page_failure_message(page, detail))
 
     def _configured_media_types(self) -> Optional[Set[str]]:
         if self.mode_name == "music":

@@ -51,6 +51,17 @@ _RETRY_DELAYS_SECONDS = (1, 2, 5)
 _MAX_ATTEMPTS = 3
 _SERVER_ERROR_MIN_STATUS = 500
 
+# 上面说的限速 403 body 是空的或无关文本;Argus 门禁的 403 body 形如
+# ``Blocked by ArgusSecurityPlugin Uifid Not Found``——请求形状被确定性拒绝,重试 /
+# 等待 / 重新登录都无效(docs/spec/common-mistakes.md「Argus 门禁」)。
+ARGUS_REJECTION_MARKER = "ArgusSecurityPlugin"
+_ARGUS_REJECTION_STATUS = 403
+# 失败响应 body 只取前 80 字进日志:够看出 Uifid / Signature / Sign Invalid 三种提示。
+_ERROR_BODY_LOG_CHARS = 80
+# 读错误 body 的上限:只为诊断,慢速 / 不结束的 body 不能把请求拖到 30s 超时。
+_ERROR_BODY_READ_BYTES = 1024
+_ERROR_BODY_READ_TIMEOUT_SECONDS = 2.0
+
 _HOMEPAGE_SCREENSHOT_BRIDGE_ENV = "DOUYIN_HOMEPAGE_SCREENSHOT_BRIDGE"
 _HOMEPAGE_SCREENSHOT_MESSAGE_PREFIX = "DOUYIN_HOMEPAGE_SCREENSHOT_REQUEST "
 _HOMEPAGE_PROFILE_READY_SCRIPT = r"""(expected) => {
@@ -142,6 +153,30 @@ class LoginRequiredError(Exception):
         super().__init__(f"login required (status_code={status_code}) at {path}: {status_msg}")
 
 
+class FailedPayload(dict):
+    """请求失败时回的空 payload,多带一条机器可读的失败原因。
+
+    与 ``{}`` 完全等价(``not payload``、``payload == {}`` 都成立):「失败回 ``{}``」
+    是几十个调用方与测试替身共同依赖的契约,不能换返回类型。只有分页 walk 读
+    ``kind``,据此决定要不要整页重试、给用户什么文案。拷贝(``dict(p)`` / ``{**p}``)
+    会丢掉原因,退化成普通的请求失败——只少了提示,不会误判。
+    """
+
+    # 抖音确定性拒绝:403 且 body 带 ArgusSecurityPlugin(直连或经 page bridge)。
+    REJECTED = "rejected"
+    # page bridge 传输失败(TIMEOUT / PAGE_LOAD_FAILED 等),``detail`` 是错误码。
+    BRIDGE_ERROR = "bridge_error"
+
+    def __init__(
+        self, kind: str, *, status: int = 0, detail: str = "", via_bridge: bool = False
+    ) -> None:
+        super().__init__()
+        self.kind = kind
+        self.status = status
+        self.detail = detail
+        self.via_bridge = via_bridge
+
+
 def _is_login_required(data: object) -> bool:
     if not isinstance(data, dict):
         return False
@@ -194,6 +229,42 @@ def _safe_error_text(exc: Exception) -> str:
     text = " ".join(str(exc).split())
     text = re.sub(r"(https?://[^?\s]+)\?\S+", r"\1?[redacted-query]", text)
     return text[:500]
+
+
+async def _read_error_body_prefix(response: Any) -> str:
+    """非 200 响应 body 的前 80 字,只用于日志与 Argus 判定;读失败不影响重试流程。
+
+    有界读取(字节数 + 时长):超时 / 断流时保留已经收到的部分,别让慢速 body
+    把请求挂到超时,也别因此丢掉已到手的 Argus 标记。
+    不用 ``asyncio.wait_for``:Python 3.9–3.11 上「读完」与外部取消同时发生时它会
+    吞掉取消(CPython gh-86296),CLI 仍支持这些版本。
+    """
+    received = bytearray()
+
+    async def _read_bounded() -> None:
+        while len(received) < _ERROR_BODY_READ_BYTES:
+            chunk = await response.content.read(_ERROR_BODY_READ_BYTES - len(received))
+            if not chunk:
+                return
+            received.extend(chunk)
+
+    reader = asyncio.ensure_future(_read_bounded())
+    reader.add_done_callback(_consume_task_exception)
+    try:
+        await asyncio.wait({reader}, timeout=_ERROR_BODY_READ_TIMEOUT_SECONDS)
+    finally:
+        reader.cancel()
+    return bytes(received).decode("utf-8", "replace")[:_ERROR_BODY_LOG_CHARS]
+
+
+def _consume_task_exception(task: "asyncio.Future[Any]") -> None:
+    """读流异常(断流等)只意味着少了诊断信息;取走它,免得 asyncio 报 never retrieved。"""
+    if not task.cancelled():
+        task.exception()
+
+
+def _is_argus_rejection(status: int, body_prefix: str) -> bool:
+    return status == _ARGUS_REJECTION_STATUS and ARGUS_REJECTION_MARKER in body_prefix
 
 
 def _log_api_response(
@@ -499,30 +570,40 @@ class DouyinAPIClient:
                                 path,
                             )
                         return result
+                    body_prefix = await _read_error_body_prefix(response)
                     risk_control_hit = response.status in _RISK_CONTROL_HTTP_STATUSES
-                    if response.status < 500 and not risk_control_hit:
+                    terminal = _is_argus_rejection(response.status, body_prefix) or (
+                        response.status < 500 and not risk_control_hit
+                    )
+                    if terminal:
                         log_fn = logger.info if suppress_error else logger.error
                         log_fn(
                             "Douyin API HTTP failure: path=%s attempt=%d/%d status=%s "
-                            "duration_ms=%d suppress_error=%s",
+                            "duration_ms=%d suppress_error=%s body=%r",
                             path,
                             attempt + 1,
                             max_retries,
                             response.status,
                             _elapsed_ms(started),
                             suppress_error,
+                            body_prefix,
                         )
-                        return {}
+                        if not _is_argus_rejection(response.status, body_prefix):
+                            return {}
+                        return FailedPayload(
+                            FailedPayload.REJECTED, status=response.status, detail=body_prefix
+                        )
                     last_exc = RuntimeError(f"HTTP {response.status} for {path}")
                     logger.warning(
                         "Douyin API retryable HTTP failure: path=%s attempt=%d/%d status=%s "
-                        "duration_ms=%d risk_control=%s",
+                        "duration_ms=%d risk_control=%s body=%r",
                         path,
                         attempt + 1,
                         max_retries,
                         response.status,
                         _elapsed_ms(started),
                         risk_control_hit,
+                        body_prefix,
                     )
             except LoginRequiredError:
                 raise
@@ -638,15 +719,22 @@ class DouyinAPIClient:
             await asyncio.sleep(_RETRY_DELAYS_SECONDS[min(attempt, len(_RETRY_DELAYS_SECONDS) - 1)])
         if status == 200:
             return self._payload_from_bridge_result(result, path, started)
+        body_prefix = str(getattr(result, "text", "") or "")[:_ERROR_BODY_LOG_CHARS]
         log_fn = logger.info if suppress_error else logger.error
         log_fn(
             "Douyin API HTTP failure via page bridge: path=%s status=%s duration_ms=%d body=%r",
             path,
             status,
             _elapsed_ms(started),
-            str(getattr(result, "text", "") or "")[:80],
+            body_prefix,
         )
-        return {}
+        # 与直连同一判据:只有 Argus 标记是确定性拒绝;普通 403 / 429 可能只是限流,
+        # 分页 walk 仍要有整页重试的机会。
+        if not _is_argus_rejection(status, body_prefix):
+            return {}
+        return FailedPayload(
+            FailedPayload.REJECTED, status=status, detail=body_prefix, via_bridge=True
+        )
 
     async def _fetch_via_page_bridge(
         self,

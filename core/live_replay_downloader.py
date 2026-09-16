@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.ffmpeg import resolve_ffmpeg_path
 from core.metadata import build_author_home_url, extract_author_sec_uid
@@ -36,7 +37,9 @@ class LiveReplayDownloader(BaseDownloader):
         if not episode_id:
             logger.error("No episode_id found in parsed URL")
             result.failed += 1
-            self._progress_advance_item("failed", "missing episode_id")
+            self._progress_advance_item(
+                "failed", "missing episode_id", item_reasons.FAIL_REPLAY_MISSING_ID
+            )
             return result
 
         self._progress_update_step("获取回放信息", f"episode_id={episode_id}")
@@ -44,14 +47,14 @@ class LiveReplayDownloader(BaseDownloader):
         if not episode:
             logger.error("Live replay episode not found: %s", episode_id)
             result.failed += 1
-            self._progress_advance_item("failed", episode_id)
+            self._progress_advance_item("failed", episode_id, item_reasons.FAIL_REPLAY_NOT_FOUND)
             return result
 
         room_id = str(episode.get("attach_room_id_str") or episode.get("attach_room_id") or "")
         if not room_id:
             logger.error("Live replay room_id missing: %s", episode_id)
             result.failed += 1
-            self._progress_advance_item("failed", episode_id)
+            self._progress_advance_item("failed", episode_id, item_reasons.FAIL_REPLAY_NO_ROOM)
             return result
 
         replay_id = str(parsed_url.get("replay_id") or "").strip() or None
@@ -61,14 +64,16 @@ class LiveReplayDownloader(BaseDownloader):
         if not replay:
             logger.error("Live replay playable info not found: %s", episode_id)
             result.failed += 1
-            self._progress_advance_item("failed", episode_id)
+            self._progress_advance_item("failed", episode_id, item_reasons.FAIL_REPLAY_NO_PLAYBACK)
             return result
 
         video_url, audio_url = self._select_playback_tracks(self._play_urls(replay))
         if not video_url:
             logger.error("No playable live replay video URL: %s", episode_id)
             result.failed += 1
-            self._progress_advance_item("failed", episode_id)
+            self._progress_advance_item(
+                "failed", episode_id, item_reasons.FAIL_REPLAY_NO_VIDEO_TRACK
+            )
             return result
 
         save_dir, file_stem = self._plan_output_paths(episode, replay, episode_id)
@@ -87,7 +92,7 @@ class LiveReplayDownloader(BaseDownloader):
         self._progress_update_step("下载回放视频", final_path.name)
         if not await self._download_track(video_url, video_path, aweme_id=episode_id):
             result.failed += 1
-            self._progress_advance_item("failed", episode_id)
+            self._progress_advance_item("failed", episode_id, item_reasons.FAIL_REPLAY_VIDEO_TRACK)
             return result
 
         output_paths: List[Path]

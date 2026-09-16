@@ -12,6 +12,7 @@ import aiohttp
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
+from core import item_reasons
 from core.api_client import DouyinAPIClient
 from core.metadata import (
     build_author_home_url,
@@ -48,7 +49,18 @@ class ProgressReporter(Protocol):
 
     def set_item_total(self, total: int, detail: str = "") -> None: ...
 
-    def advance_item(self, status: str, detail: str = "") -> None: ...
+    # ``reason`` 只在跳过 / 失败时以关键字传入；成功路径仍是 (status, detail)。
+    def advance_item(self, status: str, detail: str = "", reason: str = "") -> None: ...
+
+
+def _item_outcome(status: str) -> Optional[str]:
+    """结算状态 → 原因汇总的分组；成功返回 None。口径同 control.progress_reporter。"""
+    normalized = (status or "").strip().lower()
+    if normalized in ("ok", "success", "succeeded"):
+        return None
+    if normalized in ("skip", "skipped"):
+        return "skipped"
+    return "failed"
 
 
 class DownloadResult:
@@ -61,10 +73,6 @@ class DownloadResult:
         # 时填写。四个计数字段表达不了这件事——分页被限流截断时 failed
         # 恒为 0，任务会被 server/jobs.py 判成 SUCCESS。
         self.incomplete_reason: Optional[str] = None
-        # 条目失败的人话原因；只在失败点确知原因时填写。计数表达不了「为什么
-        # 失败」，不填时任务中心只能显示「原因未知」。只有一个值，目前只给单条目
-        # 下载器用；批量下载器要用得先改成按条目记录，否则会显示成「1 个条目失败」。
-        self.failure_reason: Optional[str] = None
 
     def __str__(self):
         return f"Total: {self.total}, Success: {self.success}, Failed: {self.failed}, Skipped: {self.skipped}"
@@ -120,6 +128,12 @@ class BaseDownloader(ABC):
         # 本次任务已解析过的作者目录，键是 (昵称, sec_uid, 目录风格)。
         # 只为「打开输出文件夹」上报一次，避免每条作品都多敲一次 mkdir。
         self._author_dir_cache: Dict[Tuple[str, str, str], Path] = {}
+        # 条目跳过 / 失败原因，见 `_note_item_reason`。键是 aweme_id：同一实例上
+        # 的条目在单个事件循环里并发（queue_manager.download_batch），标量会在
+        # await 之间被别的条目覆盖。
+        self._item_reasons: Dict[str, str] = {}
+        # {"failed"|"skipped": {原因: 次数}}，插入顺序即首次出现顺序。
+        self._item_reason_counts: Dict[str, Dict[str, int]] = {}
 
     def _progress_update_step(self, step: str, detail: str = "") -> None:
         if not self.progress_reporter:
@@ -137,13 +151,86 @@ class BaseDownloader(ABC):
         except Exception as exc:
             logger.debug("Progress set_item_total failed: %s", exc)
 
-    def _progress_advance_item(self, status: str, detail: str = "") -> None:
+    def _progress_advance_item(self, status: str, detail: str = "", reason: str = "") -> None:
+        """结算一个条目：发 item-complete，并为跳过 / 失败计入原因汇总。
+
+        ``detail`` 是条目 id。``reason`` 是调用点给的笼统原因；内层出口用
+        `_note_item_reason` 记下的原因更具体，优先使用。两者都没有时退回
+        「未记录具体原因」，保证每条跳过 / 失败行都有原因。
+        """
+        reason = self._settle_item_reason(status, detail, reason)
         if not self.progress_reporter:
             return
         try:
-            self.progress_reporter.advance_item(status, detail)
+            if reason:
+                self.progress_reporter.advance_item(status, detail, reason=reason)
+            else:
+                self.progress_reporter.advance_item(status, detail)
         except Exception as exc:
             logger.debug("Progress advance_item failed: %s", exc)
+
+    def _note_item_reason(self, aweme_id: Any, reason: str, *, replace: bool = False) -> bool:
+        """在跳过 / 失败出口记下原因，返回 False 方便写成 ``return self._note_item_reason(...)``。
+
+        默认先记先得：内层（如单条时限超时）先写，外层笼统原因（线路全失败）
+        不覆盖。确实更具体的后续判断用 ``replace=True``。
+        """
+        key = str(aweme_id or "")
+        if key and (replace or key not in self._item_reasons):
+            self._item_reasons[key] = reason
+        return False
+
+    def pop_item_reason(self, aweme_id: Any, status: str = "failed") -> str:
+        """取出并清掉条目记下的原因；与结算状态不同类（或是成功）时返回空串。"""
+        recorded = self._item_reasons.pop(str(aweme_id or ""), "")
+        outcome = _item_outcome(status)
+        if not recorded or outcome is None:
+            return ""
+        if (recorded in item_reasons.SKIP_REASONS) != (outcome == "skipped"):
+            return ""
+        return recorded
+
+    def _settle_item_reason(self, status: str, aweme_id: Any, fallback: str) -> str:
+        recorded = self.pop_item_reason(aweme_id, status)
+        outcome = _item_outcome(status)
+        if outcome is None:
+            return ""
+        reason = recorded or fallback
+        if not reason:
+            reason = (
+                item_reasons.SKIP_UNSPECIFIED
+                if outcome == "skipped"
+                else item_reasons.FAIL_UNSPECIFIED
+            )
+        counts = self._item_reason_counts.setdefault(outcome, {})
+        counts[reason] = counts.get(reason, 0) + 1
+        return reason
+
+    def _settle_crashed_item(self, item: Dict[str, Any], entry: Any) -> None:
+        """为 download_batch 里抛异常、没来得及结算的条目补发 item-complete。
+
+        异常才是真正的失败原因，覆盖此前记下的跳过原因（如判定「已有该作品」
+        后补抓评论抛错）。
+        """
+        aweme_id = str(item.get("aweme_id") or "unknown")
+        reason = (
+            item_reasons.reason_for_exception(entry)
+            if isinstance(entry, BaseException)
+            else item_reasons.FAIL_UNEXPECTED
+        )
+        self._note_item_reason(aweme_id, reason, replace=True)
+        self._progress_advance_item("failed", aweme_id)
+
+    def item_reason_summary(self) -> Dict[str, List[Dict[str, Any]]]:
+        """本实例已结算条目的原因汇总，按次数降序；没有跳过 / 失败时为空 dict。"""
+        summary: Dict[str, List[Dict[str, Any]]] = {}
+        for outcome in ("failed", "skipped"):
+            counts = self._item_reason_counts.get(outcome)
+            if not counts:
+                continue
+            ranked = sorted(counts.items(), key=lambda pair: -pair[1])
+            summary[outcome] = [{"reason": text, "count": count} for text, count in ranked]
+        return summary
 
     def _make_item_progress(self, aweme_id: Optional[str]):
         """构造单文件下载途中的字节进度回调（没有 reporter / id 时返回 None）。
@@ -251,7 +338,7 @@ class BaseDownloader(ABC):
         await self._ensure_local_aweme_index()
         if self._is_locally_downloaded(aweme_id):
             logger.info("Aweme %s already exists locally, skipping", aweme_id)
-            return False
+            return self._note_item_reason(aweme_id, item_reasons.SKIP_LOCAL_FILE_EXISTS)
 
         if self._redownload_missing_files_enabled() or self.database is None:
             return True
@@ -262,7 +349,7 @@ class BaseDownloader(ABC):
                     "Aweme %s exists in download history; skipping missing local file",
                     aweme_id,
                 )
-                return False
+                return self._note_item_reason(aweme_id, item_reasons.SKIP_HISTORY_EXISTS)
         except Exception as exc:
             # 历史库只是增量判定的可选兜底；状态不明时宁可补下，不能把作品
             # 永久误判为已下载。
@@ -533,15 +620,14 @@ class BaseDownloader(ABC):
         if file_context is None:
             return False
 
+        aweme_id = file_context["aweme_id"]
         comments_path = file_context["save_dir"] / f"{file_context['file_stem']}_comments.json"
         if comments_path.exists() and comments_path.stat().st_size > 0:
-            return False
+            return self._note_item_reason(aweme_id, item_reasons.SKIP_COMMENTS_EXIST, replace=True)
 
-        return await self._save_comments(
-            str(file_context["aweme_id"]),
-            comments_path,
-            comments_cfg,
-        )
+        if await self._save_comments(str(aweme_id), comments_path, comments_cfg):
+            return True
+        return self._note_item_reason(aweme_id, item_reasons.SKIP_COMMENTS_FAILED, replace=True)
 
     async def _download_aweme_assets(
         self,
@@ -593,7 +679,12 @@ class BaseDownloader(ABC):
                 video_candidates = self._build_video_url_candidates(aweme_data)
                 if not video_candidates:
                     logger.error("No playable video URL found for aweme %s", aweme_id)
-                    return False
+                    return self._note_item_reason(
+                        aweme_id,
+                        item_reasons.FAIL_PAID_NO_VIDEO_URL
+                        if paid_note
+                        else item_reasons.FAIL_NO_VIDEO_URL,
+                    )
                 video_candidates = await self._maybe_promote_original_candidate(
                     aweme_data, video_candidates, session
                 )
@@ -602,9 +693,9 @@ class BaseDownloader(ABC):
                 if not await self._download_video_with_fallback(
                     video_candidates, video_path, session, aweme_id=aweme_id
                 ):
-                    return False
+                    return self._note_item_reason(aweme_id, item_reasons.FAIL_VIDEO_ALL_SOURCES)
                 if not self._discard_if_encrypted(video_path, aweme_id):
-                    return False
+                    return self._note_item_reason(aweme_id, item_reasons.FAIL_ENCRYPTED)
                 downloaded_files.append(video_path)
                 primary_media_downloaded = True
 
@@ -660,7 +751,7 @@ class BaseDownloader(ABC):
                     "image_post_info" in aweme_data,
                     "images" in aweme_data,
                 )
-                return False
+                return self._note_item_reason(aweme_id, item_reasons.FAIL_GALLERY_NO_ASSETS)
 
             for index, candidates in enumerate(image_url_candidates, start=1):
                 download_result: bool | Path = False
@@ -689,7 +780,7 @@ class BaseDownloader(ABC):
                         break
                 if not download_result:
                     logger.error(f"Failed downloading image {index} for aweme {aweme_id}")
-                    return False
+                    return self._note_item_reason(aweme_id, item_reasons.FAIL_GALLERY_IMAGE)
 
             for index, live_url in enumerate(image_live_urls, start=1):
                 suffix = Path(urlparse(live_url).path).suffix or ".mp4"
@@ -702,12 +793,12 @@ class BaseDownloader(ABC):
                 )
                 if not success:
                     logger.error(f"Failed downloading live image {index} for aweme {aweme_id}")
-                    return False
+                    return self._note_item_reason(aweme_id, item_reasons.FAIL_LIVE_PHOTO)
                 downloaded_files.append(live_path)
             primary_media_downloaded = True
         else:
             logger.error("Unsupported media type for aweme %s: %s", aweme_id, media_type)
-            return False
+            return self._note_item_reason(aweme_id, item_reasons.FAIL_UNSUPPORTED_MEDIA)
 
         if self.config.get("avatar"):
             author = aweme_data.get("author", {})
@@ -752,7 +843,9 @@ class BaseDownloader(ABC):
                 "No assets were downloaded for aweme %s; enable video or another asset option",
                 aweme_id,
             )
-            return False
+            return self._note_item_reason(
+                aweme_id, self._no_assets_reason(bool(optional_assets), comments_cfg)
+            )
 
         author = aweme_data.get("author", {})
         if self.database:
@@ -839,6 +932,15 @@ class BaseDownloader(ABC):
         logger.info("Downloaded selected assets for %s: %s (%s)", media_type, desc, aweme_id)
         return True
 
+    def _no_assets_reason(self, attempted_optional: bool, comments_cfg: Any) -> str:
+        """一个文件都没落盘时的原因：按勾选配置判断，不能只看排进队列的附件协程——
+        勾了音乐但作品没有音乐地址时根本不会排队。"""
+        if attempted_optional or self.config.get("json") or comments_cfg is not None:
+            return item_reasons.FAIL_OPTIONAL_ASSETS
+        if any(self.config.get(key) for key in ("cover", "music", "avatar")):
+            return item_reasons.FAIL_SELECTED_ASSETS_MISSING
+        return item_reasons.FAIL_NOTHING_SELECTED
+
     async def _download_with_retry(
         self,
         url: str,
@@ -919,7 +1021,7 @@ class BaseDownloader(ABC):
             )
 
         return await self._run_within_item_deadline(
-            self.retry_handler.execute_with_retry(_attempt_round), save_path
+            self.retry_handler.execute_with_retry(_attempt_round), save_path, aweme_id=aweme_id
         )
 
     def _discard_if_encrypted(self, video_path: Path, aweme_id: Optional[str]) -> bool:
@@ -941,7 +1043,9 @@ class BaseDownloader(ABC):
         video_path.unlink(missing_ok=True)
         return False
 
-    async def _run_within_item_deadline(self, awaitable, save_path: Path) -> bool:
+    async def _run_within_item_deadline(
+        self, awaitable, save_path: Path, *, aweme_id: Optional[str] = None
+    ) -> bool:
         """给单条作品的下载套上兜底总时限，超时/失败一律归为「这条没下成」。"""
         try:
             return await asyncio.wait_for(awaitable, timeout=_VIDEO_ITEM_DEADLINE_S)
@@ -951,7 +1055,7 @@ class BaseDownloader(ABC):
                 f"Video download deadline ({_VIDEO_ITEM_DEADLINE_S}s) exceeded "
                 f"for {save_path.name}",
             )
-            return False
+            return self._note_item_reason(aweme_id, item_reasons.FAIL_VIDEO_DEADLINE)
         except Exception:
             return False
 

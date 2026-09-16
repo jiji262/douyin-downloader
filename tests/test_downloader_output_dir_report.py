@@ -30,7 +30,7 @@ class _RecordingReporter:
     def set_item_total(self, total: int, detail: str = "") -> None:
         pass
 
-    def advance_item(self, status: str, detail: str = "") -> None:
+    def advance_item(self, status: str, detail: str = "", reason: str = "") -> None:
         pass
 
 

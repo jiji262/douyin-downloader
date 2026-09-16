@@ -91,3 +91,84 @@ def test_multi_url_overall_progress_stays_url_based(monkeypatch):
     display.start_url(2, 2, "https://example.com/u2")
     display.fail_url("url failed")
     assert fake_progress.tasks[overall_task_id]["completed"] == 2
+
+
+def test_advance_item_shows_skip_or_failure_reason(monkeypatch):
+    display = ProgressDisplay()
+    fake_progress = _FakeProgress()
+    monkeypatch.setattr(display, "create_progress", lambda: _FakeProgressContext(fake_progress))
+
+    display.start_download_session(1)
+    display.start_url(1, 1, "https://example.com/u")
+    display.set_item_total(2, "作品待下载")
+    item_task_id = display._item_task_id
+
+    display.advance_item("skipped", "a1", reason="下载目录里已有该作品")
+    assert fake_progress.tasks[item_task_id]["detail"] == "最近: 跳过 a1 · 下载目录里已有该作品"
+
+    display.advance_item("success", "a2")
+    assert fake_progress.tasks[item_task_id]["detail"] == "最近: 成功 a2"
+
+
+def test_show_item_reasons_groups_reasons_across_urls(monkeypatch):
+    display = ProgressDisplay()
+    fake_progress = _FakeProgress()
+    monkeypatch.setattr(display, "create_progress", lambda: _FakeProgressContext(fake_progress))
+    printed = []
+    monkeypatch.setattr(display, "_active_console", lambda: SimpleNamespace(print=printed.append))
+
+    display.start_download_session(2)
+    display.start_url(1, 2, "https://example.com/u1")
+    display.set_item_total(3, "作品待下载")
+    display.advance_item("skipped", "a1", reason="下载目录里已有该作品")
+    display.advance_item("failed", "a2", reason="视频所有下载线路均失败，请稍后重试")
+    display.advance_item("success", "a3")
+    display.start_url(2, 2, "https://example.com/u2")
+    display.set_item_total(1, "作品待下载")
+    display.advance_item("skipped", "b1", reason="下载目录里已有该作品")
+    display.stop_download_session()
+
+    display.show_item_reasons()
+
+    assert len(printed) == 1
+    table = printed[0]
+    rows = list(zip(*(column._cells for column in table.columns)))
+    assert rows == [
+        ("跳过", "下载目录里已有该作品", "2"),
+        ("失败", "视频所有下载线路均失败，请稍后重试", "1"),
+    ]
+
+
+def test_show_item_reasons_prints_nothing_without_reasons(monkeypatch):
+    display = ProgressDisplay()
+    printed = []
+    monkeypatch.setattr(display, "_active_console", lambda: SimpleNamespace(print=printed.append))
+
+    display.show_item_reasons()
+
+    assert printed == []
+
+
+def test_rollback_url_item_reasons_drops_counts_from_aborted_attempt(monkeypatch):
+    """CLI 重新登录后会整条 URL 重跑；上一轮已结算的原因不能再算一遍。"""
+    display = ProgressDisplay()
+    fake_progress = _FakeProgress()
+    monkeypatch.setattr(display, "create_progress", lambda: _FakeProgressContext(fake_progress))
+    printed = []
+    monkeypatch.setattr(display, "_active_console", lambda: SimpleNamespace(print=printed.append))
+
+    display.start_download_session(2)
+    display.start_url(1, 2, "https://example.com/u1")
+    display.set_item_total(1, "作品待下载")
+    display.advance_item("skipped", "a1", reason="下载目录里已有该作品")
+    display.start_url(2, 2, "https://example.com/u2")
+    display.set_item_total(1, "作品待下载")
+    display.advance_item("skipped", "b1", reason="下载目录里已有该作品")
+    display.rollback_url_item_reasons()
+    display.advance_item("skipped", "b1", reason="下载目录里已有该作品")
+    display.stop_download_session()
+
+    display.show_item_reasons()
+
+    rows = list(zip(*(column._cells for column in printed[0].columns)))
+    assert rows == [("跳过", "下载目录里已有该作品", "2")]

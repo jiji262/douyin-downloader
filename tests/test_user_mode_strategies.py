@@ -896,3 +896,87 @@ def test_fetch_page_folding_bridge_failure_only_folds_transient_bridge_errors(er
     else:
         with pytest.raises(type(error)):
             asyncio.run(fetch_page_folding_bridge_failure(_fetcher, "sec", 0, 20))
+
+
+# ---------------------------------------------------------------------------
+# 失败页带出原因:确定性拒绝 / bridge 传输失败的文案不能再叫用户「稍后重试或重新登录」
+# ---------------------------------------------------------------------------
+
+
+def test_folded_bridge_failure_carries_the_bridge_code():
+    from core.api_client import FailedPayload
+    from core.user_modes.base_strategy import fetch_page_folding_bridge_failure
+
+    async def _fetcher(*_args, **_kwargs):
+        raise _BridgeTransportError("PAGE_LOAD_FAILED")
+
+    folded = asyncio.run(fetch_page_folding_bridge_failure(_fetcher, "sec", 0, 20))
+
+    assert isinstance(folded, FailedPayload)
+    assert folded.kind == FailedPayload.BRIDGE_ERROR
+    assert folded.detail == "PAGE_LOAD_FAILED"
+
+
+def _rejected_mix_list_downloader(*, via_bridge):
+    from core.api_client import DouyinAPIClient, FailedPayload
+
+    async def _unused(self, _mix_id, cursor=0, count=20):
+        raise AssertionError("expansion must not run when the list walk failed")
+
+    downloader = _mix_expansion_downloader(_unused)
+
+    async def _get_user_mix(_sec_uid, max_cursor=0, count=20):
+        failure = FailedPayload(
+            FailedPayload.REJECTED,
+            status=403,
+            detail="Blocked by ArgusSecurityPlugin Uifid Not Found",
+            via_bridge=via_bridge,
+        )
+        return DouyinAPIClient._normalize_paged_response(failure, item_keys=["mix_infos"])
+
+    downloader.api_client.get_user_mix = _get_user_mix
+    return downloader
+
+
+def test_mix_list_rejection_names_the_rejection_instead_of_rate_limit():
+    from core.user_modes.base_strategy import PageRequestFailedError
+
+    strategy = MixUserModeStrategy(_rejected_mix_list_downloader(via_bridge=True))
+    with pytest.raises(PageRequestFailedError) as info:
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+    message = str(info.value)
+    assert "合集列表 第 1 页被抖音拒绝" in message
+    assert "HTTP 403" in message
+    assert "可能被限流" not in message and "重新登录" not in message
+
+
+def test_direct_argus_rejection_says_retry_and_relogin_are_useless():
+    from core.user_modes.base_strategy import PageRequestFailedError
+
+    strategy = MixUserModeStrategy(_rejected_mix_list_downloader(via_bridge=False))
+    with pytest.raises(PageRequestFailedError) as info:
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+    assert "重试或重新登录都无效" in str(info.value)
+
+
+def test_mix_list_bridge_transport_failure_names_the_bridge_code():
+    from core.user_modes.base_strategy import PageRequestFailedError
+
+    async def _unused(self, _mix_id, cursor=0, count=20):
+        raise AssertionError("expansion must not run when the list walk failed")
+
+    downloader = _mix_expansion_downloader(_unused)
+
+    async def _get_user_mix(_sec_uid, max_cursor=0, count=20):
+        raise _BridgeTransportError("TIMEOUT")
+
+    downloader.api_client.get_user_mix = _get_user_mix
+    strategy = MixUserModeStrategy(downloader)
+    with pytest.raises(PageRequestFailedError) as info:
+        asyncio.run(strategy.collect_items("sec_uid_x", {"uid": "uid-1"}))
+
+    message = str(info.value)
+    assert "TIMEOUT" in message
+    assert "可能被限流" not in message and "重新登录" not in message

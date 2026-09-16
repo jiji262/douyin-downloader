@@ -1211,3 +1211,67 @@ def test_normalize_paged_response_treats_an_absent_item_key_as_a_plain_empty_pag
     )
 
     assert normalized["items_missing"] is False
+
+
+# ---------------------------------------------------------------------------
+# bridge 的确定性拒绝要带出去,分页 walk 才知道「别再整页重试、别叫用户重新登录」
+# ---------------------------------------------------------------------------
+
+
+async def test_bridge_argus_403_is_marked_as_rejection(monkeypatch):
+    from core.api_client import FailedPayload
+
+    bridge = _SequenceBridge(
+        [_BridgeResult(403, None, "Blocked by ArgusSecurityPlugin Sign Invalid")]
+    )
+    _no_sleep(monkeypatch)
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+
+    page = await client.get_user_post("sec-1")
+
+    failure = page["raw"]
+    assert failure == {} and not failure
+    assert isinstance(failure, FailedPayload)
+    assert failure.kind == FailedPayload.REJECTED
+    assert failure.status == 403
+    assert failure.via_bridge is True
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "text"),
+    [
+        # 429 是限流,等一等能恢复;页面签过名也不能证明是门禁。
+        (429, "Too Many Requests"),
+        (429, "Blocked by ArgusSecurityPlugin"),
+        # 没有 Argus 标记的 403 可能只是边缘限速(见 test_api_client_risk_control)。
+        (403, "Forbidden"),
+    ],
+)
+async def test_bridge_failure_without_argus_evidence_is_not_a_rejection(monkeypatch, status, text):
+    from core.api_client import FailedPayload
+
+    bridge = _SequenceBridge([_BridgeResult(status, None, text)])
+    _no_sleep(monkeypatch)
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+
+    page = await client.get_user_post("sec-1")
+
+    assert page["raw"] == {}
+    assert not isinstance(page["raw"], FailedPayload)
+    await client.close()
+
+
+@pytest.mark.parametrize("status", [404, 500])
+async def test_bridge_non_rejection_failure_stays_a_plain_empty_payload(monkeypatch, status):
+    from core.api_client import FailedPayload
+
+    bridge = _SequenceBridge([_BridgeResult(status, None, "nope")])
+    _no_sleep(monkeypatch)
+    client = DouyinAPIClient({"msToken": "t"}, page_bridge=bridge)
+
+    page = await client.get_user_post("sec-1")
+
+    assert page["raw"] == {}
+    assert not isinstance(page["raw"], FailedPayload)
+    await client.close()
