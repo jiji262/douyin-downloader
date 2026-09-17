@@ -241,9 +241,11 @@ async def main_async(args):
 
     if args.url:
         urls = args.url if isinstance(args.url, list) else [args.url]
+        links = list(config.get_links())
         for url in urls:
-            if url not in config.get("link", []):
-                config.update(link=config.get("link", []) + [url])
+            if url not in links:
+                links.append(url)
+        config.update(link=links)
 
     if args.thread:
         config.update(thread=args.thread)
