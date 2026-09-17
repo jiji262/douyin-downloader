@@ -265,22 +265,15 @@ def _format_srt_time(seconds):
     return f"{int(h):02d}:{int(m):02d}:{s:02d},{ms:03d}"
 
 
-def _safe_stem(stem):
-    """清洗文件名: 去掉换行、#、特殊符号，避免 Windows 路径报错"""
-    import re
+# 转写文件名的长度上限 (Windows MAX_PATH)
+_STEM_MAX_LENGTH = 150
 
-    # 换行符 → 空格
-    stem = stem.replace("\n", " ").replace("\r", " ")
-    # Windows 不允许的字符 + # → 下划线
-    stem = re.sub(r'[<>:"/\\|?*#]', "_", stem)
-    # 连续空格/下划线 → 单个下划线
-    stem = re.sub(r"[\s_]+", "_", stem)
-    # 去首尾下划线
-    stem = stem.strip("_ ")
-    # 限制长度 (Windows MAX_PATH)
-    if len(stem) > 150:
-        stem = stem[:150]
-    return stem
+
+def _safe_stem(stem):
+    """与下载器同一套清洗规则:只处理真正不能落盘的字符,转写文件才能和视频同名。"""
+    from utils.validators import sanitize_filename
+
+    return sanitize_filename(stem, max_length=_STEM_MAX_LENGTH)
 
 
 def transcribe_file(
