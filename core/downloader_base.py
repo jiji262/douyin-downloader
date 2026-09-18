@@ -753,7 +753,7 @@ class BaseDownloader(ABC):
                 )
                 return self._note_item_reason(aweme_id, item_reasons.FAIL_GALLERY_NO_ASSETS)
 
-            for index, candidates in enumerate(image_url_candidates, start=1):
+            for index, candidates in image_url_candidates:
                 download_result: bool | Path = False
                 # 与 _download_first_available 同原则：多镜像时镜像列表本身
                 # 就是重试机制（每镜像单次尝试），单镜像才保留退避重试——
@@ -1517,14 +1517,23 @@ class BaseDownloader(ABC):
     def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
         return [
             candidates[0]
-            for candidates in self._collect_image_url_candidates(aweme_data)
+            for _, candidates in self._collect_image_url_candidates(aweme_data)
             if candidates
         ]
 
-    def _collect_image_url_candidates(self, aweme_data: Dict[str, Any]) -> List[List[str]]:
-        image_urls = []
+    def _collect_image_url_candidates(self, aweme_data: Dict[str, Any]) -> List[Tuple[int, List[str]]]:
+        # Returns (gallery_index, candidates) pairs, gallery_index being the
+        # item's 1-based position in the full gallery, same numbering
+        # _collect_image_live_urls uses. A gallery item with no extractable
+        # static candidate contributes nothing here, so without carrying the
+        # raw position along, this list's own enumerate() position would
+        # drift from the live list's for every item after the gap. See
+        # #239's follow-up review: a live photo whose gallery neighbor has no
+        # static candidate would then get a live filename index that no
+        # longer matches its own static filename index.
+        image_urls: List[Tuple[int, List[str]]] = []
         gallery_items = self._iter_gallery_items(aweme_data)
-        for item in gallery_items:
+        for gallery_index, item in enumerate(gallery_items, start=1):
             if not isinstance(item, dict):
                 continue
             candidates = self._collect_ranked_media_urls(
@@ -1538,7 +1547,7 @@ class BaseDownloader(ABC):
                 (item.get("owner_watermark_image"), item.get("owner_watermark_image"), 7),
             )
             if candidates:
-                image_urls.append(candidates)
+                image_urls.append((gallery_index, candidates))
         if not image_urls:
             logger.warning(
                 "No image URLs extracted for aweme %s; gallery items count=%d",

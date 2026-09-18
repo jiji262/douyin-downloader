@@ -340,3 +340,36 @@ def test_collect_image_live_urls_preserves_gallery_index_when_static_images_inte
         (1, "https://example.com/live-1.mp4"),
         (3, "https://example.com/live-3.mp4"),
     ]
+
+
+def test_collect_image_url_candidates_keeps_gallery_index_aligned_with_live_urls(tmp_path):
+    """Follow-up to #239: a gallery item with no static candidate at all must
+    not shift the index of every later item. _collect_image_url_candidates
+    has to carry the same raw gallery position _collect_image_live_urls uses,
+    or a live photo's _live_{index} filename stops matching its own
+    _{index} static image whenever an earlier, unrelated item has nothing
+    extractable.
+    """
+    downloader = _build_video_downloader(tmp_path)
+
+    def _live_and_static_item(static_url, live_url):
+        return {
+            "origin_image": {"url_list": [static_url]},
+            "video": {"play_addr": {"url_list": [live_url]}},
+        }
+
+    aweme_data = {
+        "image_post_info": {
+            "images": [
+                _live_and_static_item("https://example.com/1.jpg", "https://example.com/live-1.mp4"),
+                {},
+                _live_and_static_item("https://example.com/3.jpg", "https://example.com/live-3.mp4"),
+            ]
+        }
+    }
+
+    candidates = downloader._collect_image_url_candidates(aweme_data)
+    assert [index for index, _ in candidates] == [1, 3]
+
+    live_urls = downloader._collect_image_live_urls(aweme_data)
+    assert [index for index, _ in live_urls] == [1, 3]
