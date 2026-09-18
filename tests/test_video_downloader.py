@@ -1276,7 +1276,7 @@ def test_collect_image_urls_prefers_highest_resolution_clean_source(tmp_path):
         },
     }
 
-    candidates = downloader._collect_image_url_candidates(aweme_data)[0]
+    _, candidates = downloader._collect_image_url_candidates(aweme_data)[0]
 
     assert candidates == [
         "https://cdn.example.com/origin-1440.jpg",
@@ -1323,7 +1323,7 @@ def test_collect_image_urls_ranks_watermark_free_list_by_resolution(tmp_path):
         },
     }
 
-    candidates = downloader._collect_image_url_candidates(aweme_data)[0]
+    _, candidates = downloader._collect_image_url_candidates(aweme_data)[0]
 
     assert candidates == [
         "https://cdn.example.com/origin-1440.jpg",
