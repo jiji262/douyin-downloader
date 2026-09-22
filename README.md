@@ -1,615 +1,155 @@
-# Douyin Downloader V2.0
+# Douyin Downloader
 
 <p align="center">
-  <img src="https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=Douyin+batch+download+tool%2C+remove+watermarks%2C+support+batch+download+of+videos%2C+gallery%2C+and+author+homepages.&description=1&font=Source+Code+Pro&forks=1&owner=1&pattern=Circuit+Board&stargazers=1&theme=Light" alt="douyin-downloader" width="820" />
+  <img src="https://camo.githubusercontent.com/327409f4eab82516b28e9c67bd4831261917ee9a29ffd865a60996a9c53709cb/68747470733a2f2f736f6369616c6966792e6769742e63692f6a696a693236322f646f7579696e2d646f776e6c6f616465722f696d6167653f637573746f6d5f6465736372697074696f6e3d446f7579696e2b62617463682b646f776e6c6f61642b746f6f6c2532432b72656d6f76652b77617465726d61726b732532432b737570706f72742b62617463682b646f776e6c6f61642b6f662b766964656f732532432b67616c6c6572792532432b616e642b617574686f722b686f6d6570616765732e266465736372697074696f6e3d3126666f6e743d536f757263652b436f64652b50726f26666f726b733d31266f776e65723d31267061747465726e3d436972637569742b426f617264267374617267617a6572733d31267468656d653d4c69676874" alt="douyin-downloader" width="820" />
 </p>
 
-<p align="center">
-    <a href="https://linux.do" alt="LINUX DO">
-        <img
-            src="https://img.shields.io/badge/LINUX-DO-FFB003.svg?logo=data:image/svg%2bxml;base64,DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiPjxwYXRoIGQ9Ik00Ni44Mi0uMDU1aDYuMjVxMjMuOTY5IDIuMDYyIDM4IDIxLjQyNmM1LjI1OCA3LjY3NiA4LjIxNSAxNi4xNTYgOC44NzUgMjUuNDV2Ni4yNXEtMi4wNjQgMjMuOTY4LTIxLjQzIDM4LTExLjUxMiA3Ljg4NS0yNS40NDUgOC44NzRoLTYuMjVxLTIzLjk3LTIuMDY0LTM4LjAwNC0yMS40M1EuOTcxIDY3LjA1Ni0uMDU0IDUzLjE4di02LjQ3M0MxLjM2MiAzMC43ODEgOC41MDMgMTguMTQ4IDIxLjM3IDguODE3IDI5LjA0NyAzLjU2MiAzNy41MjcuNjA0IDQ2LjgyMS0uMDU2IiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZWNlY2VjO2ZpbGwtb3BhY2l0eToxIi8+PHBhdGggZD0iTTQ3LjI2NiAyLjk1N3EyMi41My0uNjUgMzcuNzc3IDE1LjczOGE0OS43IDQ5LjcgMCAwIDEgNi44NjcgMTAuMTU3cS00MS45NjQuMjIyLTgzLjkzIDAgOS43NS0xOC42MTYgMzAuMDI0LTI0LjM4N2E2MSA2MSAwIDAgMSA5LjI2Mi0xLjUwOCIgc3R5bGU9InN0cm9rZTpub25lO2ZpbGwtcnVsZTpldmVub2RkO2ZpbGw6IzE5MTkxOTtmaWxsLW9wYWNpdHk6MSIvPjxwYXRoIGQ9Ik03Ljk4IDcwLjkyNmMyNy45NzctLjAzNSA1NS45NTQgMCA4My45My4xMTNRODMuNDI2IDg3LjQ3MyA2Ni4xMyA5NC4wODZxLTE4LjgxIDYuNTQ0LTM2LjgzMi0xLjg5OC0xNC4yMDMtNy4wOS0yMS4zMTctMjEuMjYyIiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZjlhZjAwO2ZpbGwtb3BhY2l0eToxIi8+PC9zdmc+" /></a>
-</p>
-中文文档 (Chinese): [README.zh-CN.md](./README.zh-CN.md)
+[简体中文](README.zh-CN.md) · **English**
 
+Download Douyin videos and photos without watermarks. Use **Douzy** for a desktop interface, or the **Python CLI** for scripts.
 
-A practical Douyin downloader supporting videos, image-notes, collections, music, favorites collections, and profile batch downloads, with progress display, retries, SQLite deduplication, download integrity checks, and browser fallback support.
+## Douzy Desktop
 
-## Desktop App (Douzy)
+A desktop app for **Douyin, TikTok, YouTube, Telegram, and X**. Paste links, track downloads, and browse your local archive.
 
-A desktop GUI built on the same backend, with dedicated workspaces for Douyin, TikTok, and YouTube. Paste a link to start, sync account content, follow every task, and manage downloaded works in a local archive.
+**[Download for Windows / macOS](https://github.com/jiji262/douyin-downloader/releases)**
 
-- **Three platforms:** Douyin videos, galleries, profiles, and collections; TikTok videos, photos, and profiles; YouTube videos, Shorts, channels, and playlists
-- **Account content:** sync Douyin following, favorites collections, collected series, and likes
-- **Visual workflow:** multi-link queue, task status and retry controls, local download archive, filters, and quick re-download
+Platform features depend on enabled plugins or local components. Some batch and advanced features require activation.
 
-> **Beta:** The desktop app is currently in closed beta. To try it, download the build from the [Releases](https://github.com/jiji262/douyin-downloader/releases) page.
+| Platform | Content |
+|:---|:---|
+| Douyin | Videos, photos, profiles, collections; following, subscriptions, favorites, and likes |
+| TikTok | Public videos, photos, and profiles |
+| YouTube | Videos, Shorts, channels, and playlists; audio and subtitles |
+| Telegram | Media from accessible chats, groups, and channels; requires setup and sign-in |
+| X | Posts, profile media, your bookmarks and likes; requires account cookies |
 
-| **Douyin link download** | **TikTok download workspace** | **YouTube workbench** |
+| **Douyin** | **TikTok** | **YouTube** |
 |:---:|:---:|:---:|
-| ![Douzy Douyin link download workspace](img/desktop/001.png) | ![Douzy TikTok download workspace](img/desktop/002.png) | ![Douzy YouTube workbench](img/desktop/003.png) |
-| Paste a video, gallery, profile, or collection link and start in one click. | Download public videos, photo posts, and profiles without signing in. | Scan videos, Shorts, channels, and playlists, then configure video, MP3, or subtitle downloads. |
-| **Following management** | **Favorites and likes** | **Task Center** |
-| ![Douzy following management](img/desktop/004.png) | ![Douzy favorites and likes](img/desktop/005.png) | ![Douzy Task Center](img/desktop/006.png) |
-| Sync creators, filter new works, add notes, and download directly from the list. | Browse collected videos, series, and liked works from the current Douyin account. | Track job results, retry failures, and open output folders. |
+| [![Douzy Douyin download options](img/desktop/001.png)](img/desktop/001.png) | [![Douzy TikTok workspace](img/desktop/002.png)](img/desktop/002.png) | [![Douzy YouTube workspace](img/desktop/003.png)](img/desktop/003.png) |
+| **Telegram setup** | **X** | **Platform switcher** |
+| [![Douzy Telegram setup](img/desktop/004.png)](img/desktop/004.png) | [![Douzy X workspace](img/desktop/005.png)](img/desktop/005.png) | [![Douzy platform switcher](img/desktop/006.png)](img/desktop/006.png) |
 
-_Screenshots were captured from the current desktop `main` build. Demonstration data is used for privacy._
+_Screenshots: Douzy 0.11.6 on macOS. Telegram is shown before setup. Click an image to enlarge._
 
-## Feature Overview
+## CLI Status
 
-> **⚠️ Douyin's anti-bot gate blocks the CLI from downloading likes / favorites / favorite collections (since 2026-08) and single videos / notes, collections and music (since 2026-09); profile posts can only rely on the browser fallback.** See [Current Limitations](#current-limitations) for the cause and what still works; use the Douzy desktop app for these downloads.
+The CLI supports **Douyin only**. It includes batch downloads, date filters, retries, download history, and optional comments, transcription, and notifications.
 
-### Supported
+> **Download limitations:** Douyin's request verification currently blocks CLI downloads of individual videos/photos, collections, music, likes, and favorites. Profile posts can try the Playwright browser fallback, but success is not guaranteed. Use **Douzy** for everyday downloads.
 
-| Feature | Description |
-|---------|-------------|
-| Single video download | `/video/{aweme_id}` |
-| Single image-note download | `/note/{note_id}` and `/gallery/{note_id}` |
-| Single collection download | `/collection/{mix_id}` and `/mix/{mix_id}` |
-| Single music download | `/music/{music_id}` (prefers direct audio, fallback to first related aweme) |
-| Short link parsing | `https://v.douyin.com/...`, `v.iesdouyin.com`, bare hosts |
-| Profile batch download | `/user/{sec_uid}` + `mode: [post, like, mix, music]` |
-| Logged-in favorites collections | `/user/self?showTab=favorite_collection` + `mode: [collect, collectmix]` |
-| No-watermark preferred | Automatically selects watermark-free video source |
-| Highest-quality selection | Auto-picks highest bitrate from `video.bit_rate` ladder (video + live-photo) |
-| **Live stream recording** | `live.douyin.com/{room_id}` → FLV/HLS, preserves partial data on stream end |
-| **Comments collection** | Per-aweme comments (+ optional replies) saved as `*_comments.json` |
-| **Hot search + keyword search** | `--hot-board [N]` / `--search "keyword"` dumps to JSONL |
-| **REST API server mode** | `--serve --serve-port 8000` (optional `fastapi + uvicorn`) |
-| **Notification push** | Bark / Telegram / Webhook on download completion |
-| Extra assets | Cover, music, avatar, JSON metadata |
-| Video transcription | Optional, using OpenAI Transcriptions API |
-| Concurrent downloads | Configurable concurrency, default 5 |
-| Retry with backoff | Exponential backoff (1s, 2s, 5s) |
-| Rate limiting | Default 2 req/s |
-| SQLite history | Records download metadata; does not decide incremental skips |
-| Incremental downloads | Disk-based skip/redownload via `increase.post/like/mix/music` |
-| Time filters | `start_time` / `end_time` |
-| Browser fallback | Launches browser when pagination is blocked, manual CAPTCHA supported |
-| Download integrity check | Content-Length validation, auto-cleanup of incomplete files |
-| Progress display | Rich progress bars, supports `progress.quiet_logs` quiet mode |
-| Docker deployment | Dockerfile included |
-| CI/CD | GitHub Actions for testing and linting |
-
-### Current Limitations
-
-- **Douyin Argus gate:** Douyin's edge `ArgusSecurityPlugin` answers every non-browser request to these endpoints with
-  HTTP 403 `Blocked by ArgusSecurityPlugin Uifid Not Found`, with or without cookies and no matter how often you retry:
-  - since 2026-08: `aweme/favorite`, `collects/*`, `aweme/listcollection`, `mix/listcollection` (likes / favorites / favorite collections)
-  - since 2026-09-10: `mix/aweme` (collection items)
-  - since 2026-09-14: `aweme/detail` (single video / note), `aweme/post` (profile posts), `mix/detail`, `mix/list`,
-    `music/detail`, `music/aweme`, `music/list`
-
-  The required `x-secsdk-web-signature` can only be produced by the SDK inside a real Douyin web page, which the CLI's
-  direct API requests cannot carry, so single videos / notes, collections, music and likes / favorites **cannot be
-  downloaded** in the CLI. Profile-post (`post`) API paging is rejected as well; with `playwright` installed and
-  `browser_fallback` left on (headed by default), the browser fallback reads the page's own post-list requests and may
-  still work, but it has not been tested against this gate. The Douzy desktop app sends these requests through its
-  built-in login window and is not affected.
-  Endpoints still reachable directly as of 2026-09-14: user profile, following list, comments, live rooms (webcast),
-  hot board and search.
-- Browser fallback is fully validated for `post`; `like/mix/music` currently relies on API pagination
-- `number.allmix` / `increase.allmix` are retained as compatibility aliases and normalized to `mix`
-- `collect` / `collectmix` currently work for the account represented by the logged-in cookies only
-- `collect` / `collectmix` must be used alone and cannot be combined with `post` / `like` / `mix` / `music`
-- `increase` currently applies to `post` / `like` / `mix` / `music`; favorites collection modes do not support incremental stop
-- Live stream recording saves FLV natively; HLS sources only save the playlist (use ffmpeg for playable output)
-- The webcast room endpoint is not verified against every live scenario — treat as experimental
+Refreshing cookies or retrying does not fix this verification block. Live recording is experimental; HLS sources save a playlist, not a playable video.
 
 ## Quick Start
 
-### 1) Requirements
+Requires **Python 3.9+** on Windows, macOS, or Linux. Read the CLI limitations above first.
 
-- Python 3.8+
-- macOS / Linux / Windows
-
-### 2) Install dependencies
+### 1. Install
 
 ```bash
-pip install -r requirements.txt
-```
-
-For browser fallback and automatic cookie capture:
-
-```bash
-pip install playwright
+git clone https://github.com/jiji262/douyin-downloader.git
+cd douyin-downloader
+python -m pip install -r requirements.txt
+python -m pip install playwright
 python -m playwright install chromium
 ```
 
-### 3) Copy config file
+### 2. Configure and sign in
+
+Copy [config.example.yml](config.example.yml) to `config.yml`:
 
 ```bash
 cp config.example.yml config.yml
-```
-
-### 4) Get cookies (recommended: automatic)
-
-```bash
 python -m tools.cookie_fetcher --config config.yml
 ```
 
-After logging into Douyin, return to the terminal and press Enter. Cookies will be written to your config automatically.
+On Windows PowerShell, use `Copy-Item config.example.yml config.yml` to copy the file. Sign in to Douyin in the browser, then return to the terminal and press Enter to save cookies.
 
-### 5) Docker deployment (optional)
-
-```bash
-docker build -t douyin-downloader .
-docker run -v $(pwd)/config.yml:/app/config.yml -v $(pwd)/Downloaded:/app/Downloaded douyin-downloader
-```
-
-## Minimal Working Config
+Replace the sample `link` in `config.yml` with your creator's profile URL. Keep the saved cookies and adjust these fields:
 
 ```yaml
 link:
-  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
-
+  - https://www.douyin.com/user/YOUR_SEC_UID
 path: ./Downloaded/
-mode:
-  - post
-
+mode: [post]
 number:
-  post: 0
-  collect: 0
-  collectmix: 0
-
-thread: 5
-retry_times: 3
-proxy: ""
-database: true
-database_path: dy_downloader.db
-
-progress:
-  quiet_logs: true
-
-cookies:
-  msToken: ""
-  ttwid: YOUR_TTWID
-  odin_tt: YOUR_ODIN_TT
-  passport_csrf_token: YOUR_CSRF_TOKEN
-  sid_guard: ""
-
-browser_fallback:
-  enabled: true
-  headless: false
-  max_scrolls: 240
-  idle_rounds: 8
-  wait_timeout_seconds: 600
-
-transcript:
-  enabled: false
-  model: gpt-4o-mini-transcribe
-  output_dir: ""
-  response_formats: ["txt", "json"]
-  api_url: https://api.openai.com/v1/audio/transcriptions
-  api_key_env: OPENAI_API_KEY
-  api_key: ""
+  post: 10                 # 0 = unlimited
+increase:
+  post: true              # skip downloaded items
+redownload_missing_files: true
 ```
 
-## Usage
-
-### Run with a config file
+### 3. Run
 
 ```bash
 python run.py -c config.yml
 ```
 
-### Append CLI arguments
+Use `python run.py --help` for all options.
+
+| Option | Purpose |
+|:---|:---|
+| `-c, --config` | Config file |
+| `-u, --url` | Append a URL to the links in the config; repeatable |
+| `-p, --path` | Download folder |
+| `-t, --thread` | Concurrent downloads |
+| `-v, --verbose` | Detailed logs |
+
+## Configuration
+
+Full settings and examples: **[config.example.yml](config.example.yml)**.
+
+| Setting | Purpose |
+|:---|:---|
+| `number.post` | Item limit; `0` means unlimited |
+| `start_time` / `end_time` | Date range (`YYYY-MM-DD`); includes the whole end date |
+| `video_quality` | `highest` by default; `original` tries the original upload and falls back |
+| `increase.post` | `true` skips downloaded items; `false` downloads again and overwrites files in the selected scope |
+| `redownload_missing_files` | Default `true`: download missing files again. With `false`, valid database history can still skip them |
+
+Incremental downloads check for non-empty primary media on disk. You do **not** need to clear the database to download again: set `increase.post: false`. The same switch is available for `like`, `mix`, and `music`.
+
+<details>
+<summary>More CLI commands</summary>
 
 ```bash
-python run.py -c config.yml \
-  -u "https://www.douyin.com/video/7604129988555574538" \
-  -t 8 \
-  -p ./Downloaded
-```
+# Hot search board and keyword search → JSONL
+python run.py --hot-board 30
+python run.py --search "cats" --search-max 50
 
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `-u, --url` | Append download link(s), can be repeated |
-| `-c, --config` | Specify config file (default: `config.yml`) |
-| `-p, --path` | Specify download directory |
-| `-t, --thread` | Specify concurrency |
-| `--show-warnings` | Show warning/error logs |
-| `-v, --verbose` | Show info/warning/error logs |
-| `--hot-board [N]` | Fetch Douyin hot search board and write JSONL; optional top-N |
-| `--search KEYWORD` | Search videos by keyword, write JSONL |
-| `--search-max N` | Max items for `--search` (default 50) |
-| `--serve` | Run as REST API server (requires `pip install fastapi uvicorn`) |
-| `--serve-host HOST` | REST server listen host (default 127.0.0.1) |
-| `--serve-port PORT` | REST server listen port (default 8000) |
-| `--version` | Show version number |
-
-## Typical Scenarios
-
-### Download one video
-
-```yaml
-link:
-  - https://www.douyin.com/video/7604129988555574538
-```
-
-### Download one image-note
-
-```yaml
-link:
-  - https://www.douyin.com/note/7341234567890123456
-```
-
-### Download a collection
-
-```yaml
-link:
-  - https://www.douyin.com/collection/7341234567890123456
-```
-
-### Download a music track
-
-```yaml
-link:
-  - https://www.douyin.com/music/7341234567890123456
-```
-
-### Batch download a creator's posts
-
-```yaml
-link:
-  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
-mode:
-  - post
-number:
-  post: 50
-```
-
-### Batch download a creator's liked posts
-
-```yaml
-link:
-  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
-mode:
-  - like
-number:
-  like: 0    # 0 means download all
-```
-
-### Download multiple modes at once
-
-```yaml
-link:
-  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
-mode:
-  - post
-  - like
-  - mix
-  - music
-```
-
-Cross-mode deduplication: the same aweme_id won't be downloaded twice across different modes.
-
-### Download logged-in favorites collection items
-
-```yaml
-link:
-  - https://www.douyin.com/user/self?showTab=favorite_collection
-mode:
-  - collect
-number:
-  collect: 0
-```
-
-### Download logged-in collected mixes
-
-```yaml
-link:
-  - https://www.douyin.com/user/self?showTab=favorite_collection
-mode:
-  - collectmix
-number:
-  collectmix: 0
-```
-
-### Record a live stream (experimental)
-
-```yaml
-link:
-  - https://live.douyin.com/123456789   # or /follow/live/{room_id}
-live:
-  max_duration_seconds: 3600   # 0 = record until broadcaster ends
-  chunk_size: 65536
-  idle_timeout_seconds: 30
-```
-
-The recorder saves an FLV file under `Downloaded/{author}/live/` plus a `*_room.json`
-metadata snapshot. If the broadcaster ends the stream, network goes idle, or you
-Ctrl+C, any already-recorded bytes are preserved (the `.tmp` file is promoted to
-the final file).
-
-### Collect comments per aweme
-
-```yaml
-comments:
-  enabled: true
-  include_replies: false   # true will fetch each comment's second-level replies (extra API calls)
-  max_comments: 500        # 0 = no cap
-  page_size: 20
-```
-
-Generates a `{date}_{title}_{aweme_id}_comments.json` next to the media file.
-
-### Dump the hot search board
-
-```bash
-python run.py --hot-board 30 -p ./Downloaded
-# Output: ./Downloaded/hot_board/20260424_221530.jsonl
-```
-
-### Search by keyword
-
-```bash
-python run.py --search "猫咪" --search-max 100 -p ./Downloaded
-# Output: ./Downloaded/search/猫咪_20260424_221530.jsonl
-```
-
-### Run as REST API server
-
-```bash
-pip install fastapi uvicorn       # one-time optional dep
+# Optional REST API server
+python -m pip install fastapi uvicorn
 python run.py --serve --serve-port 8000
 ```
 
-Endpoints:
+Comments, transcription, notifications, and live recording are configured in [config.example.yml](config.example.yml).
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/download` | Submit `{"url": "..."}`, returns `{job_id, status}` |
-| GET | `/api/v1/jobs/{job_id}` | Get a specific job's status/counts |
-| GET | `/api/v1/jobs` | List recent jobs (TTL + capacity capped) |
-| GET | `/api/v1/health` | Health probe |
-
-Finished jobs are pruned by TTL (default 24h) and max-jobs (default 500) — in-flight jobs are never pruned. Configure via `server.max_jobs` / `server.job_ttl_seconds`.
-
-### Send a notification on completion
-
-```yaml
-notifications:
-  enabled: true
-  on_success: true
-  on_failure: true
-  providers:
-    - type: bark
-      url: https://api.day.app/YOUR_DEVICE_KEY
-      sound: bell
-    - type: telegram
-      bot_token: "123456:ABC..."
-      chat_id: "987654321"
-    - type: webhook                 # works with 企业微信/飞书/钉钉 bot URLs too
-      url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
-      extra_body:
-        msgtype: text
-```
-
-All enabled providers are notified in parallel; a failing provider never blocks the download flow.
-
-
-### Incremental download (disk-based)
-
-```yaml
-increase:
-  post: true
-```
-
-With `true`, the downloader skips an item only when its non-empty primary media
-already exists under the current download directory. Deleting the media file makes
-the next run download it again; SQLite history does not affect this decision.
-
-Set a mode to `false` to redownload and atomically replace existing files within the
-current number/date/media filters.
-
-### Full crawl (no item limit)
-
-```yaml
-number:
-  post: 0
-```
-
-## Optional Feature: Video Transcription (`transcript`)
-
-Current behavior applies to **video items only** (image-note items do not generate transcripts).
-
-### 1) Enable in config
-
-```yaml
-transcript:
-  enabled: true
-  model: gpt-4o-mini-transcribe
-  output_dir: ""        # empty: same folder as video; non-empty: mirrored to target dir
-  response_formats:
-    - txt
-    - json
-  api_key_env: OPENAI_API_KEY
-  api_key: ""           # can be set directly, or via environment variable
-```
-
-Recommended to provide key through environment variable:
-
-```bash
-export OPENAI_API_KEY="sk-xxxx"
-```
-
-### 2) Output files
-
-When enabled, it generates:
-
-- `xxx.transcript.txt`
-- `xxx.transcript.json`
-
-If `database: true`, job status is also recorded in SQLite table `transcript_job` (`success/failed/skipped`).
-
-## Testing
-
-Recommended:
-
-```bash
-python3 -m pytest -q
-```
-
-Plain `pytest` is also supported now:
-
-```bash
-pytest -q
-```
-
-## Key Config Fields
-
-| Field | Description |
-|-------|-------------|
-| `mode` | Supports `post`/`like`/`mix`/`music`; logged-in favorites mode additionally supports standalone `collect`/`collectmix` |
-| `number.post/like/mix/music/collect/collectmix` | Per-mode download limit, 0 = unlimited |
-| `increase.post/like/mix/music` | `true`: skip existing primary media on disk; `false`: redownload and overwrite current scope |
-| `start_time` / `end_time` | Time filter (format: `YYYY-MM-DD`) |
-| `folderstyle` | Create per-item subdirectories |
-| `browser_fallback.*` | Browser fallback for `post` when pagination is restricted |
-| `progress.quiet_logs` | Quiet logs during progress stage |
-| `transcript.*` | Optional transcription after video download |
-| `comments.*` | Per-aweme comments collection (opt-in) |
-| `live.*` | Live stream recording options (max_duration_seconds / chunk_size / idle_timeout_seconds) |
-| `notifications.*` | Bark/Telegram/Webhook push on completion |
-| `server.*` | REST API server tuning (max_jobs, job_ttl_seconds) |
-| `proxy` | Optional HTTP/HTTPS proxy setting |
-| `database` | Enable SQLite deduplication and history |
-| `database_path` | SQLite path, default is `dy_downloader.db` in the current working directory |
-| `thread` | Concurrent download count |
-| `retry_times` | Retry count on failure |
-
-## Output Structure
-
-Default with `folderstyle: true` and `database_path: dy_downloader.db`:
-
-```text
-workspace/
-├── config.yml
-├── dy_downloader.db          # default location when database: true
-└── Downloaded/
-    ├── download_manifest.jsonl
-    ├── hot_board/                # when --hot-board is used
-    │   └── 20260424_221530.jsonl
-    ├── search/                   # when --search is used
-    │   └── 猫咪_20260424_221530.jsonl
-    └── AuthorName/
-        ├── post/
-        │   └── 2024-02-07_Title_aweme_id/
-        │       ├── ...mp4
-        │       ├── ..._cover.jpg
-        │       ├── ..._music.mp3
-        │       ├── ..._data.json
-        │       ├── ..._avatar.jpg
-        │       ├── ..._comments.json    # when comments.enabled
-        │       ├── ...transcript.txt
-        │       └── ...transcript.json
-        ├── like/
-        │   └── ...
-        ├── mix/
-        │   └── ...
-        ├── music/
-        │   └── ...
-        ├── collect/
-        │   └── ...
-        ├── collectmix/
-        │   └── ...
-        └── live/                 # when recording live streams
-            └── 2026-04-24_2215_LiveTitle_RoomId/
-                ├── ...flv
-                └── ..._room.json
-```
-
-## Re-downloading Content
-
-The program uses a **database record + local file** dual check to decide whether to skip already-downloaded content. To force re-download, you need to clean up accordingly:
-
-### Re-download a specific item
-
-```bash
-# Delete local files (folder name contains the aweme_id)
-rm -rf Downloaded/AuthorName/post/*_<aweme_id>/
-
-# Delete database record
-sqlite3 dy_downloader.db "DELETE FROM aweme WHERE aweme_id = '<aweme_id>';"
-```
-
-### Re-download all items from a specific author
-
-```bash
-rm -rf Downloaded/AuthorName/
-sqlite3 dy_downloader.db "DELETE FROM aweme WHERE author_name = 'AuthorName';"
-```
-
-### Full reset (re-download everything)
-
-```bash
-rm -rf Downloaded/
-rm dy_downloader.db
-```
-
-> **Note:** Deleting only the database but keeping files will NOT trigger re-download — the program scans local filenames for aweme_id to detect existing downloads. Deleting only files but keeping the database WILL trigger re-download (the program treats "in DB but missing locally" as needing retry).
+</details>
 
 ## FAQ
 
-### 1) Why do I only get around 20 posts?
+**Cookies expired?** Run `python -m tools.cookie_fetcher --config config.yml` again.
 
-This is a common pagination risk-control behavior. Make sure:
+**Only a few profile posts?** Keep `browser_fallback.enabled: true` and `headless: false`. Complete any verification yourself in the browser; the current verification block may still prevent downloads.
 
-- `browser_fallback.enabled: true`
-- `browser_fallback.headless: false`
-- complete verification manually in the browser popup, and do not close it too early
+**Need logs?** Run `python run.py -c config.yml -v`.
 
-### 2) Why is the progress output noisy/repeated?
-
-By default, `progress.quiet_logs: true` suppresses logs during progress stage.  
-Use `--show-warnings` or `-v` temporarily when debugging.
-
-### 3) What if cookies are expired?
-
-Run:
+## Development
 
 ```bash
-python -m tools.cookie_fetcher --config config.yml
+python -m pip install -e ".[dev]"
+python -m pytest tests/
+ruff check .
 ```
 
-### 4) Why are transcript files not generated?
+## Community & License
 
-Check in order:
+[QQ group](https://qm.qq.com/q/8wrCzYyLHa) · [LINUX DO](https://linux.do/) · [MIT License](LICENSE)
 
-- whether `transcript.enabled` is `true`
-- whether downloaded items are videos (image-notes are not transcribed)
-- whether `OPENAI_API_KEY` (or `transcript.api_key`) is valid
-- whether `response_formats` includes `txt` or `json`
+<img src="img/qq-group.png" alt="Community QR code" width="200" />
 
-### 5) How to view download history?
+For learning and personal data management. Respect copyright, privacy, and platform rules. You are responsible for how you use this tool; platform changes may affect availability.
 
-```bash
-sqlite3 dy_downloader.db "SELECT aweme_id, title, author_name, datetime(download_time, 'unixepoch', 'localtime') FROM aweme ORDER BY download_time DESC LIMIT 20;"
-```
+## Star History
 
-## Community Group
-
-<img src="./img/fuye.jpg" alt="qun" width="240" />
-
-点击链接加入群聊【QQ群】：[https://qm.qq.com/q/9xoNt8Wzv4](https://qm.qq.com/q/9xoNt8Wzv4)
-
-## Disclaimer
-
-This project is for technical research, learning, and personal data management only. Please use it legally and responsibly:
-
-- Do not use it to infringe others' privacy, copyright, or other legal rights
-- Do not use it for any illegal purpose
-- Users are solely responsible for all risks and liabilities arising from usage
-- If platform policies or interfaces change and features break, this is a normal technical risk
-
-By continuing to use this project, you acknowledge and accept the statements above.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
-
-## Friendly Links
-
-- [LINUX DO](https://linux.do/)
+[View GitHub Star History](https://www.star-history.com/?repos=jiji262%2Fdouyin-downloader&type=date&legend=top-left)
