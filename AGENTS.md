@@ -85,3 +85,12 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
 - `openai-whisper` — audio transcription
 
 <!-- MANUAL: -->
+
+## Independent-Media Integration
+
+- This repository is the Douyin ingestion component of the parent `Independent-Media` workspace.
+- Before a behavior or cross-repository change, read `../AGENTS.md` and the relevant parts of `../docs/自媒体自动化工作流实施方案.md`.
+- Store accepted intent/spec/plan and verification evidence in `../docs/changes/<change-id>/` when the parent workflow requires it.
+- Integrate with sibling projects through the public CLI, REST API, JSON/JSONL, or file manifests; do not import their private modules.
+- Cookies, tokens, account data, downloaded private content, and transcription artifacts must not enter logs, change documents, or commits.
+- Downloading private or unauthorized content, bypassing access controls, or triggering external account actions requires explicit user authorization and remains out of scope by default.
