@@ -82,13 +82,14 @@ def test_render_template_replaces_all_known_vars():
 
 
 def test_render_template_unknown_keys_render_as_empty():
+    # 空变量只留下模板里的分隔符;清洗不再折叠 / 剥掉合法的下划线。
     out = render_template("{title}_{totally_unknown}_{id}", {"title": "hi", "id": "42"})
-    assert out == "hi_42"
+    assert out == "hi__42"
 
 
 def test_render_template_missing_context_value_renders_empty():
     out = render_template("{date}_{title}_{id}", {"date": "", "title": "", "id": "42"})
-    assert out == "42"
+    assert out == "__42"
 
 
 def test_render_template_falls_back_when_result_blank():
@@ -101,8 +102,7 @@ def test_render_template_sanitizes_illegal_chars():
         "{date}_{title}_{id}",
         {"date": "2024-01-01", "title": "bad/name?*", "id": "42"},
     )
-    # Slashes, stars, question marks collapse into underscores via
-    # sanitize_filename, then consecutive underscores collapse.
+    # Slashes, stars, question marks become underscores via sanitize_filename.
     assert "/" not in out and "?" not in out and "*" not in out
     assert "42" in out
     assert "2024-01-01" in out

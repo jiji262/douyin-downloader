@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from rich.console import Console
 from rich.progress import (
@@ -14,6 +14,8 @@ from rich.progress import (
 from rich.table import Table
 
 console = Console()
+
+_REASON_STATUS_LABELS = {"skipped": "跳过", "failed": "失败"}
 
 
 class ProgressDisplay:
@@ -33,6 +35,10 @@ class ProgressDisplay:
         self._item_completed = 0
         self._single_url_item_mode = False
         self._item_stats = {"success": 0, "failed": 0, "skipped": 0}
+        # 整个会话的跳过 / 失败原因计数，键是 (状态, 原因)；进度条是 transient 的，
+        # 结束后只能靠 show_item_reasons 把原因留在屏幕上。
+        self._reason_counts: Dict[Tuple[str, str], int] = {}
+        self._reason_counts_at_url_start: Dict[Tuple[str, str], int] = {}
 
     def show_banner(self):
         banner = """
@@ -88,6 +94,7 @@ class ProgressDisplay:
         self._item_total = 0
         self._item_completed = 0
         self._item_stats = {"success": 0, "failed": 0, "skipped": 0}
+        self._reason_counts_at_url_start = dict(self._reason_counts)
 
         self._cleanup_url_tasks()
         if not self._progress:
@@ -192,7 +199,10 @@ class ProgressDisplay:
             detail=item_detail,
         )
 
-    def advance_item(self, status: str, detail: str = ""):
+    def advance_item(self, status: str, detail: str = "", reason: str = ""):
+        if reason and status in _REASON_STATUS_LABELS:
+            key = (status, reason)
+            self._reason_counts[key] = self._reason_counts.get(key, 0) + 1
         if not self._progress:
             return
         if self._item_task_id is None:
@@ -207,6 +217,8 @@ class ProgressDisplay:
         status_map = {"success": "成功", "failed": "失败", "skipped": "跳过"}
         status_text = status_map.get(status, status)
         item_detail = f"最近: {status_text} {self._shorten(detail, max_len=36)}"
+        if reason:
+            item_detail += f" · {self._shorten(reason, max_len=36)}"
 
         self._progress.update(
             self._item_task_id,
@@ -235,6 +247,22 @@ class ProgressDisplay:
             success_rate = (result.success / result.total) * 100
             table.add_row("Success Rate", f"{success_rate:.1f}%")
 
+        self._active_console().print(table)
+
+    def rollback_url_item_reasons(self):
+        """当前 URL 要整条重跑（如重新登录后重试）时，丢掉本轮已计的原因。"""
+        self._reason_counts = dict(self._reason_counts_at_url_start)
+
+    def show_item_reasons(self):
+        if not self._reason_counts:
+            return
+        table = Table(title="跳过 / 失败原因", show_header=True, header_style="bold magenta")
+        table.add_column("状态", style="cyan")
+        table.add_column("原因")
+        table.add_column("数量", justify="right", style="green")
+        ranked = sorted(self._reason_counts.items(), key=lambda pair: -pair[1])
+        for (status, reason), count in ranked:
+            table.add_row(_REASON_STATUS_LABELS[status], reason, str(count))
         self._active_console().print(table)
 
     def print_info(self, message: str):

@@ -151,7 +151,7 @@ def render_template(
     """根据 ``context`` 渲染模板并清洗最终文件名。
 
     未知变量或 context 缺失的键会被替换成空字符串；清洗之后若结果为空/仅
-    符号（会被 sanitize_filename 吞掉并回退为 ``untitled``），调用方可通过
+    点和空格（会被 sanitize_filename 吞掉并回退为 ``untitled``），调用方可通过
     ``fallback`` 进一步兜底。
     """
 

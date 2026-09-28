@@ -162,7 +162,7 @@ async def test_mix_collects_comments_when_item_media_is_already_downloaded(tmp_p
     downloader = _build_mix_downloader(tmp_path, api_client)
 
     async def _mix_items(_mix_id: str):
-        return [aweme_data]
+        return [aweme_data], None
 
     async def _mix_detail(_mix_id: str):
         return {"author": {"nickname": "合集作者"}, "mix_name": "评论合集"}

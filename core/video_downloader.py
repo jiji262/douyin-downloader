@@ -1,5 +1,6 @@
 from typing import Any, Dict
 
+from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
 
@@ -32,7 +33,9 @@ class VideoDownloader(BaseDownloader):
         if not aweme_data:
             logger.error("Failed to get video detail: %s", aweme_id)
             result.failed += 1
-            self._progress_advance_item("failed", str(aweme_id))
+            self._progress_advance_item(
+                "failed", str(aweme_id), item_reasons.FAIL_DETAIL_UNAVAILABLE
+            )
             return result
 
         if not should_download:

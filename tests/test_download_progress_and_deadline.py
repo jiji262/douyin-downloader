@@ -30,7 +30,7 @@ class _RecordingReporter:
     def set_item_total(self, total, detail=""):
         self.events.append(("set_item_total", total, detail))
 
-    def advance_item(self, status, detail=""):
+    def advance_item(self, status, detail="", reason=""):
         self.events.append(("advance_item", status, detail))
 
     def on_item_start(self, *, aweme_id, index, total, title):

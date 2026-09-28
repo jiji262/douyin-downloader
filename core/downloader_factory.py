@@ -16,6 +16,13 @@ from utils.logger import setup_logger
 
 logger = setup_logger("DownloaderFactory")
 
+# 已识别但永远不会有下载器的 url_type -> 给用户看的原因。
+# 与 TikTok 的 "暂不支持（将于后续版本支持）" 不同：这里是能力上不可能，
+# 不是排期问题，文案必须说清楚，否则用户会一直等一个不会来的版本。
+UNSUPPORTED_URL_TYPE_DETAIL = {
+    "lvdetail": "抖音放映厅影视内容不支持下载：版权影视采用 DRM 加密，无法获取可播放的成片",
+}
+
 
 class DownloaderFactory:
     @staticmethod
@@ -64,6 +71,13 @@ class DownloaderFactory:
             logger.error(
                 "Short URL was not resolved before dispatching. "
                 "Please call api_client.resolve_short_url() first."
+            )
+            return None
+        elif url_type in UNSUPPORTED_URL_TYPE_DETAIL:
+            logger.error(
+                "Capability-gated URL type: %s (%s)",
+                url_type,
+                UNSUPPORTED_URL_TYPE_DETAIL[url_type],
             )
             return None
         else:

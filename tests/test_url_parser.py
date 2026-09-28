@@ -53,6 +53,40 @@ def test_parse_unsupported_url_returns_none():
     assert URLParser.parse(url) is None
 
 
+def test_parse_lvdetail_url_is_recognised_but_gated():
+    # 放映厅版权影视：识别出来是为了给用户一条明确的「为什么下不了」，
+    # 不是 None（那只会显示通用的「无法识别该链接」）。
+    parsed = URLParser.parse("https://www.douyin.com/lvdetail/6828500371023856142")
+
+    assert parsed is not None
+    assert parsed["type"] == "lvdetail"
+
+
+def test_parse_lvdetail_url_keeps_query_params():
+    parsed = URLParser.parse(
+        "https://www.douyin.com/lvdetail/6828500371023856142"
+        "?previous_page_enter_method=live_cover&previous_page_sub_tab=movie"
+    )
+
+    assert parsed is not None
+    assert parsed["type"] == "lvdetail"
+
+
+def test_parse_lvdetail_modal_id_keeps_video_priority():
+    # 在放映厅页面上弹窗看某条普通作品时，该作品才是下载目标。
+    parsed = URLParser.parse(
+        "https://www.douyin.com/lvdetail/6828500371023856142?modal_id=7412345678901234567"
+    )
+
+    assert parsed is not None
+    assert parsed["type"] == "video"
+    assert parsed["aweme_id"] == "7412345678901234567"
+
+
+def test_parse_lvdetail_rejects_spoofed_host():
+    assert URLParser.parse("https://evil.com/lvdetail/6828500371023856142") is None
+
+
 def test_parse_short_url_marks_as_short():
     # 短链在 parser 层统一标记为 'short'，交由 CLI 预先解析真实链接。
     for url in (

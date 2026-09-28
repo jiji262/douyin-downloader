@@ -11,7 +11,13 @@ from cli.login_flow import can_interactive_login, interactive_relogin
 from cli.progress_display import ProgressDisplay
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
-from core import DouyinAPIClient, DownloaderFactory, LoginRequiredError, URLParser
+from core import (
+    UNSUPPORTED_URL_TYPE_DETAIL,
+    DouyinAPIClient,
+    DownloaderFactory,
+    LoginRequiredError,
+    URLParser,
+)
 from storage import Database, FileManager
 from utils.logger import set_console_log_level, setup_logger
 from utils.notifier import build_notifier
@@ -63,6 +69,8 @@ async def _run_with_relogin(make_coro, cookie_manager, *, serve=False):
                 display.print_error("重新登录未完成，已中止。")
                 raise
             cookie_manager.set_cookies(new_cookies)
+            # 整条 URL 会重跑，上一轮已结算条目的原因不能再计一遍。
+            display.rollback_url_item_reasons()
             display.print_success("已更新登录态，正在重试…")
 
 
@@ -104,6 +112,16 @@ async def download_url(
             if progress_reporter:
                 progress_reporter.update_step("解析链接", "URL 解析失败")
             display.print_error(f"Failed to parse URL: {url}")
+            return None
+
+        # 能力门禁：这些类型解析得出来，但永远不会有下载器（见
+        # core.downloader_factory.UNSUPPORTED_URL_TYPE_DETAIL）。在建下载器之前
+        # 拦，用户才能看到真实原因而不是 "No downloader found for type: ..."。
+        gated_detail = UNSUPPORTED_URL_TYPE_DETAIL.get(str(parsed.get("type") or ""))
+        if gated_detail:
+            if progress_reporter:
+                progress_reporter.update_step("解析链接", gated_detail)
+            display.print_error(gated_detail)
             return None
 
         if not progress_reporter:
@@ -300,6 +318,7 @@ async def main_async(args):
 
         display.print_success("\n=== Overall Summary ===")
         display.show_result(total_result)
+        display.show_item_reasons()
 
         await _dispatch_notifications(config, total_result, len(urls))
     else:

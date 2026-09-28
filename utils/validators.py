@@ -40,20 +40,22 @@ def validate_url(url: str) -> bool:
         return False
 
 
+# Windows 禁用字符与控制字符;POSIX 只禁 / 与 NUL,取并集保证跨平台可落盘。
+_ILLEGAL_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# 结尾的 . 和空格 Windows 会静默去掉,写入名与实际名对不上;开头的 . 在
+# macOS / Linux 上是隐藏文件。
+_EDGE_STRIP_CHARS = ". "
+
+
 def sanitize_filename(filename: str, max_length: int = 80) -> str:
-    # 换行符 → 空格
+    """只处理真正不能落盘的部分,``#``、连续下划线 / 空格等合法内容原样保留。"""
+    # 换行本身就是控制字符,换成空格比下划线可读
     filename = filename.replace("\n", " ").replace("\r", " ")
-    # Windows 非法字符 + #，逗号 → 下划线
-    filename = re.sub(r'[<>:"/\\|?*#\x00-\x1f]', "_", filename)
-    # 连续下划线 → 单个下划线（保留空格，不再把空格折叠成下划线）
-    filename = re.sub(r"_+", "_", filename)
-    # 连续空格 → 单个空格
-    filename = re.sub(r" +", " ", filename)
-    # 去首尾
-    filename = filename.strip("._- ")
+    filename = _ILLEGAL_FILENAME_CHARS_RE.sub("_", filename)
+    filename = filename.strip(_EDGE_STRIP_CHARS)
 
     if len(filename) > max_length:
-        filename = filename[:max_length].rstrip("._- ")
+        filename = filename[:max_length].rstrip(_EDGE_STRIP_CHARS)
 
     if filename.split(".", 1)[0].upper() in _WINDOWS_RESERVED_STEMS:
         filename = f"_{filename}"[:max_length]
@@ -121,6 +123,13 @@ def parse_url_type(url: str) -> Optional[str]:
     if host == "live.douyin.com":
         return "live" if re.fullmatch(r"/\d+/?", path) else None
 
+    # 放映厅长视频（版权影视）。识别出来只为给用户一条明确的拒绝理由——
+    # 内容整轨 MPEG-CENC(AES-CTR) 加密，且抖音作品详情接口对这类 id 直接回
+    # filter_reason=lvideo_not_support，任何解析路径都拿不到可播放的成片。
+    # 必须放在 /video/ 之前：以后若有人给这里加宽松正则，先撞上这条拒绝。
+    # 详见 docs/research/douyin-lvdetail-long-video.md。
+    if "/lvdetail/" in path:
+        return "lvdetail"
     if "/video/" in path:
         return "video"
     if "/user/" in path:
