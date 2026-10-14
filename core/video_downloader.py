@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
@@ -30,6 +30,8 @@ class VideoDownloader(BaseDownloader):
         await self.rate_limiter.acquire()
 
         aweme_data = await self.api_client.get_video_detail(aweme_id)
+        if not aweme_data:
+            aweme_data = await self._recover_video_detail_with_browser(aweme_id)
         if not aweme_data:
             logger.error("Failed to get video detail: %s", aweme_id)
             result.failed += 1
@@ -74,3 +76,33 @@ class VideoDownloader(BaseDownloader):
             sec_uid=author.get("sec_uid"),
         )
         return await self._download_aweme_assets(aweme_data, author_name)
+
+    async def _recover_video_detail_with_browser(self, aweme_id: str) -> Optional[Dict[str, Any]]:
+        browser_cfg = self.config.get("browser_fallback", {}) or {}
+        if not browser_cfg.get("enabled", True):
+            return None
+        if not browser_cfg.get("video_detail", True):
+            return None
+
+        rejected = getattr(self.api_client, "last_video_detail_was_argus_rejected", None)
+        if not callable(rejected) or not rejected():
+            return None
+
+        getter = getattr(self.api_client, "get_video_detail_via_browser", None)
+        if not callable(getter):
+            return None
+
+        self._progress_update_step("浏览器回补", "详情接口受限，尝试浏览器获取作品信息")
+        try:
+            return await getter(
+                aweme_id,
+                headless=bool(browser_cfg.get("video_headless", True)),
+                wait_timeout_seconds=int(
+                    browser_cfg.get("video_wait_timeout_seconds")
+                    or browser_cfg.get("wait_timeout_seconds", 60)
+                    or 60
+                ),
+            )
+        except Exception as exc:
+            logger.error("Video detail browser fallback failed: %s", exc)
+            return None
