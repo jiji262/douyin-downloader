@@ -320,6 +320,7 @@ class BaseUserModeStrategy(ABC):
                 fetcher, *fetch_args, request_cursor, count
             )
             page = self._normalize_page_data(page_data)
+            self.incomplete_reason = page.get("incomplete_reason") or self.incomplete_reason
             page_items = self.select_items(page)
             if not page_items:
                 self._raise_if_page_request_failed(
@@ -336,6 +337,7 @@ class BaseUserModeStrategy(ABC):
                     self.mode_name,
                     max_cursor,
                 )
+                self.incomplete_reason = f"{scope or self._scope_label()}分页游标未推进，列表不完整"
                 break
 
         return entries
@@ -427,6 +429,9 @@ class BaseUserModeStrategy(ABC):
                         id_field,
                         entry_id,
                     )
+                    self.incomplete_reason = (
+                        f"{self._scope_label()} {entry_id} 分页游标未推进，作品列表不完整"
+                    )
                     break
                 cursor = next_cursor
 
@@ -459,6 +464,7 @@ class BaseUserModeStrategy(ABC):
             return {
                 "items": data.get("items") or [],
                 "items_missing": bool(data.get("items_missing")),
+                "incomplete_reason": data.get("incomplete_reason"),
                 "has_more": bool(data.get("has_more")),
                 "max_cursor": int(data.get("max_cursor", 0) or 0),
                 "status_code": int(data.get("status_code", 0) or 0),

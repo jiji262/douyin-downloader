@@ -990,6 +990,15 @@ class DouyinAPIClient:
         params = await self._build_user_page_params(sec_uid, max_cursor, count)
         raw = await self._request_json_gated("/aweme/v1/web/mix/list/", params)
         page = self._normalize_paged_response(raw, item_keys=["mix_infos", "mix_list"])
+        if (
+            not page_request_failed(page)
+            and not page.get("has_more")
+            and raw.get("mix_infos", raw.get("mix_list", [])) is None
+        ):
+            # 正常 null = 没有公开合集；不能让 post+mix 把全部作品当未知归属跳过。
+            page["items_missing"] = False
+        if page_request_failed(page):
+            page["incomplete_reason"] = "部分合集请求失败，合集列表不完整"
         if max_cursor:
             return page
         try:
@@ -998,7 +1007,12 @@ class DouyinAPIClient:
             if not page.get("items"):
                 raise
             logger.warning("series/list failed, keeping mix/list page only", exc_info=True)
+            page["incomplete_reason"] = "部分合集请求失败，合集列表不完整"
             return page
+        if series_failure is not None:
+            page["incomplete_reason"] = (
+                series_failure.get("incomplete_reason") or "部分合集请求失败，合集列表不完整"
+            )
         if series_failure is not None and not series_items and not page.get("items"):
             return series_failure
         return self._merge_series_into_page(page, series_items)
@@ -1055,14 +1069,16 @@ class DouyinAPIClient:
             next_cursor = int(page.get("cursor") or page.get("max_cursor") or 0)
             if next_cursor == cursor:
                 logger.warning("Series list cursor did not advance (%s), stopping", cursor)
-                return items, None
+                page["incomplete_reason"] = "合集列表分页游标未推进，列表不完整"
+                return items, page
             cursor = next_cursor
         logger.warning(
             "Series list hit the %d-page cap for %s, later pages dropped",
             _SERIES_LIST_MAX_PAGES,
             sec_uid,
         )
-        return items, None
+        page["incomplete_reason"] = "合集列表达到扫描上限，列表不完整"
+        return items, page
 
     @staticmethod
     def _series_entry_as_mix(entry: Dict[str, Any]) -> Dict[str, Any]:

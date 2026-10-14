@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.metadata import derive_mix_collection_dir
 from core.user_modes.base_strategy import (
     _HARD_PAGE_FAILURE_CAUSES,
     BaseUserModeStrategy,
@@ -17,21 +18,6 @@ from utils.logger import setup_logger
 logger = setup_logger("MixDownloader")
 
 _SCOPE_LABEL = "合集"
-
-
-def derive_mix_collection_dir(mix_detail: Optional[Dict[str, Any]], mix_id: Any) -> str:
-    """Folder name for a 合集's own directory.
-
-    Prefer the mix's display name (``mix_name`` → ``title``); fall back to the
-    ``mix_id`` so downloads never collapse into a bare shared ``mix`` dir.
-    Shared by the fresh-download (:class:`MixDownloader`) and retry
-    (:mod:`core.retry_executor`) paths so a retried item lands in the SAME
-    ``<author>/mix/<collection>/`` folder as its originally-downloaded peers.
-    """
-    name = ""
-    if isinstance(mix_detail, dict):
-        name = (mix_detail.get("mix_name") or mix_detail.get("title") or "").strip()
-    return name or str(mix_id)
 
 
 class MixDownloader(BaseDownloader):

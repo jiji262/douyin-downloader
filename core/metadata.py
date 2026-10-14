@@ -20,6 +20,14 @@ _VIDEO_COVER_KEYS = (
 _AUTHOR_HOME_URL_PREFIX = "https://www.douyin.com/user/"
 
 
+def derive_mix_collection_dir(mix_detail: Optional[Mapping[str, Any]], mix_id: Any) -> str:
+    """合集目录优先使用名称，缺失时回退合集 ID。"""
+    name = ""
+    if isinstance(mix_detail, dict):
+        name = (mix_detail.get("mix_name") or mix_detail.get("title") or "").strip()
+    return name or str(mix_id)
+
+
 def extract_video_cover_urls(aweme: Optional[Mapping[str, Any]]) -> List[str]:
     """Return the best available static cover mirrors for a video aweme.
 
