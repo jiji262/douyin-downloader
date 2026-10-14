@@ -10,6 +10,7 @@ from core.user_modes.base_strategy import (
     fetch_page_folding_bridge_failure,
     page_failure_advice,
 )
+from core.user_modes.mix_routing import mix_selected, non_mix_posts
 from core.user_modes.post_time_boundary import PostTimeBoundary, TimeBoundaryDecision
 from utils.logger import setup_logger
 
@@ -73,6 +74,12 @@ class PostUserModeStrategy(BaseUserModeStrategy):
     # 失败页说得出具体原因(被拒绝 / 页面通道错误码)时的完整文案,否则 None。
     _failure_message: Optional[str] = None
 
+    def apply_filters(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return super().apply_filters(non_mix_posts(items, self.downloader))
+
+    def _filter_post_candidates(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return self._filter_by_media_type(non_mix_posts(items, self.downloader))
+
     async def collect_items(self, sec_uid: str, user_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         self.incomplete_reason = None
         fetcher = getattr(self.downloader.api_client, self.api_method_name, None)
@@ -107,12 +114,12 @@ class PostUserModeStrategy(BaseUserModeStrategy):
         before = len(aweme_list)
         if self._browser_recovery_available():
             self.downloader._progress_update_step("拉取作品列表", "分页受限，尝试浏览器回补")
-        if self._media_type_filter_enabled():
+        if self._media_type_filter_enabled() or mix_selected(self.downloader.config):
             await self.downloader._recover_user_post_with_browser(
                 sec_uid,
                 user_info,
                 aweme_list,
-                item_filter=self._filter_by_media_type,
+                item_filter=self._filter_post_candidates,
             )
         else:
             await self.downloader._recover_user_post_with_browser(sec_uid, user_info, aweme_list)
@@ -246,7 +253,7 @@ class PostUserModeStrategy(BaseUserModeStrategy):
     def _count_page_candidates(self, items: List[Dict[str, Any]]) -> int:
         filtered = self._filter_pinned_items(items)
         filtered = self.downloader._filter_by_time(filtered)
-        return len(self._filter_by_media_type(filtered))
+        return len(self._filter_post_candidates(filtered))
 
     def _report_time_boundary_stop(self, page_number: int, raw_items_seen: int) -> None:
         detail = f"已到达起始日期，提前结束翻页（检查 {page_number} 页，共 {raw_items_seen} 条）"

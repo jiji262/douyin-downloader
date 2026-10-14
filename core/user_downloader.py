@@ -12,6 +12,7 @@ from core.downloader_base import BaseDownloader, DownloadResult
 from core.metadata import build_author_home_url
 from core.user_mode_registry import UserModeRegistry
 from core.user_modes.base_strategy import PageRequestFailedError
+from core.user_modes.mix_routing import collection_directories
 from utils.logger import setup_logger
 
 logger = setup_logger("UserDownloader")
@@ -103,12 +104,24 @@ class UserDownloader(BaseDownloader):
         result = DownloadResult()
         seen_aweme_ids: Set[str] = set()
         first_failure: Optional[PageRequestFailedError] = None
+        # 合集归属先确定，与界面勾选顺序无关。
+        if "mix" in modes:
+            modes = ["mix"] + [mode for mode in modes if mode != "mix"]
         for mode in modes:
+            if (
+                mode == "post"
+                and "mix" in modes
+                and getattr(self._mode_strategy_cache.get("mix"), "incomplete_reason", None)
+            ):
+                continue
             try:
                 mode_result = await self._download_mode_logged(
                     mode, sec_uid, user_info, seen_aweme_ids
                 )
             except PageRequestFailedError as exc:
+                if mode == "mix" and "post" in modes:
+                    # 无法确定合集归属时，不把未知成员误存进作品目录。
+                    raise
                 logger.warning("User mode aborted by a failed page: mode=%s reason=%s", mode, exc)
                 first_failure = first_failure or exc
                 continue
@@ -462,6 +475,10 @@ class UserDownloader(BaseDownloader):
 
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
+            collection_dir = (
+                collection_directories(self).get(str(aweme_id)) if mode == "mix" else None
+            )
+            collection_options = {"collection_dir": collection_dir} if collection_dir else {}
             if not await self._should_download(
                 str(aweme_id or ""),
                 force=force_download,
@@ -471,6 +488,7 @@ class UserDownloader(BaseDownloader):
                     author_name,
                     mode,
                     author_sec_uid=author_sec_uid,
+                    **collection_options,
                 )
                 status = "success" if saved else "skipped"
                 self._progress_advance_item(status, str(aweme_id or "unknown"))
@@ -482,6 +500,7 @@ class UserDownloader(BaseDownloader):
                 mode=mode,
                 db_batch=db_batch,
                 author_sec_uid=author_sec_uid,
+                **collection_options,
             )
             status = "success" if success else "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
