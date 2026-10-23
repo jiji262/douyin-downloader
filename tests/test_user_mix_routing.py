@@ -106,13 +106,19 @@ async def test_mix_members_belong_to_named_collections_once(tmp_path, monkeypatc
 
 
 async def test_post_without_mix_preserves_all_posts(tmp_path, monkeypatch):
-    downloader, saved = build(tmp_path, monkeypatch, ["post"])
+    api = RoutingAPI()
+    # 作品自带 mix_info，只勾作品时也不能被当成合集成员排除。
+    info = {"mix_id": "mix-a", "mix_name": "合集甲"}
+    api.posts = [aweme(aid, mix_info=info) for aid in (IN_A, IN_B, PLAIN)]
+    downloader, saved = build(tmp_path, monkeypatch, ["post"], api=api)
     result = await downloader.download({"sec_uid": "SEC_AUTHOR"})
     assert result.total == 3
     assert all(parts[1] == "post" for _, parts in saved)
 
 
-async def test_only_mix_groups_each_collection_without_downloading_plain_posts(tmp_path, monkeypatch):
+async def test_only_mix_groups_each_collection_without_downloading_plain_posts(
+    tmp_path, monkeypatch
+):
     downloader, saved = build(tmp_path, monkeypatch, ["mix"])
 
     async def forbidden_posts(*_args, **_kwargs):
@@ -134,6 +140,48 @@ async def test_mix_cap_does_not_spill_members_into_posts(tmp_path, monkeypatch):
     assert {aid for aid, _ in saved} == {IN_A, PLAIN}
 
 
+async def test_mode_entries_with_whitespace_still_count_as_selected(tmp_path, monkeypatch):
+    # 模式名由 _configured_modes() strip 后决定跑哪几个模式，归属判断必须用同一套判据：
+    # 两边不一致时 post 照跑，而合集展开却按「只勾合集」截断，成员会漏出到 post 目录。
+    downloader, saved = build(tmp_path, monkeypatch, ["post ", " mix"], number={"mix": 1})
+    result = await downloader.download({"sec_uid": "SEC_AUTHOR"})
+    assert result.total == 2
+    assert {aid for aid, _ in saved} == {IN_A, PLAIN}
+
+
+async def test_only_mix_cap_stops_expanding_extra_collections(tmp_path, monkeypatch):
+    api = RoutingAPI()
+    expanded = []
+
+    async def members(mix_id, cursor=0, count=20):
+        expanded.append(mix_id)
+        return page([aweme(IN_A if mix_id == "mix-a" else IN_B)])
+
+    monkeypatch.setattr(api, "get_mix_aweme", members)
+    downloader, saved = build(tmp_path, monkeypatch, ["mix"], api=api, number={"mix": 1})
+    result = await downloader.download({"sec_uid": "SEC_AUTHOR"})
+    assert expanded == ["mix-a"]
+    assert [aid for aid, _ in saved] == [IN_A]
+    assert result.total == 1
+
+
+async def test_only_mix_cap_counts_only_eligible_members(tmp_path, monkeypatch):
+    api = RoutingAPI()
+
+    async def members(mix_id, cursor=0, count=20):
+        # 第一个合集的成员早于起始日期，会被时间筛选掉，上限不能算它。
+        if mix_id == "mix-a":
+            return page([aweme(IN_A, create_time=1500000000)])
+        return page([aweme(IN_B, create_time=1800000000)])
+
+    monkeypatch.setattr(api, "get_mix_aweme", members)
+    downloader, saved = build(
+        tmp_path, monkeypatch, ["mix"], api=api, number={"mix": 1}, start_time="2024-01-01"
+    )
+    await downloader.download({"sec_uid": "SEC_AUTHOR"})
+    assert [aid for aid, _ in saved] == [IN_B]
+
+
 async def test_post_limit_counts_non_mix_candidates_across_pages(tmp_path, monkeypatch):
     api = RoutingAPI()
     api.pages = [
@@ -144,6 +192,22 @@ async def test_post_limit_counts_non_mix_candidates_across_pages(tmp_path, monke
     result = await downloader.download({"sec_uid": "SEC_AUTHOR"})
     assert result.total == 3
     assert dict(saved)[PLAIN][1] == "post"
+
+
+async def test_post_with_unscanned_mix_info_is_not_dropped(tmp_path, monkeypatch):
+    # 作品自带 mix_info，但它的合集不在扫描结果里：只认扫描得到的归属表，
+    # 不能因为 mix_info 把作品既排出 post 又进不了 mix。
+    api = RoutingAPI()
+    api.mixes = [{"mix_info": {"mix_id": "mix-a", "mix_name": "合集甲"}}]
+    unscanned = {"mix_id": "mix-z", "mix_name": "未扫到"}
+    api.posts = [aweme(IN_A), aweme(IN_B, mix_info=unscanned), aweme(PLAIN)]
+    downloader, saved = build(tmp_path, monkeypatch, ["post", "mix"], api=api)
+    result = await downloader.download({"sec_uid": "SEC_AUTHOR"})
+    paths = dict(saved)
+    assert len(saved) == result.total == result.success == 3
+    assert paths[IN_A][1:3] == ("mix", "合集甲")
+    assert paths[IN_B][1] == "post"
+    assert paths[PLAIN][1] == "post"
 
 
 async def test_collection_layer_survives_disabled_mode_and_item_folders(tmp_path, monkeypatch):
@@ -221,3 +285,24 @@ async def test_membership_map_resets_when_downloader_is_reused(tmp_path, monkeyp
     await downloader.download({"sec_uid": "SEC_AUTHOR"})
     assert len(saved) == 3
     assert all(parts[1] == "post" for _, parts in saved)
+
+
+async def test_existing_member_comments_use_collection_dir(tmp_path, monkeypatch):
+    downloader, _ = build(tmp_path, monkeypatch, ["post", "mix"])
+    calls = []
+
+    async def exists(*_args, **_kwargs):
+        return False
+
+    async def capture_comments(item, author_name, mode, **kwargs):
+        calls.append((item["aweme_id"], mode, kwargs.get("collection_dir")))
+        return True
+
+    monkeypatch.setattr(downloader, "_should_download", exists)
+    monkeypatch.setattr(downloader, "_collect_comments_for_existing_aweme", capture_comments)
+    await downloader.download({"sec_uid": "SEC_AUTHOR"})
+    assert sorted(calls) == [
+        (IN_A, "mix", "合集甲"),
+        (IN_B, "mix", "合集乙"),
+        (PLAIN, "post", None),
+    ]

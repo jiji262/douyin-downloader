@@ -17,6 +17,8 @@ from utils.logger import setup_logger
 
 logger = setup_logger("UserDownloader")
 
+# 合集归属没确认时 post 整个跳过，任务卡片靠这句告诉用户普通作品一条没下。
+_POST_SKIPPED_NOTE = "合集归属未确认，普通作品已跳过"
 _BROWSER_DISABLED_REASON = "已在设置中关闭"
 # 打包版用 ``--exclude-module=playwright`` 裁掉了浏览器组件，用户装不上；源码
 # 运行（含 CLI）时 playwright 只是没装的可选依赖，装上就能用。两句话不能混。
@@ -99,40 +101,54 @@ class UserDownloader(BaseDownloader):
         与 post 走查的软信号（``incomplete_reason``）语义一致。
         失败的是第一个模式也照样跑剩下的：一个模式被拒绝 / 限流不代表另一个
         模式也拿不到（2026-09-15 日志里 post 失败让 55 条合集根本没跑）。
+        唯一的例外是同勾 mix 与 post：合集归属没确认（扫描硬失败，或软中断留下
+        ``incomplete_reason``）时只跳过 post，免得把未知成员误存进作品目录；
+        like / music 等与归属无关的模式照常运行，跳过的事实写进 ``incomplete_reason``。
         全部跑完仍一条没拿到才抛第一个硬失败——否则就成了更糟的「成功 0 项」。
         """
         result = DownloadResult()
         seen_aweme_ids: Set[str] = set()
         first_failure: Optional[PageRequestFailedError] = None
+        mix_failed = post_skipped = False
         # 合集归属先确定，与界面勾选顺序无关。
         if "mix" in modes:
             modes = ["mix"] + [mode for mode in modes if mode != "mix"]
         for mode in modes:
-            if (
-                mode == "post"
-                and "mix" in modes
-                and getattr(self._mode_strategy_cache.get("mix"), "incomplete_reason", None)
-            ):
+            if mode == "post" and "mix" in modes and (mix_failed or self._mix_scan_incomplete()):
+                logger.warning("User mode skipped: mode=post reason=mix ownership unconfirmed")
+                post_skipped = True
                 continue
             try:
                 mode_result = await self._download_mode_logged(
                     mode, sec_uid, user_info, seen_aweme_ids
                 )
             except PageRequestFailedError as exc:
-                if mode == "mix" and "post" in modes:
-                    # 无法确定合集归属时，不把未知成员误存进作品目录。
-                    raise
                 logger.warning("User mode aborted by a failed page: mode=%s reason=%s", mode, exc)
                 first_failure = first_failure or exc
+                mix_failed = mix_failed or mode == "mix"
                 continue
             if mode_result is not None:
                 self._merge_result(result, mode_result)
-        if first_failure is None:
-            return result
-        if result.total <= 0:
-            raise first_failure
-        # 硬失败的原因要盖过软提示（后者只是「没取全」，前者是「这个模式整个没跑成」）。
-        result.incomplete_reason = str(first_failure)
+        return self._settle_modes(result, first_failure, post_skipped)
+
+    def _mix_scan_incomplete(self) -> bool:
+        strategy = self._mode_strategy_cache.get("mix")
+        return bool(getattr(strategy, "incomplete_reason", None))
+
+    @staticmethod
+    def _settle_modes(
+        result: DownloadResult,
+        first_failure: Optional[PageRequestFailedError],
+        post_skipped: bool,
+    ) -> DownloadResult:
+        if first_failure is not None:
+            if result.total <= 0:
+                raise first_failure
+            # 硬失败的原因要盖过软提示（后者只是「没取全」，前者是「这个模式整个没跑成」）。
+            result.incomplete_reason = str(first_failure)
+        if post_skipped:
+            reasons = [result.incomplete_reason, _POST_SKIPPED_NOTE]
+            result.incomplete_reason = "；".join(reason for reason in reasons if reason)
         return result
 
     async def _resolve_self_alias(self, sec_uid: str, modes: List[str]) -> str:
