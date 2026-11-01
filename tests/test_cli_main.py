@@ -1,9 +1,66 @@
 import importlib
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import yaml
 
 main_module = importlib.import_module("cli.main")
+
+
+@pytest.mark.parametrize(
+    "configured_ids,extra_ids,expected_ids",
+    [
+        ("12345", ["67890"], ["12345", "67890"]),
+        ("12345", ["123"], ["12345", "123"]),
+        ("12345", ["12345"], ["12345"]),
+        ("12345", ["67890", "67890", "12345"], ["12345", "67890"]),
+        (["12345", "67890"], ["67890", "123"], ["12345", "67890", "123"]),
+        ([], ["12345", "12345"], ["12345"]),
+    ],
+    ids=["scalar", "scalar-prefix", "scalar-duplicate", "repeated-flags", "list", "empty"],
+)
+@pytest.mark.asyncio
+async def test_main_async_appends_cli_urls(
+    monkeypatch, tmp_path, configured_ids, extra_ids, expected_ids
+):
+    def url(aweme_id):
+        return f"https://www.douyin.com/video/{aweme_id}"
+
+    links = (
+        url(configured_ids)
+        if isinstance(configured_ids, str)
+        else [url(aweme_id) for aweme_id in configured_ids]
+    )
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(
+        yaml.safe_dump({"link": links, "path": str(tmp_path), "database": False}),
+        encoding="utf-8",
+    )
+    download = AsyncMock(return_value=None)
+    monkeypatch.setattr(main_module, "download_url", download)
+    monkeypatch.setattr(main_module, "CookieManager", MagicMock())
+    monkeypatch.setattr(main_module, "display", MagicMock())
+    monkeypatch.setattr(main_module, "set_console_log_level", lambda _level: None)
+    for key in ("DOUYIN_COOKIE", "DOUYIN_PATH", "DOUYIN_THREAD", "DOUYIN_PROXY"):
+        monkeypatch.delenv(key, raising=False)
+
+    args = SimpleNamespace(
+        config=str(config_path),
+        url=[url(aweme_id) for aweme_id in extra_ids],
+        path=None,
+        thread=None,
+        hot_board=None,
+        search=None,
+        serve=False,
+        verbose=False,
+        show_warnings=False,
+    )
+    await main_module.main_async(args)
+
+    assert [call.args[0] for call in download.await_args_list] == [
+        url(aweme_id) for aweme_id in expected_ids
+    ]
 
 
 class _FakeCookieManager:
