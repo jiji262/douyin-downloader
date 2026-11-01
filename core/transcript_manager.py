@@ -210,7 +210,9 @@ class TranscriptManager:
             if not is_source_audio and self._upload_audio_only():
                 tmp_audio_dir = tempfile.TemporaryDirectory(prefix="transcript_audio_")
                 try:
-                    upload_path = await extract_audio(video_path, Path(tmp_audio_dir.name))
+                    upload_path = await extract_audio(
+                        video_path, Path(tmp_audio_dir.name), use_source_name=False
+                    )
                 except AudioExtractError as exc:
                     error_message = str(exc)
                     await self._record_job(

@@ -13,13 +13,9 @@ from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.ffmpeg import resolve_ffmpeg_path
 from core.metadata import build_author_home_url, extract_author_sec_uid
+from core.output_naming import plan_output_paths
 from utils.logger import setup_logger
-from utils.naming import (
-    DEFAULT_FILE_TEMPLATE,
-    DEFAULT_FOLDER_TEMPLATE,
-    build_live_context,
-    render_template,
-)
+from utils.naming import build_live_context
 
 logger = setup_logger("LiveReplayDownloader")
 LIVE_REPLAY_TIMEZONE = timezone(timedelta(hours=8))
@@ -179,7 +175,6 @@ class LiveReplayDownloader(BaseDownloader):
         owner = episode.get("owner") if isinstance(episode.get("owner"), dict) else {}
         author_name = str(owner.get("nickname") or "unknown").strip() or "unknown"
         started_at = self._started_at(episode)
-        date = started_at.strftime("%Y-%m-%d_%H%M")
         context = build_live_context(
             room_id=episode_id,
             title=title,
@@ -187,24 +182,14 @@ class LiveReplayDownloader(BaseDownloader):
             started_at=started_at,
             mode="live_replay",
         )
-        filename_template = self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
-        folder_template = self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
-        file_stem = render_template(filename_template, context, fallback=f"{date}_{episode_id}")
-        folder_name = render_template(folder_template, context, fallback=f"{date}_{episode_id}")
         # 让「打开输出文件夹」落到该作者目录而不是下载根目录。
         author_dir_style = self.config.get("author_dir") or "nickname"
         self._report_author_output_dir(author_name, None, author_dir_style)
-        save_dir = self.file_manager.get_save_path(
-            author_name=author_name,
+        save_dir, file_stem = plan_output_paths(
+            file_manager=self.file_manager,
+            config=self.config,
+            context=context,
             mode="live_replay",
-            aweme_title=title,
-            aweme_id=episode_id,
-            folderstyle=self.config.get("folderstyle", True),
-            download_date=date,
-            folder_name=folder_name,
-            author_sec_uid=None,
-            author_dir_style=author_dir_style,
-            group_by_mode=self.config.get("group_by_mode", True),
         )
         return save_dir, file_stem
 

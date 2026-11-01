@@ -29,13 +29,9 @@ import aiohttp
 
 from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.output_naming import plan_output_paths
 from utils.logger import setup_logger
-from utils.naming import (
-    DEFAULT_FILE_TEMPLATE,
-    DEFAULT_FOLDER_TEMPLATE,
-    build_live_context,
-    render_template,
-)
+from utils.naming import build_live_context
 
 logger = setup_logger("LiveDownloader")
 
@@ -161,39 +157,20 @@ class LiveDownloader(BaseDownloader):
 
     def _plan_output_paths(self, author_name: str, title: str, room_id: str) -> Tuple[Path, str]:
         started_at = datetime.now()
-        date = started_at.strftime("%Y-%m-%d_%H%M")
         template_context = build_live_context(
             room_id=str(room_id),
             title=title,
             author_name=author_name,
             started_at=started_at,
         )
-        filename_template = self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE
-        folder_template = self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE
-        file_stem = render_template(
-            filename_template,
-            template_context,
-            fallback=f"{date}_{room_id}",
-        )
-        folder_name = render_template(
-            folder_template,
-            template_context,
-            fallback=f"{date}_{room_id}",
-        )
         # 让「打开输出文件夹」落到该作者目录而不是下载根目录。
         author_dir_style = self.config.get("author_dir") or "nickname"
         self._report_author_output_dir(author_name, None, author_dir_style)
-        save_dir = self.file_manager.get_save_path(
-            author_name=author_name,
+        save_dir, file_stem = plan_output_paths(
+            file_manager=self.file_manager,
+            config=self.config,
+            context=template_context,
             mode="live",
-            aweme_title=title,
-            aweme_id=room_id,
-            folderstyle=self.config.get("folderstyle", True),
-            download_date=date,
-            folder_name=folder_name,
-            author_sec_uid=None,
-            author_dir_style=author_dir_style,
-            group_by_mode=self.config.get("group_by_mode", True),
         )
         return save_dir, file_stem
 

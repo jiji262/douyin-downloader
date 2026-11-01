@@ -74,7 +74,7 @@ def test_validate_template_uses_field_name_in_error():
 
 def test_render_template_replaces_all_known_vars():
     ctx = {v: v for v in ALLOWED_VARIABLES}
-    # Use a minimal template to stay under sanitize_filename's 80-char cap.
+    # Keep each documented variable visible in one example.
     tpl = "{id}_{title}_{author}_{date}_{type}_{mode}"
     out = render_template(tpl, ctx)
     for v in ("id", "title", "author", "date", "type", "mode"):
@@ -119,7 +119,7 @@ def test_render_template_preserves_suffix_vars_after_long_title():
             "time": "0915",
         },
     )
-    assert len(out) <= 80
+    assert len(out.encode("utf-8")) <= 239
     assert out.endswith("_7419999999999999999_0915")
 
 
