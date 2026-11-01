@@ -1921,29 +1921,26 @@ class DouyinAPIClient:
                 executable_path or "-",
                 bool(executable_path and os.path.exists(executable_path)),
             )
-            browser = await playwright.chromium.launch(
+            context = await playwright.chromium.launch_persistent_context(
+                user_data_dir="./browser_profile",
                 headless=headless,
+                user_agent=self.headers.get("User-Agent", ""),
+                locale="zh-CN",
+                viewport={"width": 1600, "height": 900},
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--disable-dev-shm-usage",
                     "--no-sandbox",
                 ],
             )
-            context = await browser.new_context(
-                user_agent=self.headers.get("User-Agent", ""),
-                locale="zh-CN",
-                viewport={"width": 1600, "height": 900},
-            )
-            cookies = self._browser_cookie_payload()
+            cookies = await context.cookies(self.BASE_URL)
             logger.info(
                 "Browser fallback context ready: cookie_count=%s cookie_names=%s",
                 len(cookies),
                 ",".join(sorted(str(cookie.get("name")) for cookie in cookies)) or "-",
             )
-            if cookies:
-                await context.add_cookies(cookies)
 
-            page = await context.new_page()
+            page = context.pages[0] if context.pages else await context.new_page()
             pending_response_tasks: List[asyncio.Task] = []
 
             async def _handle_response(response):
@@ -2067,7 +2064,6 @@ class DouyinAPIClient:
                 except Exception as exc:
                     logger.debug("Sync browser cookies skipped: %s", exc)
                 await context.close()
-                await browser.close()
 
         selected_ids: List[str] = []
         selected_seen: set[str] = set()
