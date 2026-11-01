@@ -1,7 +1,7 @@
 """文件/目录命名模板渲染。
 
 模板仅接受 ``ALLOWED_VARIABLES`` 中的 ``{var}`` 占位符；缺失值渲染为空字符串。
-最终结果统一交给 ``sanitize_filename`` 清理非法字符并限制长度。
+通过 ``utils.naming_limits`` 清理非法字符并按可用长度裁短,优先保留作品 ID。
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Mapping, Optional
 
-from utils.validators import sanitize_filename
+from utils.naming_limits import PREVIEW_STEM_BYTES, fit_names
 
 # 允许用户在模板中使用的变量白名单（必须与文档、桌面 UI 帮助面板保持一致）。
 ALLOWED_VARIABLES = (
@@ -38,8 +38,6 @@ DEFAULT_FOLDER_TEMPLATE = "{date}_{title}_{id}"
 
 # 模板长度上限。既防用户贴进整段长文案，也给前端做一致校验。
 MAX_TEMPLATE_LENGTH = 200
-RENDERED_NAME_MAX_LENGTH = 80
-_SANITIZE_WITHOUT_TRUNCATION_LENGTH = 10_000
 
 # 匹配 ``{var}`` 形式。不支持格式化说明符（:fmt）以降低心智负担。
 _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -47,52 +45,6 @@ _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 class TemplateValidationError(ValueError):
     """模板语法或变量不合法。"""
-
-
-def _render_template_raw(
-    template: str,
-    context: Mapping[str, Any],
-    *,
-    title_override: Optional[str] = None,
-) -> str:
-    def replace(match: "re.Match[str]") -> str:
-        name = match.group(1)
-        if name == "title" and title_override is not None:
-            return title_override
-        value = context.get(name)
-        return "" if value is None else str(value)
-
-    return _PLACEHOLDER_RE.sub(replace, template)
-
-
-def _clean_without_truncation(raw: str) -> str:
-    return sanitize_filename(raw, max_length=_SANITIZE_WITHOUT_TRUNCATION_LENGTH)
-
-
-def _shrink_title_to_fit(template: str, context: Mapping[str, Any]) -> Optional[str]:
-    if "{title}" not in template:
-        return None
-    raw_title = context.get("title")
-    if raw_title in (None, ""):
-        return None
-
-    title = str(raw_title)
-    empty_title = _clean_without_truncation(
-        _render_template_raw(template, context, title_override="")
-    )
-    best = empty_title if len(empty_title) <= RENDERED_NAME_MAX_LENGTH else None
-    low, high = 0, len(title)
-    while low <= high:
-        mid = (low + high) // 2
-        candidate = _clean_without_truncation(
-            _render_template_raw(template, context, title_override=title[:mid])
-        )
-        if len(candidate) <= RENDERED_NAME_MAX_LENGTH:
-            best = candidate
-            low = mid + 1
-        else:
-            high = mid - 1
-    return best
 
 
 def validate_template(template: str, *, field_name: str = "template") -> None:
@@ -155,18 +107,12 @@ def render_template(
     ``fallback`` 进一步兜底。
     """
 
-    rendered = _render_template_raw(template, context)
-    untruncated = _clean_without_truncation(rendered)
-    if len(untruncated) <= RENDERED_NAME_MAX_LENGTH:
-        cleaned = untruncated
-    else:
-        cleaned = _shrink_title_to_fit(template, context) or sanitize_filename(
-            rendered,
-            max_length=RENDERED_NAME_MAX_LENGTH,
-        )
-    if cleaned == "untitled" and fallback:
-        return sanitize_filename(fallback)
-    return cleaned
+    return fit_names(
+        {"name": template},
+        context,
+        lambda names: len(names["name"].encode("utf-8")) <= PREVIEW_STEM_BYTES,
+        fallback=fallback,
+    )["name"]
 
 
 def _split_date(date_str: str) -> Dict[str, str]:

@@ -252,8 +252,11 @@ async def extract_audio(
     output_dir: Path,
     *,
     locator: Optional[FfmpegLocator] = None,
+    use_source_name: bool = True,
 ) -> Path:
     """把 ``video_path`` 抽成 ``<stem>.mp3``，写到 ``output_dir`` 并返回路径。
+
+    唯一临时目录内可传 ``use_source_name=False`` 写短名,避免长标题挤爆临时路径。
 
     成功条件：
     - ffmpeg 在 :data:`_FFMPEG_TIMEOUT_SECONDS` 内退出
@@ -270,7 +273,7 @@ async def extract_audio(
     ffmpeg_path = await locator.locate()  # may raise FfmpegNotAvailable
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{video_path.stem}.mp3"
+    output_path = output_dir / (f"{video_path.stem}.mp3" if use_source_name else "audio.mp3")
 
     args = (
         ffmpeg_path,

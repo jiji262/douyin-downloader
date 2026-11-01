@@ -19,16 +19,12 @@ from core.metadata import (
     extract_author_sec_uid,
     extract_video_cover_urls,
 )
+from core.output_naming import plan_output_paths
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
 from storage.database import order_cover_mirrors
 from utils.logger import setup_logger
-from utils.naming import (
-    DEFAULT_FILE_TEMPLATE,
-    DEFAULT_FOLDER_TEMPLATE,
-    build_aweme_context,
-    render_template,
-)
+from utils.naming import build_aweme_context
 from utils.paid_content import (
     detect_mp4_encryption,
     is_paid_content,
@@ -509,15 +505,16 @@ class BaseDownloader(ABC):
             "media_type": self._detect_media_type(aweme_data),
         }
 
-    def _render_aweme_file_names(
+    def _aweme_naming_context(
         self,
         aweme_data: Dict[str, Any],
         metadata: Dict[str, Any],
+        *,
         author_name: str,
         mode: Optional[str],
         author_sec_uid: Optional[str] = None,
     ) -> Dict[str, str]:
-        template_context = build_aweme_context(
+        return build_aweme_context(
             aweme_id=str(metadata["aweme_id"]),
             title=str(metadata["desc"]),
             author_name=author_name,
@@ -527,19 +524,6 @@ class BaseDownloader(ABC):
             media_type=str(metadata["media_type"]),
             mode=mode,
         )
-        fallback = f"{metadata['publish_date']}_{metadata['aweme_id']}"
-        return {
-            "file_stem": render_template(
-                self.config.get("filename_template") or DEFAULT_FILE_TEMPLATE,
-                template_context,
-                fallback=fallback,
-            ),
-            "folder_name": render_template(
-                self.config.get("folder_template") or DEFAULT_FOLDER_TEMPLATE,
-                template_context,
-                fallback=fallback,
-            ),
-        }
 
     def _build_aweme_file_context(
         self,
@@ -555,29 +539,35 @@ class BaseDownloader(ABC):
             return None
 
         effective_sec_uid = author_sec_uid or extract_author_sec_uid(aweme_data)
-        names = self._render_aweme_file_names(
+        context = self._aweme_naming_context(
             aweme_data,
             metadata,
-            author_name,
-            mode,
+            author_name=author_name,
+            mode=mode,
             author_sec_uid=effective_sec_uid,
         )
         author_dir_style = self.config.get("author_dir") or "nickname"
         self._report_author_output_dir(author_name, effective_sec_uid, author_dir_style)
-        save_dir = self.file_manager.get_save_path(
-            author_name=author_name,
+        save_dir, file_stem = plan_output_paths(
+            file_manager=self.file_manager,
+            config=self.config,
+            context=context,
             mode=mode,
-            aweme_title=metadata["desc"],
-            aweme_id=metadata["aweme_id"],
-            folderstyle=self.config.get("folderstyle", True),
-            download_date=metadata["publish_date"],
-            folder_name=names["folder_name"],
             author_sec_uid=effective_sec_uid,
-            author_dir_style=author_dir_style,
-            group_by_mode=self.config.get("group_by_mode", True),
             collection_dir=collection_dir,
+            with_transcript=metadata["media_type"] == "video" and self.config.get("video", True),
+            suffixes=self._aweme_output_suffixes(aweme_data),
         )
-        return {**metadata, "file_stem": names["file_stem"], "save_dir": save_dir}
+        return {**metadata, "file_stem": file_stem, "save_dir": save_dir}
+
+    def _aweme_output_suffixes(self, aweme_data: Dict[str, Any]) -> Tuple[str, ...]:
+        suffixes = [".mp4.tmp", ".transcript.json", "_comments.json", "_avatar.webp.tmp"]
+        image_count = len(self._collect_image_url_candidates(aweme_data))
+        suffixes.append("_{0}.webp.tmp".format(image_count))
+        for index, url in enumerate(self._collect_image_live_urls(aweme_data), start=1):
+            extension = Path(urlparse(url).path).suffix or ".mp4"
+            suffixes.append("_live_{0}{1}.tmp".format(index, extension))
+        return tuple(suffixes)
 
     async def _save_comments(
         self,
