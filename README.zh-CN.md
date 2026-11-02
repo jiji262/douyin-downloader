@@ -36,7 +36,7 @@ _截图来自 macOS 上的 Douzy 0.11.6；Telegram 展示配置前的接入页�
 
 命令行版仅支持**抖音**，提供批量下载、日期筛选、失败重试、下载历史，以及可选的评论采集、视频转写和完成通知。
 
-> **下载限制：** 抖音接口风控目前阻止 CLI 下载单个视频／图文、合集、音乐、喜欢和收藏。主页作品可尝试 Playwright 浏览器兜底，但不保证成功。日常下载建议使用 **Douzy**。
+> **下载限制：** 抖音接口风控目前阻止 CLI 直接请求单个视频／图文、合集、音乐、喜欢和收藏。单个视频和主页作品可尝试 Playwright 浏览器兜底，但不保证成功。日常下载建议使用 **Douzy**。
 
 更新 Cookie 或反复重试不能解决这类风控。直播录制属于实验功能；HLS 源仅保存播放列表，不是可直接播放的视频。
 
@@ -131,6 +131,8 @@ python run.py --serve --serve-port 8000
 **Cookie 失效？** 重新运行 `python -m tools.cookie_fetcher --config config.yml`。
 
 **主页只获取到少量作品？** 保持 `browser_fallback.enabled: true`、`headless: false`，在浏览器中自行完成验证；当前风控仍可能阻止下载。
+
+**单个视频详情返回 403？** 保持 `browser_fallback.enabled: true` 和 `video_detail: true`。CLI 会尝试用 headless Playwright 页面回补作品详情，再交给原下载流程保存。
 
 **需要查看日志？** 运行 `python run.py -c config.yml -v`。
 

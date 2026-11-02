@@ -100,6 +100,9 @@ transcript:
 
 browser_fallback:
   enabled: true
+  video_detail: true
+  video_headless: true
+  video_wait_timeout_seconds: 60
   headless: false
   max_scrolls: 240
   idle_rounds: 8
