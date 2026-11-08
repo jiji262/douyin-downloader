@@ -372,11 +372,12 @@ class PostUserModeStrategy(BaseUserModeStrategy):
     def _page_needs_retry(self, page_data: Optional[Dict[str, Any]]) -> bool:
         """None = 超时；其余带失败证据的空页（请求失败 / 接口报错 / 列表缺失）
         都可能只是瞬时限流，值得再试一次。被抖音确定性拒绝的例外：api_client
-        已经不重试它，这里再整页重发只会更快撞上验证码。"""
+        已经不重试它，这里再整页重发只会更快撞上验证码。游客拿不到的后续页
+        （``pagination_missing``）同样是确定性的，重发只会白等退避。"""
         if page_data is None:
             return True
         page = self._normalize_page_data(page_data)
-        if self._page_rejected(page):
+        if self._page_rejected(page) or page.get("pagination_missing"):
             return False
         return self._empty_page_failure_cause(page) is not None
 

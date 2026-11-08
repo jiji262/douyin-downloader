@@ -1217,6 +1217,42 @@ def test_normalize_paged_response_treats_an_absent_item_key_as_a_plain_empty_pag
     assert normalized["items_missing"] is False
 
 
+async def test_get_user_post_marks_a_page_without_list_or_has_more(monkeypatch):
+    """游客身份第一页之后只回 17 字节的 ``{"status_code":0}``(2026-10 F2 #435、
+    Douyin_TikTok_Download_API 分别实测),和「翻到底」长得一样,必须留下标记。"""
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_request_json(path, params, suppress_error=False, **_kwargs):
+        return {"status_code": 0}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    data = await client.get_user_post("sec-1", max_cursor=100, count=20)
+
+    assert data["items"] == []
+    assert data["has_more"] is False
+    assert data["pagination_missing"] is True
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    ("raw", "max_cursor"),
+    [
+        # 登录态每页都带 has_more,翻到底时是 0:这才是真的到底。
+        ({"status_code": 0, "aweme_list": [], "has_more": 0, "max_cursor": 0}, 100),
+        # null 列表由 items_missing 负责,不归这一类。
+        ({"status_code": 0, "aweme_list": None}, 100),
+        # 空 raw 是请求失败,另有判据。
+        ({}, 100),
+        # 游客第一页照常有数据;第一页回这个形态没实测过,保持原判据。
+        ({"status_code": 0}, 0),
+    ],
+)
+def test_post_page_with_pagination_evidence_is_not_marked(raw, max_cursor):
+    page = DouyinAPIClient._normalize_post_page(raw, max_cursor=max_cursor)
+
+    assert page["pagination_missing"] is False
+
+
 # ---------------------------------------------------------------------------
 # bridge 的确定性拒绝要带出去,分页 walk 才知道「别再整页重试、别叫用户重新登录」
 # ---------------------------------------------------------------------------

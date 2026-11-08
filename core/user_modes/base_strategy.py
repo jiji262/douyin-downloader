@@ -32,13 +32,17 @@ _MODE_SCOPE_LABELS = {
 }
 
 
-# 空页的失败成因。除 ``items_missing`` 外都是确凿的「这次请求没成功」,抛异常;
-# ``items_missing`` 见 ``_raise_if_page_request_failed`` 的说明,只软中断。
+# 空页的失败成因。除 ``items_missing`` / ``pagination_missing`` 外都是确凿的「这次
+# 请求没成功」,抛异常;这两种见 ``_raise_if_page_request_failed`` 的说明,只软中断。
 # 「被抖音拒绝」是确定性的(Argus 门禁),不再整页重试,文案也不叫用户重试 / 重新登录。
+# 「未返回翻页信息」= 游客身份拿不到的后续页(见 ``DouyinAPIClient._normalize_post_page``),
+# 同样是确定性的,不整页重试,文案叫用户重新登录而不是稍后重试。
 _CAUSE_REQUEST_FAILED = "请求失败"
 _CAUSE_SERVER_ERROR = "接口报错"
 _CAUSE_REJECTED = "被抖音拒绝"
 _CAUSE_ITEMS_MISSING = "接口未返回列表"
+_CAUSE_PAGINATION_MISSING = "未返回翻页信息"
+_PAGINATION_MISSING_ADVICE = "登录可能已失效，请重新登录抖音后重试"
 _HARD_PAGE_FAILURE_CAUSES = frozenset({_CAUSE_REQUEST_FAILED, _CAUSE_SERVER_ERROR, _CAUSE_REJECTED})
 # 没有更具体原因时硬失败的兜底提示(限速 403 重试耗尽、非 JSON 等)。
 _GENERIC_HARD_FAILURE_HINT = "（可能被限流或需要重新登录），请稍后重试"
@@ -80,6 +84,8 @@ async def fetch_page_folding_bridge_failure(fetcher: Any, *args: Any, **kwargs: 
 
 def page_failure_advice(page: Dict[str, Any]) -> Optional[str]:
     """失败页有具体原因时给用户的说明;普通的请求失败返回 None,由调用方用兜底文案。"""
+    if page.get("pagination_missing"):
+        return _PAGINATION_MISSING_ADVICE
     failure = page.get("raw")
     if not isinstance(failure, FailedPayload):
         return None
@@ -174,8 +180,9 @@ class BaseUserModeStrategy(ABC):
         """一条都没有的页里，哪些是确凿的失败证据，返回人话原因（否则 None）。
 
         「翻到底了」只有一种可信形态：请求成功、``status_code`` 为 0、列表是
-        真 ``[]``。另外三种长得一样却都是失败——空 ``raw``（请求本身失败）、
-        非零 ``status_code``（服务端报错，如风控 2154）、``items_missing``
+        真 ``[]``。另外四种长得一样却都是失败——空 ``raw``（请求本身失败）、
+        非零 ``status_code``（服务端报错，如风控 2154）、``pagination_missing``
+        （游客后续页只回 ``{"status_code":0}``）、``items_missing``
         （``"aweme_list": null``，见 docs/spec/gotchas.md）。
         """
         if page.get("items"):
@@ -186,6 +193,8 @@ class BaseUserModeStrategy(ABC):
             return _CAUSE_REQUEST_FAILED
         if page.get("status_code"):
             return _CAUSE_SERVER_ERROR
+        if page.get("pagination_missing"):
+            return _CAUSE_PAGINATION_MISSING
         if page.get("items_missing"):
             return _CAUSE_ITEMS_MISSING
         return None
@@ -464,6 +473,7 @@ class BaseUserModeStrategy(ABC):
             return {
                 "items": data.get("items") or [],
                 "items_missing": bool(data.get("items_missing")),
+                "pagination_missing": bool(data.get("pagination_missing")),
                 "incomplete_reason": data.get("incomplete_reason"),
                 "has_more": bool(data.get("has_more")),
                 "max_cursor": int(data.get("max_cursor", 0) or 0),
