@@ -194,6 +194,31 @@ def test_hard_truncation_marks_walk_incomplete(monkeypatch):
     assert strategy.incomplete_reason in downloader.details()
 
 
+def test_paginationless_later_page_marks_walk_incomplete_without_retrying(monkeypatch):
+    """游客身份第 2 页起只回 ``{"status_code":0}``:不是翻到底,不能报干净成功。
+
+    它是确定性的(游客拿不到后续页),整页重试只会白等退避,所以只请求一次。
+    """
+    monkeypatch.setattr(post_strategy_module, "_POST_PAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    first_page = [_make_aweme(f"a{index}") for index in range(20)]
+    api = _ScriptedAPI(
+        {
+            0: [_api_page(first_page, has_more=True, max_cursor=100)],
+            100: [DouyinAPIClient._normalize_post_page({"status_code": 0}, max_cursor=100)],
+        }
+    )
+    downloader = _FakeDownloader(api, browser_reason="当前版本未内置浏览器组件")
+    strategy = PostUserModeStrategy(downloader)
+
+    items = _run_collect(strategy, {"uid": "uid-1", "aweme_count": 843})
+
+    assert len(items) == 20
+    assert api.calls == [0, 100]
+    assert strategy.incomplete_reason
+    assert "登录可能已失效" in strategy.incomplete_reason
+    assert strategy.incomplete_reason in downloader.details()
+
+
 def test_profile_count_mismatch_alone_does_not_mark_incomplete():
     api = _ScriptedAPI({0: [_api_page([_make_aweme("a1")], has_more=False, max_cursor=0)]})
     downloader = _FakeDownloader(api)

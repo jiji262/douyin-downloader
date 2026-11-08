@@ -959,7 +959,30 @@ class DouyinAPIClient:
             }
         )
         raw = await self._request_json_gated("/aweme/v1/web/aweme/post/", params)
-        return self._normalize_paged_response(raw, item_keys=["aweme_list"])
+        return self._normalize_post_page(raw, max_cursor=max_cursor)
+
+    @classmethod
+    def _normalize_post_page(cls, raw: Any, *, max_cursor: int) -> Dict[str, Any]:
+        """作品列表页归一化,另把「游客拿不到的后续页」标成 ``pagination_missing``。
+
+        2026-10 F2 #435 与 Douyin_TikTok_Download_API 分别实测:登录态每页都带
+        ``has_more``(到底时为 0);游客身份第一页之后的任何游标只回 17 字节的
+        ``{"status_code":0}``,没有列表也没有 ``has_more``,和「翻到底」长得一样。
+        不标出来,主页只下到第一页却报成功,订阅还会把水位推过没扫到的积压。
+        只认非零游标:游客第一页照常有数据,第一页回这个形态没实测过,不归这一类。
+        只认这个端点:别的端点同形响应的含义没实测过,mix/list 一旦软中断,
+        ``UserDownloader`` 会把 post 整段跳过。
+        """
+        page = cls._normalize_paged_response(raw, item_keys=["aweme_list"])
+        page["pagination_missing"] = bool(
+            max_cursor
+            and isinstance(raw, dict)
+            and raw
+            and page["status_code"] == 0
+            and "aweme_list" not in raw
+            and "has_more" not in raw
+        )
+        return page
 
     async def get_user_like(
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
