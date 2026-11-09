@@ -382,6 +382,7 @@ class DouyinAPIClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._browser_post_aweme_items: Dict[str, Dict[str, Any]] = {}
         self._browser_post_stats: Dict[str, int] = {}
+        self._last_video_detail_failed_payload: Optional[FailedPayload] = None
         selected_ua = random.choice(_USER_AGENT_POOL)
         self.headers = {
             "User-Agent": selected_ua,
@@ -906,6 +907,7 @@ class DouyinAPIClient:
     async def get_video_detail(
         self, aweme_id: str, *, suppress_error: bool = False
     ) -> Optional[Dict[str, Any]]:
+        self._last_video_detail_failed_payload = None
         for aid in self._DETAIL_AID_CANDIDATES:
             params = await self._default_query()
             params.update(
@@ -921,10 +923,13 @@ class DouyinAPIClient:
                 suppress_error=(suppress_error or aid != self._DETAIL_AID_CANDIDATES[-1]),
             )
             if not data:
+                if isinstance(data, FailedPayload):
+                    self._last_video_detail_failed_payload = data
                 continue
 
             detail = data.get("aweme_detail")
             if detail:
+                self._last_video_detail_failed_payload = None
                 return detail
 
             # API returned data but aweme_detail is null — check if content was
@@ -942,6 +947,156 @@ class DouyinAPIClient:
             # aweme_detail is null without a filter reason — no retry needed
             break
 
+        return None
+
+    def last_video_detail_was_argus_rejected(self) -> bool:
+        payload = self._last_video_detail_failed_payload
+        return isinstance(payload, FailedPayload) and payload.kind == FailedPayload.REJECTED
+
+    async def get_video_detail_via_browser(
+        self,
+        aweme_id: str,
+        *,
+        headless: bool = True,
+        wait_timeout_seconds: int = 60,
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:
+            logger.warning(
+                "Playwright not available, video detail browser fallback disabled: %s",
+                exc,
+            )
+            return None
+
+        target_url = f"{self.BASE_URL}/video/{aweme_id}"
+        timeout_ms = max(10, int(wait_timeout_seconds)) * 1000
+        aweme_detail: Dict[str, Any] = {}
+        pending_response_tasks: List[asyncio.Task] = []
+
+        logger.warning(
+            "API detail was rejected by Argus, trying browser fallback: target=%s "
+            "headless=%s timeout_s=%s",
+            safe_log_url(target_url),
+            headless,
+            wait_timeout_seconds,
+        )
+
+        async with async_playwright() as playwright:
+            launch_options: Dict[str, Any] = {
+                "headless": headless,
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                ],
+            }
+            proxy = str(self.proxy or "").strip()
+            if proxy:
+                if proxy.startswith("socks5h://"):
+                    proxy = "socks5://" + proxy[len("socks5h://") :]
+                launch_options["proxy"] = {"server": proxy}
+
+            executable_path = str(getattr(playwright.chromium, "executable_path", "") or "")
+            logger.info(
+                "Video detail browser fallback runtime: executable=%s exists=%s",
+                executable_path or "-",
+                bool(executable_path and os.path.exists(executable_path)),
+            )
+            browser = await playwright.chromium.launch(**launch_options)
+            context = await browser.new_context(
+                user_agent=self.headers.get("User-Agent", ""),
+                locale="zh-CN",
+                viewport={"width": 1600, "height": 900},
+            )
+            cookies = self._browser_cookie_payload()
+            logger.info(
+                "Video detail browser fallback context ready: cookie_count=%s cookie_names=%s",
+                len(cookies),
+                ",".join(sorted(str(cookie.get("name")) for cookie in cookies)) or "-",
+            )
+            if cookies:
+                await context.add_cookies(cookies)
+
+            page = await context.new_page()
+
+            async def _handle_response(response):
+                url = response.url or ""
+                if "/aweme/v1/web/aweme/detail/" not in url:
+                    return
+                try:
+                    data = await response.json()
+                except Exception:
+                    return
+                detail = data.get("aweme_detail") if isinstance(data, dict) else None
+                if isinstance(detail, dict):
+                    detail_id = str(detail.get("aweme_id") or "")
+                    if not detail_id or detail_id == str(aweme_id):
+                        aweme_detail.clear()
+                        aweme_detail.update(detail)
+
+            def _on_response(response):
+                pending_response_tasks.append(asyncio.create_task(_handle_response(response)))
+
+            page.on("response", _on_response)
+
+            try:
+                try:
+                    await page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                except Exception as exc:
+                    logger.warning(
+                        "Browser goto video detail timeout or error, continue with current page state: %s",
+                        _safe_error_text(exc),
+                    )
+
+                title = ""
+                try:
+                    title = await page.title()
+                except Exception:
+                    pass
+                logger.info(
+                    "Video detail browser fallback page state: title=%r url=%s",
+                    title[:200],
+                    safe_log_url(getattr(page, "url", target_url)),
+                )
+                if "验证码" in title:
+                    if headless:
+                        logger.warning(
+                            "Video detail browser fallback needs manual verification; "
+                            "set browser_fallback.video_headless=false and retry"
+                        )
+                        return None
+                    logger.warning(
+                        "Complete verification in the browser; collection will continue."
+                    )
+                    await self._wait_for_manual_verification(
+                        page, wait_timeout_seconds=wait_timeout_seconds
+                    )
+
+                deadline = asyncio.get_running_loop().time() + max(3, int(wait_timeout_seconds))
+                while asyncio.get_running_loop().time() < deadline:
+                    if aweme_detail:
+                        break
+                    if page.is_closed():
+                        logger.warning("Browser page closed while collecting video detail")
+                        break
+                    await page.wait_for_timeout(1000)
+            finally:
+                if pending_response_tasks:
+                    await asyncio.gather(*pending_response_tasks, return_exceptions=True)
+                try:
+                    browser_cookies = await context.cookies(self.BASE_URL)
+                    self._sync_browser_cookies(browser_cookies)
+                except Exception as exc:
+                    logger.debug("Sync browser cookies skipped: %s", exc)
+                await context.close()
+                await browser.close()
+
+        if aweme_detail:
+            logger.warning("Browser fallback recovered video detail: %s", aweme_id)
+            return aweme_detail
+
+        logger.warning("Browser fallback returned no video detail: %s", aweme_id)
         return None
 
     async def get_user_post(
