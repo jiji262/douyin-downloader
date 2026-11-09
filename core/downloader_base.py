@@ -1,10 +1,11 @@
 import asyncio
 import json
 import re
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
@@ -14,6 +15,7 @@ from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
 from core import item_reasons
 from core.api_client import DouyinAPIClient
+from core.comments_collector import CommentsCollector, needs_backfill, read_comments_state
 from core.metadata import (
     build_author_home_url,
     extract_author_sec_uid,
@@ -38,6 +40,13 @@ logger = setup_logger("BaseDownloader")
 # 轮数」地把它乘起来：4 轮 × 4 候选最坏能挂 80 分钟，整个队列跟着停摆。
 # 15 分钟对正常大小的作品绰绰有余（真跑满说明这条已经没救了）。
 _VIDEO_ITEM_DEADLINE_S = 900
+
+# 评论接口连续这么多个作品请求失败就熔断，之后的作品先不请求评论：被限流时每个
+# 作品照旧耗满重试只会让限流持续（2026-11 用户日志里连着五个小时都在重试）。
+_COMMENTS_BREAKER_THRESHOLD = 3
+# 熔断后每隔这么久放一个作品去试探，成功就恢复；免得一次短暂断网让长任务余下的
+# 作品全都没有评论。
+_COMMENTS_BREAKER_COOLDOWN_S = 300.0
 
 
 class ProgressReporter(Protocol):
@@ -130,6 +139,13 @@ class BaseDownloader(ABC):
         self._item_reasons: Dict[str, str] = {}
         # {"failed"|"skipped": {原因: 次数}}，插入顺序即首次出现顺序。
         self._item_reason_counts: Dict[str, Dict[str, int]] = {}
+        # 评论没存全的作品（请求失败或熔断跳过）。作品本身照算成功，缺口由
+        # comments_incomplete_note() 在任务结束时说明。
+        self._comments_incomplete_ids: Set[str] = set()
+        self._comments_failure_streak = 0
+        # 熔断中为 time.monotonic() 的截止时刻，否则为 None。
+        self._comments_breaker_until: Optional[float] = None
+        self._comments_breaker_tripped = False
 
     def _progress_update_step(self, step: str, detail: str = "") -> None:
         if not self.progress_reporter:
@@ -227,6 +243,19 @@ class BaseDownloader(ABC):
             ranked = sorted(counts.items(), key=lambda pair: -pair[1])
             summary[outcome] = [{"reason": text, "count": count} for text, count in ranked]
         return summary
+
+    def comments_incomplete_note(self) -> Optional[str]:
+        """评论没存全的作品数，给任务卡片「这次没有取全」用；都存全了返回 None。"""
+        count = len(self._comments_incomplete_ids)
+        if not count:
+            return None
+        note = "{0} 个作品的评论没取全（评论接口请求失败，可能被抖音限流或登录失效）".format(count)
+        if self._comments_breaker_tripped:
+            note += "，连续失败期间部分作品没有请求评论"
+        return note + (
+            "。作品文件不受影响；稍后重新提交同一链接即可补抓缺的评论"
+            "（保持「增量下载」开启，已下载的作品不会重下）"
+        )
 
     def _make_item_progress(self, aweme_id: Optional[str]):
         """构造单文件下载途中的字节进度回调（没有 reporter / id 时返回 None）。
@@ -575,7 +604,14 @@ class BaseDownloader(ABC):
         comments_path: Path,
         comments_cfg: Dict[str, Any],
     ) -> bool:
-        from core.comments_collector import CommentsCollector
+        """抓评论并写盘，返回盘上的评论文件是否完整；没存全的作品记进
+        ``_comments_incomplete_ids``。"""
+        aweme_id = str(aweme_id)
+        if self._comments_breaker_blocks():
+            if not needs_backfill(await read_comments_state(comments_path)):
+                return True
+            self._comments_incomplete_ids.add(aweme_id)
+            return False
 
         collector = CommentsCollector(
             self.api_client,
@@ -583,9 +619,43 @@ class BaseDownloader(ABC):
             include_replies=bool(comments_cfg.get("include_replies", False)),
             max_comments=int(comments_cfg.get("max_comments", 0) or 0),
             page_size=int(comments_cfg.get("page_size", 20) or 20),
+            rate_limiter=self.rate_limiter,
         )
-        saved = await collector.collect_and_save(str(aweme_id), comments_path)
-        return saved is not None
+        outcome = await collector.collect_and_save(aweme_id, comments_path)
+        self._record_comments_fetch(outcome.fetched)
+        if outcome.complete:
+            self._comments_incomplete_ids.discard(aweme_id)
+            return True
+        self._comments_incomplete_ids.add(aweme_id)
+        return False
+
+    def _comments_breaker_blocks(self) -> bool:
+        """熔断中返回 True。冷却期满时放行这一个作品去试探，同时把截止时刻后推，
+        并发的其它作品继续等它的结果。"""
+        if self._comments_breaker_until is None:
+            return False
+        now = time.monotonic()
+        if now < self._comments_breaker_until:
+            return True
+        self._comments_breaker_until = now + _COMMENTS_BREAKER_COOLDOWN_S
+        return False
+
+    def _record_comments_fetch(self, fetched: bool) -> None:
+        if fetched:
+            self._comments_failure_streak = 0
+            self._comments_breaker_until = None
+            return
+        self._comments_failure_streak += 1
+        if self._comments_failure_streak < _COMMENTS_BREAKER_THRESHOLD:
+            return
+        if self._comments_breaker_until is None:
+            logger.warning(
+                "Comments API failed for %d works in a row; pausing comment requests for %ds",
+                self._comments_failure_streak,
+                int(_COMMENTS_BREAKER_COOLDOWN_S),
+            )
+        self._comments_breaker_until = time.monotonic() + _COMMENTS_BREAKER_COOLDOWN_S
+        self._comments_breaker_tripped = True
 
     async def _collect_comments_for_existing_aweme(
         self,
@@ -612,7 +682,9 @@ class BaseDownloader(ABC):
 
         aweme_id = file_context["aweme_id"]
         comments_path = file_context["save_dir"] / f"{file_context['file_stem']}_comments.json"
-        if comments_path.exists() and comments_path.stat().st_size > 0:
+        # 旧版本请求失败时也会写下 0 条的空文件；它和标了 complete=false 的部分结果
+        # 都要重新请求，见 comments_collector.needs_backfill。
+        if not needs_backfill(await read_comments_state(comments_path)):
             return self._note_item_reason(aweme_id, item_reasons.SKIP_COMMENTS_EXIST, replace=True)
 
         if await self._save_comments(str(aweme_id), comments_path, comments_cfg):
@@ -825,7 +897,10 @@ class BaseDownloader(ABC):
         comments_cfg = self._comments_config()
         if comments_cfg is not None:
             comments_path = save_dir / f"{file_stem}_comments.json"
-            if await self._save_comments(str(aweme_id), comments_path, comments_cfg):
+            await self._save_comments(str(aweme_id), comments_path, comments_cfg)
+            # 没取全时盘上可能是部分结果或之前存的文件，有就算产物；缺口由
+            # comments_incomplete_note() 在任务结束时说明。
+            if comments_path.exists():
                 downloaded_files.append(comments_path)
 
         if not downloaded_files:
