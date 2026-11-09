@@ -168,3 +168,40 @@ async def test_download_url_gates_lvdetail_before_building_a_downloader(monkeypa
     assert result is None
     assert created == []
     assert errors == [main_module.UNSUPPORTED_URL_TYPE_DETAIL["lvdetail"]]
+
+
+@pytest.mark.asyncio
+async def test_download_url_warns_when_comments_are_incomplete(monkeypatch, tmp_path):
+    # 评论没取全不计入失败数；CLI 要单独提示，否则只看得到「失败 0」。
+    config = main_module.ConfigLoader()
+    config.update(path=str(tmp_path))
+    note = "2 个作品的评论没取全（评论接口请求失败，可能被抖音限流或登录失效）"
+
+    class _CommentsGapDownloader(_FakeDownloader):
+        def comments_incomplete_note(self):
+            return note
+
+    warnings = []
+    monkeypatch.setattr(main_module, "DouyinAPIClient", _FakeAPIClient)
+    monkeypatch.setattr(
+        main_module.URLParser,
+        "parse",
+        lambda _url: {"type": "video", "aweme_id": "7604129988555574538"},
+    )
+    monkeypatch.setattr(
+        main_module.DownloaderFactory,
+        "create",
+        lambda *_args, **_kwargs: _CommentsGapDownloader(),
+    )
+    monkeypatch.setattr(main_module.display, "print_warning", warnings.append)
+
+    result = await main_module.download_url(
+        "https://www.douyin.com/video/7604129988555574538",
+        config,
+        _FakeCookieManager(),
+        database=None,
+        progress_reporter=None,
+    )
+
+    assert result.failed == 0
+    assert warnings == [note]

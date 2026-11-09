@@ -192,6 +192,12 @@ async def download_url(
             else:
                 progress_reporter.advance_step("收尾", "无可统计结果")
 
+        # 评论没取全不计入失败数，单独提示，免得「失败 0」掩盖了缺的评论。
+        comments_note = getattr(downloader, "comments_incomplete_note", None)
+        note = comments_note() if callable(comments_note) else None
+        if note:
+            display.print_warning(note)
+
         return result
 
 

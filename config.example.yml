@@ -106,6 +106,8 @@ browser_fallback:
   wait_timeout_seconds: 600
 
 # 评论采集（可选）：启用后每个作品会额外生成 *_comments.json
+# 评论请求同样受 rate_limit 限速。请求失败（如被限流）时不写空文件，只取到一部分的
+# 标 "complete": false；之后再跑同一链接，会给已下载的作品补抓缺的评论。
 comments:
   enabled: false
   include_replies: false

@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 from auth import CookieManager
@@ -291,7 +292,12 @@ async def test_comments_already_saved_replaces_local_file_reason(tmp_path):
     aweme = {"aweme_id": AWEME_ID, "desc": "demo", "create_time": 1747353600}
     context = downloader._build_aweme_file_context(aweme, "作者", "post")
     comments_path = context["save_dir"] / f"{context['file_stem']}_comments.json"
-    comments_path.write_text("[]", encoding="utf-8")
+    comments_path.write_text(
+        json.dumps(
+            {"aweme_id": AWEME_ID, "count": 1, "complete": True, "comments": [{"cid": "1"}]}
+        ),
+        encoding="utf-8",
+    )
     downloader._note_item_reason(AWEME_ID, item_reasons.SKIP_LOCAL_FILE_EXISTS)
 
     saved = await downloader._collect_comments_for_existing_aweme(aweme, "作者", "post")
