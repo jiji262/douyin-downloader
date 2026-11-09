@@ -88,8 +88,12 @@ async def capture_cookies(args: argparse.Namespace) -> int:
 
     async with async_playwright() as p:
         browser_factory = getattr(p, args.browser)
-        browser = await browser_factory.launch(headless=args.headless)
-        context = await browser.new_context()
+
+        context = await browser_factory.launch_persistent_context(
+            user_data_dir="./browser_profile",
+            headless=args.headless,
+        )
+
         page = await context.new_page()
         observed_cookie_headers: List[str] = []
         observed_mstokens: List[str] = []
@@ -134,7 +138,7 @@ async def capture_cookies(args: argparse.Namespace) -> int:
             print("[INFO] Extracted msToken from alternate sources.")
 
         await context.close()
-        await browser.close()
+        # await browser.close()
 
     picked = cookies if args.include_all else filter_cookies(cookies)
     picked = sanitize_cookies(picked)
