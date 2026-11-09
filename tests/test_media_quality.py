@@ -237,7 +237,7 @@ def test_collect_image_live_urls_prefers_high_bitrate(tmp_path):
     }
 
     urls = downloader._collect_image_live_urls(aweme_data)
-    assert urls == ["https://high.example/live"]
+    assert urls == [(1, "https://high.example/live")]
 
 
 def test_note_aweme_without_gallery_assets_falls_back_to_video(tmp_path):
@@ -307,4 +307,69 @@ def test_collect_image_live_urls_uses_h264_variant_when_play_addr_missing(tmp_pa
     }
 
     urls = downloader._collect_image_live_urls(aweme_data)
-    assert urls == ["https://v3-web.douyinvod.com/live-h264.mp4"]
+    assert urls == [(1, "https://v3-web.douyinvod.com/live-h264.mp4")]
+
+
+def test_collect_image_live_urls_preserves_gallery_index_when_static_images_interleave(tmp_path):
+    """Regression for #239: a live photo's index must be its position in the
+    gallery, not its position among live photos only. A gallery of
+    [live, static-only, live] must report indices 1 and 3, not 1 and 2 —
+    otherwise the download loop's `_live_{index}` filename doesn't match the
+    `_{index}` static image it belongs to.
+    """
+    downloader = _build_video_downloader(tmp_path)
+
+    def _live_item(url):
+        return {"video": {"play_addr": {"url_list": [url]}}}
+
+    def _static_item():
+        return {"origin_image": {"url_list": ["https://static.example/plain.jpg"]}}
+
+    aweme_data = {
+        "image_post_info": {
+            "images": [
+                _live_item("https://example.com/live-1.mp4"),
+                _static_item(),
+                _live_item("https://example.com/live-3.mp4"),
+            ]
+        }
+    }
+
+    urls = downloader._collect_image_live_urls(aweme_data)
+    assert urls == [
+        (1, "https://example.com/live-1.mp4"),
+        (3, "https://example.com/live-3.mp4"),
+    ]
+
+
+def test_collect_image_url_candidates_keeps_gallery_index_aligned_with_live_urls(tmp_path):
+    """Follow-up to #239: a gallery item with no static candidate at all must
+    not shift the index of every later item. _collect_image_url_candidates
+    has to carry the same raw gallery position _collect_image_live_urls uses,
+    or a live photo's _live_{index} filename stops matching its own
+    _{index} static image whenever an earlier, unrelated item has nothing
+    extractable.
+    """
+    downloader = _build_video_downloader(tmp_path)
+
+    def _live_and_static_item(static_url, live_url):
+        return {
+            "origin_image": {"url_list": [static_url]},
+            "video": {"play_addr": {"url_list": [live_url]}},
+        }
+
+    aweme_data = {
+        "image_post_info": {
+            "images": [
+                _live_and_static_item("https://example.com/1.jpg", "https://example.com/live-1.mp4"),
+                {},
+                _live_and_static_item("https://example.com/3.jpg", "https://example.com/live-3.mp4"),
+            ]
+        }
+    }
+
+    candidates = downloader._collect_image_url_candidates(aweme_data)
+    assert [index for index, _ in candidates] == [1, 3]
+
+    live_urls = downloader._collect_image_live_urls(aweme_data)
+    assert [index for index, _ in live_urls] == [1, 3]
