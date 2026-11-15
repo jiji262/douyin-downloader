@@ -30,7 +30,11 @@ Platform features depend on enabled plugins or local components. Some batch and 
 | **Telegram setup** | **X** | **Task center** |
 | [![Douzy Telegram setup](img/desktop/004.png)](img/desktop/004.png) | [![Douzy X workspace](img/desktop/005.png)](img/desktop/005.png) | [![Douzy task center](img/desktop/006.png)](img/desktop/006.png) |
 
-_Screenshots: Douzy 0.13.0 on macOS (1440 × 900, sample data). Telegram is shown before setup. Click an image to enlarge._
+| **Douyin (light)** | **YouTube (light)** | **Task center (light)** |
+|:---:|:---:|:---:|
+| [![Douzy Douyin workspace in light mode](img/desktop/007.png)](img/desktop/007.png) | [![Douzy YouTube workspace in light mode](img/desktop/008.png)](img/desktop/008.png) | [![Douzy task center in light mode](img/desktop/009.png)](img/desktop/009.png) |
+
+_Screenshots: Douzy 0.13.0 on macOS (light and dark themes, 1440 × 900, sample data). Telegram is shown before setup. Click an image to enlarge._
 
 ## CLI Status
 
