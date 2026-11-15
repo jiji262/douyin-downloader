@@ -9,7 +9,9 @@ fastapi/uvicorn 是**可选**依赖。若未安装，导入本模块会 ImportEr
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
@@ -126,6 +128,22 @@ async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:
         }
 
 
+def _start_live_recovery(config: ConfigLoader):
+    """服务模式下由服务自己恢复上次中断的直播分段；日志列表在开始服务前快照，新录制不受影响。"""
+    from core.live_finalize import recover_recordings
+    from storage.live_recordings import journal_root
+
+    try:
+        root = journal_root(None, config.get("path") or ".")
+        paths = sorted(Path(root).glob("*.json"))
+        if not paths:
+            return None
+        return asyncio.create_task(recover_recordings(root, database=None, paths=paths))
+    except Exception as exc:
+        logger.warning("Live recording recovery failed to start: %s", exc)
+        return None
+
+
 def build_app(config: ConfigLoader) -> FastAPI:
     deps = _ServerDeps(config)
 
@@ -146,7 +164,11 @@ def build_app(config: ConfigLoader) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        recovery = _start_live_recovery(config)
         yield
+        if recovery is not None and not recovery.done():
+            recovery.cancel()
+            await asyncio.gather(recovery, return_exceptions=True)
         await manager.shutdown()
 
     app = FastAPI(

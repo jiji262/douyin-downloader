@@ -1375,28 +1375,33 @@ class DouyinAPIClient:
         return {"room": room, "user": user if isinstance(user, dict) else {}, "raw": raw}
 
     @staticmethod
-    def _find_stream_room(value: Any) -> Optional[Dict[str, Any]]:
-        pending = [value]
+    def _find_stream_room(value: Any, web_rid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # 真实页面的 web_rid 挂在 roomInfo 上（roomInfo.{web_rid, room}），只认直接父对象，避免推荐位房间误中。
+        pending: List[Tuple[Any, str]] = [(value, "")]
         while pending:
-            current = pending.pop()
+            current, parent_rid = pending.pop()
             if isinstance(current, dict):
                 if isinstance(current.get("stream_url"), dict):
-                    return current
-                pending.extend(current.values())
+                    owner = current.get("owner") if isinstance(current.get("owner"), dict) else {}
+                    identity = str(owner.get("web_rid") or current.get("web_rid") or parent_rid)
+                    if web_rid is None or identity == web_rid:
+                        return current
+                own_rid = str(current.get("web_rid") or "")
+                pending.extend((child, own_rid) for child in current.values())
             elif isinstance(current, list):
-                pending.extend(current)
+                pending.extend((child, "") for child in current)
         return None
 
     @staticmethod
-    def _extract_live_room_from_html(html: str) -> Optional[Dict[str, Any]]:
+    def _extract_live_room_from_html(html: str, web_rid: Optional[str] = None) -> Optional[Dict[str, Any]]:
         pattern = r"<script[^>]*>\s*(self\.__pace_f\.push\(.*?\))\s*</script>"
         for call in re.findall(pattern, html, flags=re.DOTALL):
             try:
                 args = json.loads(call[len("self.__pace_f.push(") : -1])
                 flight = args[1] if isinstance(args, list) and len(args) > 1 else None
-                if not isinstance(flight, str) or not flight.startswith("c:"):
+                if not isinstance(flight, str) or not re.match(r"^[0-9a-fA-F]+:", flight):
                     continue
-                room = DouyinAPIClient._find_stream_room(json.loads(flight[2:]))
+                room = DouyinAPIClient._find_stream_room(json.loads(flight.split(":", 1)[1]), web_rid)
             except (IndexError, TypeError, ValueError, json.JSONDecodeError):
                 continue
             if room:
@@ -1417,7 +1422,7 @@ class DouyinAPIClient:
                         "Live page request failed: web_rid=%s, status=%s", web_rid, response.status
                     )
                     return None
-                return self._extract_live_room_from_html(await response.text())
+                return self._extract_live_room_from_html(await response.text(), web_rid)
         except Exception as exc:
             logger.error("Live page fallback failed: web_rid=%s, error=%s", web_rid, exc)
             return None

@@ -118,6 +118,7 @@ comments:
 live:
   max_duration_seconds: 0   # 0 = 录到主播下播
   chunk_size: 65536
+  segment_seconds: 3600    # 持续连接分段；分段完成后自动转 MP4
   idle_timeout_seconds: 30
 
 # 下载完成通知（可选）。providers 支持 bark / telegram / webhook

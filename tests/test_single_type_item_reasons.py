@@ -4,10 +4,7 @@
 已知出口结算时带上的人话原因。
 """
 
-import asyncio
-import errno
 
-import aiohttp
 import pytest
 
 from auth import CookieManager
@@ -207,59 +204,8 @@ async def test_live_room_exits_have_reasons(tmp_path, info, expected):
     assert reporter.items == [expected]
 
 
-@pytest.mark.parametrize(
-    ("session", "expected"),
-    [
-        (_StreamSession(status=403), item_reasons.FAIL_LIVE_STREAM_REJECTED),
-        (_StreamSession(), item_reasons.FAIL_LIVE_NO_DATA),
-        (
-            _StreamSession(error=asyncio.TimeoutError("sock_read idle")),
-            item_reasons.FAIL_LIVE_NO_DATA,
-        ),
-        (
-            _StreamSession(error=aiohttp.ClientConnectionError("reset")),
-            item_reasons.FAIL_UNEXPECTED,
-        ),
-        (
-            _StreamSession(error=OSError(errno.ENOSPC, "No space left on device")),
-            item_reasons.FAIL_WRITE_ERROR,
-        ),
-    ],
-)
-async def test_live_recording_failures_have_reasons(tmp_path, session, expected):
-    downloader, reporter = _build(tmp_path, LiveDownloader, _LiveAPI(_live_info(), session))
-
-    result = await downloader.download({"room_id": ROOM_ID})
-
-    assert result.failed == 1
-    assert reporter.items == [("failed", ROOM_ID, expected)]
-
-
-async def test_live_recording_save_failure_has_reason(tmp_path, monkeypatch):
-    session = _StreamSession(chunks=[b"data"])
-    downloader, reporter = _build(tmp_path, LiveDownloader, _LiveAPI(_live_info(), session))
-
-    def _replace_fails(*_args):
-        raise OSError(errno.EXDEV, "cross-device link")
-
-    monkeypatch.setattr("core.live_downloader.os.replace", _replace_fails)
-
-    result = await downloader.download({"room_id": ROOM_ID})
-
-    assert result.failed == 1
-    assert reporter.items == [("failed", ROOM_ID, item_reasons.FAIL_LIVE_SAVE)]
-
-
-async def test_live_recording_partial_data_after_error_succeeds_without_reason(tmp_path):
-    session = _StreamSession(chunks=[b"data"], error=aiohttp.ClientConnectionError("reset"))
-    downloader, reporter = _build(tmp_path, LiveDownloader, _LiveAPI(_live_info(), session))
-
-    result = await downloader.download({"room_id": ROOM_ID})
-
-    assert result.success == 1
-    assert reporter.items == [("success", ROOM_ID, "")]
-    assert downloader.item_reason_summary() == {}
-
+# 裸 aiohttp 字节流的断流/错误测试由 test_live_recording_engine 与
+# test_live_downloader_integration 的 FFmpeg 产物验收替代。
 
 # ---------------------------------------------------------------------------
 # 直播回放

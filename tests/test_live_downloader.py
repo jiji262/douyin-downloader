@@ -3,16 +3,16 @@
 用 asyncio 伪造一个 aiohttp-like session，校验流选择、跳过非直播状态、成功路径。
 """
 
-import asyncio
+import threading
 from pathlib import Path
-
-import pytest
 
 from auth import CookieManager
 from config import ConfigLoader
 from control import QueueManager, RateLimiter, RetryHandler
+from core import item_reasons
 from core.api_client import DouyinAPIClient
 from core.live_downloader import LiveDownloader
+from core.live_session import LiveSession
 from storage import FileManager
 
 
@@ -48,7 +48,21 @@ class _FakeSession:
         return _FakeStreamResponse(self._chunks, self._status)
 
 
-def _build_downloader(tmp_path):
+class _Reporter:
+    def __init__(self):
+        self.items, self.dirs, self.totals = [], [], []
+
+    def set_item_total(self, total, detail=""):
+        self.totals.append(total)
+
+    def advance_item(self, status, detail="", reason=""):
+        self.items.append((status, detail, reason))
+
+    def on_output_dir(self, *, path):
+        self.dirs.append(path)
+
+
+def _build_downloader(tmp_path, reporter=None):
     config = ConfigLoader()
     config.update(path=str(tmp_path))
 
@@ -65,6 +79,7 @@ def _build_downloader(tmp_path):
         rate_limiter=RateLimiter(max_per_second=5),
         retry_handler=RetryHandler(max_retries=1),
         queue_manager=QueueManager(max_workers=1),
+        progress_reporter=reporter,
     ), api_client
 
 
@@ -102,251 +117,131 @@ def test_select_best_returns_none_if_no_stream():
     assert LiveDownloader._select_best_stream_url({"stream_url": {}}) == (None, "")
 
 
-@pytest.mark.asyncio
-async def test_live_downloader_skips_when_not_live(tmp_path):
-    downloader, api_client = _build_downloader(tmp_path)
-
-    async def fake_get_live_room_info(room_id, *, sec_user_id=""):
-        return {"room": {"status": 4, "stream_url": {}}, "user": {}}
-
-    api_client.get_live_room_info = fake_get_live_room_info
-
+async def test_offline_room_is_skipped(tmp_path):
+    downloader, client = _build_downloader(tmp_path)
+    async def room(*args, **kwargs):
+        return {"room": {"status": 4}, "user": {}}
+    client.get_live_room_info = room
     result = await downloader.download({"room_id": "42"})
-    assert result.total == 1
-    assert result.skipped == 1
-    assert result.success == 0
-    await api_client.close()
+    assert result.skipped == 1 and result.success == 0
+    await client.close()
 
 
-@pytest.mark.asyncio
-async def test_live_downloader_forwards_internal_room_id_metadata(tmp_path):
-    downloader, api_client = _build_downloader(tmp_path)
+async def test_internal_room_id_metadata_is_forwarded(tmp_path):
+    downloader, client = _build_downloader(tmp_path)
     captured = {}
 
-    async def fake_get_live_room_info(room_id, **kwargs):
+    async def room(room_id, **kwargs):
         captured.update(room_id=room_id, **kwargs)
-        return {"room": {"status": 4, "stream_url": {}}, "user": {}}
+        return {"room": {"status": 4}, "user": {}}
 
-    api_client.get_live_room_info = fake_get_live_room_info
-
+    client.get_live_room_info = room
     result = await downloader.download(
-        {
-            "room_id": "7664563379964595007",
-            "room_id_kind": "room_id",
-            "sec_user_id": "sec-test",
-        }
+        {"room_id": "7664563379964595007", "room_id_kind": "room_id", "sec_user_id": "sec-test"}
     )
-
     assert result.skipped == 1
     assert captured == {
         "room_id": "7664563379964595007",
         "room_id_kind": "room_id",
         "sec_user_id": "sec-test",
     }
-    await api_client.close()
+    await client.close()
 
 
-@pytest.mark.asyncio
-async def test_live_downloader_records_stream(tmp_path, monkeypatch):
-    downloader, api_client = _build_downloader(tmp_path)
+async def test_stop_requested_while_queued_skips_without_room_lookup(tmp_path):
+    reporter = _Reporter()
+    downloader, client = _build_downloader(tmp_path, reporter)
+    downloader.stop_event = threading.Event()
+    downloader.stop_event.set()
 
-    async def fake_get_live_room_info(room_id, *, sec_user_id=""):
+    async def room(*args, **kwargs):
+        raise AssertionError("排队时已停止，不应再查直播间")
+
+    client.get_live_room_info = room
+    result = await downloader.download({"room_id": "42"})
+    assert result.skipped == 1 and result.success == 0
+    assert reporter.items == [("skipped", "42", item_reasons.SKIP_LIVE_STOPPED)]
+    await client.close()
+
+
+async def test_segments_left_unsaved_report_save_failure_each(tmp_path, monkeypatch):
+    reporter = _Reporter()
+    downloader, client = _build_downloader(tmp_path, reporter)
+
+    async def room(*args, **kwargs):
         return {
             "room": {
+                "id_str": "room-1",
                 "status": 2,
-                "title": "测试标题",
-                "stream_url": {
-                    "flv_pull_url": {"ORIGIN": "https://cdn/live.flv"},
-                },
+                "stream_url": {"flv_pull_url": {"HD1": "https://cdn.invalid/live.flv"}},
             },
             "user": {"nickname": "主播甲"},
         }
 
-    api_client.get_live_room_info = fake_get_live_room_info
+    directories = []
 
-    async def fake_get_session():
-        return _FakeSession([b"abc", b"def", b"ghi"])
+    async def fake_run(session, info, resolve):
+        directories.append(str(session.directory))
+        session.journal.data["segments"] = {
+            "part-000000.ts": {"segment_id": "seg-0", "state": "indexed"},
+            "part-000001.ts": {"segment_id": "seg-1", "state": "pending_finalize"},
+        }
+        session.reason = "stopped"
+        return []
 
-    api_client.get_session = fake_get_session
-
+    client.get_live_room_info = room
+    monkeypatch.setattr(LiveSession, "run", fake_run)
     result = await downloader.download({"room_id": "42"})
-    assert result.success == 1
-    # 找到已落盘的 flv 文件
-    flvs = list(tmp_path.rglob("*.flv"))
-    assert len(flvs) == 1
-    assert flvs[0].read_bytes() == b"abcdefghi"
-
-    await api_client.close()
-
-
-@pytest.mark.asyncio
-async def test_live_downloader_reports_failure_on_missing_stream(tmp_path):
-    downloader, api_client = _build_downloader(tmp_path)
-
-    async def fake_info(room_id, *, sec_user_id=""):
-        return {"room": {"status": 2, "stream_url": {}}, "user": {}}
-
-    api_client.get_live_room_info = fake_info
-    result = await downloader.download({"room_id": "42"})
-    assert result.failed == 1
-    await api_client.close()
+    assert (result.total, result.success, result.failed) == (2, 1, 1)
+    assert result.incomplete_reason
+    assert reporter.items == [
+        ("success", "seg-0", ""),
+        ("failed", "seg-1", item_reasons.FAIL_LIVE_SAVE),
+    ]
+    # 「打开输出文件夹」落到本次录制的分段目录，而不是作者目录。
+    assert reporter.dirs == directories
+    await client.close()
 
 
-@pytest.mark.asyncio
-async def test_live_downloader_fails_when_room_missing(tmp_path):
-    downloader, api_client = _build_downloader(tmp_path)
+async def test_relative_output_root_is_persisted_as_absolute_paths(tmp_path, monkeypatch):
+    from storage.live_recordings import RecordingJournal
 
-    async def fake_info(room_id, *, sec_user_id=""):
-        return None
+    monkeypatch.chdir(tmp_path)
+    reporter = _Reporter()
+    config = ConfigLoader()
+    config.update(path="downloads")
+    client = DouyinAPIClient({})
+    downloader = LiveDownloader(
+        config, client, FileManager("downloads"), CookieManager(str(tmp_path / ".c.json")),
+        database=None, progress_reporter=reporter,
+    )
+    created = []
+    original = RecordingJournal.create.__func__
 
-    api_client.get_live_room_info = fake_info
-    result = await downloader.download({"room_id": "42"})
-    assert result.failed == 1
-    await api_client.close()
+    async def spy(cls, root, *, directory, metadata):
+        journal = await original(cls, root, directory=directory, metadata=metadata)
+        created.append(journal)
+        return journal
 
-
-class _IdleTimeoutSession:
-    """模拟写入一些数据后抛 asyncio.TimeoutError 的流。"""
-
-    def __init__(self, chunks_before_timeout):
-        self._chunks = chunks_before_timeout
-
-    def get(self, url, headers=None, timeout=None):
-        chunks = self._chunks
-
-        class _Resp:
-            status = 200
-
-            async def __aenter__(self_inner):
-                return self_inner
-
-            async def __aexit__(self_inner, exc_type, exc, tb):
-                return False
-
-            @property
-            def content(self_inner):
-                return self_inner
-
-            def iter_chunked(self_inner, size):
-                async def gen():
-                    for c in chunks:
-                        yield c
-                    raise asyncio.TimeoutError("sock_read idle")
-
-                return gen()
-
-        return _Resp()
-
-
-@pytest.mark.asyncio
-async def test_live_downloader_preserves_partial_on_idle_timeout(tmp_path):
-    """idle_timeout（主播停止推流 / 网络卡住）不应丢弃已录制的字节。"""
-    downloader, api_client = _build_downloader(tmp_path)
-
-    async def fake_info(room_id, *, sec_user_id=""):
+    async def room(*args, **kwargs):
         return {
-            "room": {
-                "status": 2,
-                "title": "测试",
-                "stream_url": {"flv_pull_url": {"ORIGIN": "https://cdn/live.flv"}},
-            },
-            "user": {"nickname": "主播"},
+            "room": {"id_str": "room-1", "status": 2,
+                     "stream_url": {"flv_pull_url": {"HD1": "https://cdn.invalid/live.flv"}}},
+            "user": {"nickname": "主播甲"},
         }
 
-    api_client.get_live_room_info = fake_info
+    async def no_data(session, info, resolve):
+        session.reason = "stopped"
+        return []
 
-    async def fake_get_session():
-        return _IdleTimeoutSession([b"partial1", b"partial2"])
-
-    api_client.get_session = fake_get_session
-
+    monkeypatch.setattr(RecordingJournal, "create", classmethod(spy))
+    monkeypatch.setattr(LiveSession, "run", no_data)
+    client.get_live_room_info = room
     result = await downloader.download({"room_id": "42"})
-    assert result.success == 1  # 保留部分数据视为成功
-    flvs = list(tmp_path.rglob("*.flv"))
-    assert len(flvs) == 1
-    assert flvs[0].read_bytes() == b"partial1partial2"
-    # 没有遗留 .tmp 文件
-    tmps = list(tmp_path.rglob("*.tmp"))
-    assert tmps == []
-
-    await api_client.close()
-
-
-def test_download_headers_referer_for_live(tmp_path):
-    """_record_stream 内部应把 Referer 改为 live.douyin.com（通过构造样本流间接验证）。"""
-    # 直接读源码断言是更轻量的方式——避免走完整集成路径。
-
-    source = Path("core/live_downloader.py").read_text(encoding="utf-8")
-    assert 'headers["Referer"] = "https://live.douyin.com/"' in source
-
-
-def test_download_headers_origin_for_live(tmp_path):
-    """_record_stream 应同时改写 Origin 头（CDN 可能同时校验 Referer 与 Origin）。"""
-
-    source = Path("core/live_downloader.py").read_text(encoding="utf-8")
-    assert 'headers["Origin"] = "https://live.douyin.com"' in source
-
-
-class _HeaderCapturingSession:
-    """捕获 get() 调用时传入的 headers，供断言。"""
-
-    def __init__(self, chunks):
-        self._chunks = chunks
-        self.captured_headers = None
-
-    def get(self, url, headers=None, timeout=None):
-        self.captured_headers = dict(headers or {})
-        chunks = self._chunks
-
-        class _Resp:
-            status = 200
-
-            async def __aenter__(self_inner):
-                return self_inner
-
-            async def __aexit__(self_inner, *_args):
-                return False
-
-            @property
-            def content(self_inner):
-                return self_inner
-
-            def iter_chunked(self_inner, size):
-                async def gen():
-                    for c in chunks:
-                        yield c
-
-                return gen()
-
-        return _Resp()
-
-
-@pytest.mark.asyncio
-async def test_live_recording_sends_live_origin_and_referer(tmp_path):
-    """端到端验证：_record_stream 实际发出的请求头含正确的 live.douyin.com。"""
-    downloader, api_client = _build_downloader(tmp_path)
-
-    async def fake_info(room_id, *, sec_user_id=""):
-        return {
-            "room": {
-                "status": 2,
-                "title": "t",
-                "stream_url": {"flv_pull_url": {"ORIGIN": "https://cdn/live.flv"}},
-            },
-            "user": {"nickname": "主播"},
-        }
-
-    api_client.get_live_room_info = fake_info
-    capturing = _HeaderCapturingSession([b"data"])
-
-    async def fake_get_session():
-        return capturing
-
-    api_client.get_session = fake_get_session
-
-    await downloader.download({"room_id": "42"})
-    assert capturing.captured_headers is not None
-    assert capturing.captured_headers.get("Referer") == "https://live.douyin.com/"
-    assert capturing.captured_headers.get("Origin") == "https://live.douyin.com"
-
-    await api_client.close()
+    data = created[0].data
+    assert data["directory"].startswith(str(tmp_path)) and data["metadata"]["base_path"].startswith(str(tmp_path))
+    assert result.skipped == 1
+    assert reporter.items == [("skipped", "room-1", item_reasons.SKIP_LIVE_STOPPED)]
+    # 没录到内容时目录会被清掉：输出目录改报上级。
+    assert reporter.dirs == [data["directory"], str(Path(data["directory"]).parent)]
+    await client.close()
