@@ -365,17 +365,39 @@ class ConfigLoader:
                 logger.warning("Invalid retry_times value: %s, using default 3", retry_times)
                 self.config["retry_times"] = 3
 
+        from datetime import date, datetime
+
         for field in ("start_time", "end_time"):
             value = self.config.get(field)
-            if value and isinstance(value, str):
-                from datetime import datetime
-
-                try:
-                    datetime.strptime(value, "%Y-%m-%d")
-                except ValueError:
-                    logger.warning(
-                        "Invalid %s format: %s (expected YYYY-MM-DD), clearing", field, value
-                    )
-                    self.config[field] = ""
+            if not value:
+                continue
+            # PyYAML resolves an unquoted ``YYYY-MM-DD`` (or full timestamp) to
+            # a ``date``/``datetime`` object, not a string. Normalize it back to
+            # the documented string form; any other non-string value is as
+            # invalid as a malformed string and must be cleared. Leaving these
+            # objects in config makes the downstream datetime.strptime() in
+            # core/downloader_base.py raise TypeError.
+            if isinstance(value, datetime):
+                value = value.date()
+            if isinstance(value, date):
+                # Normalize the object back to the documented string form and
+                # write it through so downstream strptime() sees a str.
+                # isoformat() keeps the zero-padded YYYY form even for early
+                # years, where strftime("%Y") is platform-dependent.
+                self.config[field] = value.isoformat()
+                continue
+            if not isinstance(value, str):
+                logger.warning(
+                    "Invalid %s value: %s (expected YYYY-MM-DD), clearing", field, value
+                )
+                self.config[field] = ""
+                continue
+            try:
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                logger.warning(
+                    "Invalid %s format: %s (expected YYYY-MM-DD), clearing", field, value
+                )
+                self.config[field] = ""
 
         return True
