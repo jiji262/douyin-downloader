@@ -1,7 +1,11 @@
 """直播流候选归一化，不持久化签名地址。"""
 
 import json
+import re
 from urllib.parse import urlsplit
+
+# 直播页 RSC 流的一行：``id:`` 开头；文本行是 ``id:T<十六进制字节数>,<正文>``，正文后直接接下一行。
+FLIGHT_ROW = re.compile(r"([0-9a-fA-F]+):(?:T([0-9a-fA-F]+),)?")
 
 QUALITY = {
     "origin": 100,
@@ -15,6 +19,36 @@ QUALITY = {
     "sd": 50,
     "ld": 30,
 }
+
+
+def flight_text_rows(stream):
+    """取出 RSC 流里的文本行 {id: 正文}；其余行按换行跳过。"""
+    rows, pos = {}, 0
+    while pos < len(stream):
+        match = FLIGHT_ROW.match(stream, pos)
+        if match and match.group(2):
+            size = int(match.group(2), 16)
+            # 长度按 UTF-8 字节计；正文字符数不会超过字节数，先按字符截够再按字节裁。
+            raw = stream[match.end() : match.end() + size].encode("utf-8")[:size]
+            text = raw.decode("utf-8", errors="ignore")
+            rows[match.group(1)] = text
+            pos = match.end() + len(text)
+            continue
+        newline = stream.find("\n", pos)
+        if newline < 0:
+            break
+        pos = newline + 1
+    return rows
+
+
+def inline_stream_data(room, rows):
+    """直播页把大段 stream_data 写成 "$<id>" 引用：换回正文，原画档位才选得到。"""
+    stream = room.get("stream_url")
+    sdk = stream.get("live_core_sdk_data") if isinstance(stream, dict) else None
+    pull = sdk.get("pull_data") if isinstance(sdk, dict) else None
+    value = pull.get("stream_data") if isinstance(pull, dict) else None
+    if isinstance(value, str) and value.startswith("$") and value[1:] in rows:
+        pull["stream_data"] = rows[value[1:]]
 
 
 def select_stream(room):
