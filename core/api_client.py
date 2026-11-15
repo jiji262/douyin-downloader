@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 import aiohttp
 
 from auth import MsTokenManager
+from core.live_streams import flight_text_rows, inline_stream_data
 from utils.cookie_utils import sanitize_cookies
 from utils.logger import safe_log_url, setup_logger
 from utils.xbogus import XBogus
@@ -1395,16 +1396,24 @@ class DouyinAPIClient:
     @staticmethod
     def _extract_live_room_from_html(html: str, web_rid: Optional[str] = None) -> Optional[Dict[str, Any]]:
         pattern = r"<script[^>]*>\s*(self\.__pace_f\.push\(.*?\))\s*</script>"
+        pushes = []
         for call in re.findall(pattern, html, flags=re.DOTALL):
             try:
                 args = json.loads(call[len("self.__pace_f.push(") : -1])
-                flight = args[1] if isinstance(args, list) and len(args) > 1 else None
-                if not isinstance(flight, str) or not re.match(r"^[0-9a-fA-F]+:", flight):
-                    continue
+            except ValueError:
+                continue
+            if isinstance(args, list) and len(args) > 1 and isinstance(args[1], str):
+                pushes.append((args[0], args[1]))
+        for _, flight in pushes:
+            if not re.match(r"^[0-9a-fA-F]+:", flight):
+                continue
+            try:
                 room = DouyinAPIClient._find_stream_room(json.loads(flight.split(":", 1)[1]), web_rid)
-            except (IndexError, TypeError, ValueError, json.JSONDecodeError):
+            except (IndexError, TypeError, ValueError):
                 continue
             if room:
+                stream = "".join(text for kind, text in pushes if kind == 1)
+                inline_stream_data(room, flight_text_rows(stream))
                 user = room.get("owner") if isinstance(room.get("owner"), dict) else {}
                 return {"room": room, "user": user, "raw": {"source": "live_page_ssr"}}
         return None

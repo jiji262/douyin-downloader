@@ -477,8 +477,11 @@ class Database:
 
         Aggregates rows in `aweme` with ``create_time >= now - days*86400`` and
         non-empty / non-null ``author_sec_uid``. Groups by ``author_sec_uid``
-        and orders by ``COUNT(*) DESC, author_sec_uid ASC`` (stable tie-break
+        and orders by ``download_count DESC, author_sec_uid ASC`` (stable tie-break
         so property tests are deterministic). Truncates to ``limit`` rows.
+        One live recording split into segments (``aweme_id`` =
+        ``live_<recording_id>_part-NNNNNN``) counts once; since ``aweme_id`` is
+        unique, every other row counts exactly as ``COUNT(*)`` did.
 
         ``author_name`` for each result row is the latest non-empty
         ``author_name`` for that ``sec_uid`` (ordered by ``download_time``
@@ -499,7 +502,11 @@ class Database:
                        AND a2.author_name != ''
                      ORDER BY a2.download_time DESC
                      LIMIT 1) AS author_name,
-                   COUNT(*) AS download_count
+                   COUNT(DISTINCT CASE
+                       WHEN a.aweme_type = 'live' AND instr(a.aweme_id, '_part-') > 0
+                       THEN substr(a.aweme_id, 1, instr(a.aweme_id, '_part-') - 1)
+                       ELSE a.aweme_id
+                   END) AS download_count
               FROM aweme a
              WHERE a.create_time >= ?
                AND a.author_sec_uid IS NOT NULL

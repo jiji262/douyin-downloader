@@ -288,3 +288,44 @@ def test_top_authors_invariants(rows, days, limit):
     """Property D — Top_Authors_Endpoint invariants."""
     ctx = asyncio.run(_populate_and_query(rows, days=days, limit=limit))
     _assert_invariants(ctx, days=days, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Live recordings
+# ---------------------------------------------------------------------------
+
+
+async def _count_live_and_video_authors() -> Dict[str, int]:
+    rows = [
+        ("live_rec1_part-000000", "live", "uid_live"),
+        ("live_rec1_part-000001", "live", "uid_live"),
+        ("live_rec1_part-000002", "live", "uid_live"),
+        ("live_rec2_part-000000", "live", "uid_live"),
+        ("v1", "video", "uid_video"),
+        ("v2", "video", "uid_video"),
+        ("v3", "video", "uid_video"),
+    ]
+    with tempfile.TemporaryDirectory() as td:
+        db = Database(db_path=os.path.join(td, "test.db"))
+        try:
+            await db.initialize()
+            conn = await db._get_conn()
+            now = int(datetime.now().timestamp())
+            for aweme_id, aweme_type, sec_uid in rows:
+                await conn.execute(
+                    "INSERT INTO aweme (aweme_id, aweme_type, author_name, author_sec_uid, "
+                    "create_time, download_time) VALUES (?, ?, ?, ?, ?, ?)",
+                    (aweme_id, aweme_type, sec_uid, sec_uid, now, now),
+                )
+            await conn.commit()
+            result = await db.get_top_authors(days=30, limit=10)
+        finally:
+            await db.close()
+    return {author["sec_uid"]: author["download_count"] for author in result}
+
+
+def test_live_recording_segments_count_once_per_recording():
+    """一场直播录成多段时按一次录制计数；普通作品仍逐条计数。"""
+    counts = asyncio.run(_count_live_and_video_authors())
+
+    assert counts == {"uid_video": 3, "uid_live": 2}
