@@ -21,6 +21,7 @@ SKIP_HISTORY_EXISTS = "下载历史里已有该作品（已关闭文件缺失时
 SKIP_COMMENTS_EXIST = "已下载过，评论也已保存"
 SKIP_COMMENTS_FAILED = "已下载过，补抓评论失败"
 SKIP_LIVE_NOT_STREAMING = "主播当前未在直播"
+SKIP_LIVE_STOPPED = "录制已停止，尚未录到内容"
 SKIP_MISSING_ID = "作品 ID 为空"
 SKIP_UNSPECIFIED = "已跳过（未记录具体原因）"
 

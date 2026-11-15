@@ -271,6 +271,7 @@ async def main_async(args):
         database = Database(db_path=str(db_path))
         await database.initialize()
         display.print_success("Database initialized")
+    await _recover_live_recordings(database, config)
 
     urls = config.get_links()
     display.print_info(f"Found {len(urls)} URL(s) to process")
@@ -357,6 +358,21 @@ async def _run_discovery_subcommand(
                 max_items=int(args.search_max or 50),
             )
             display.print_success(f"搜索结果已保存：{result['count']} 条 -> {result['path']}")
+
+
+async def _recover_live_recordings(database, config: ConfigLoader) -> None:
+    """上次中断（Ctrl+C / 崩溃）留下的直播分段：开始新下载前先转封装并补登记。"""
+    from core.live_finalize import recover_recordings
+    from storage.live_recordings import journal_root
+
+    try:
+        root = journal_root(database, config.get("path"))
+        paths = sorted(root.glob("*.json"))
+        if not paths:
+            return
+        await recover_recordings(root, database=database, paths=paths, retry_deferred=False)
+    except Exception as exc:
+        logger.warning("Live recording recovery failed: %s", exc)
 
 
 async def _run_serve_subcommand(args, config: ConfigLoader) -> None:

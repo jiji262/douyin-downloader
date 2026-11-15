@@ -115,6 +115,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "live": {
         "max_duration_seconds": 0,  # 0 = 直到流结束
         "chunk_size": 65536,
+        "segment_seconds": 3600,
         "idle_timeout_seconds": 30,
     },
     # REST API 服务模式（可选，需 fastapi + uvicorn）。
