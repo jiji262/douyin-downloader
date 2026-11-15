@@ -26,11 +26,11 @@ Platform features depend on enabled plugins or local components. Some batch and 
 
 | **Douyin** | **TikTok** | **YouTube** |
 |:---:|:---:|:---:|
-| [![Douzy Douyin download options](img/desktop/001.png)](img/desktop/001.png) | [![Douzy TikTok workspace](img/desktop/002.png)](img/desktop/002.png) | [![Douzy YouTube workspace](img/desktop/003.png)](img/desktop/003.png) |
-| **Telegram setup** | **X** | **Platform switcher** |
-| [![Douzy Telegram setup](img/desktop/004.png)](img/desktop/004.png) | [![Douzy X workspace](img/desktop/005.png)](img/desktop/005.png) | [![Douzy platform switcher](img/desktop/006.png)](img/desktop/006.png) |
+| [![Douzy Douyin workspace](img/desktop/001.png)](img/desktop/001.png) | [![Douzy TikTok workspace](img/desktop/002.png)](img/desktop/002.png) | [![Douzy YouTube workspace](img/desktop/003.png)](img/desktop/003.png) |
+| **Telegram setup** | **X** | **Task center** |
+| [![Douzy Telegram setup](img/desktop/004.png)](img/desktop/004.png) | [![Douzy X workspace](img/desktop/005.png)](img/desktop/005.png) | [![Douzy task center](img/desktop/006.png)](img/desktop/006.png) |
 
-_Screenshots: Douzy 0.11.6 on macOS. Telegram is shown before setup. Click an image to enlarge._
+_Screenshots: Douzy 0.13.0 on macOS (1440 × 900, sample data). Telegram is shown before setup. Click an image to enlarge._
 
 ## CLI Status
 
