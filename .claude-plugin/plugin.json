@@ -1,0 +1,13 @@
+{
+  "name": "douyin-dl",
+  "version": "2.1.0",
+  "description": "Agent skill for the douyin-dl CLI: Douyin hot board, search, user profiles, live recording and transcription. Downloading posts by link is gated (ARGUS_GATED).",
+  "author": {
+    "name": "jiji262",
+    "url": "https://github.com/jiji262"
+  },
+  "homepage": "https://github.com/jiji262/douyin-downloader",
+  "repository": "https://github.com/jiji262/douyin-downloader",
+  "license": "MIT",
+  "keywords": ["douyin", "抖音", "cli", "live-recording", "transcription"]
+}

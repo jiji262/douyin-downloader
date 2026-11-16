@@ -10,7 +10,7 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
 | File | Description |
 |------|-------------|
 | `run.py` | Entry point — bootstraps `sys.path` and delegates to `cli.main:main()` |
-| `__init__.py` | Package version (`2.0.0`) |
+| `__init__.py` | Legacy package marker, no longer read — the version source is `pyproject.toml` (`agent_mode/version.py`) |
 | `pyproject.toml` | Build config, dependencies, CLI entry point (`douyin-dl`), tool settings |
 | `config.example.yml` | Example YAML config for users to copy and customize |
 | `requirements.txt` | Pinned dependency list (mirrors pyproject.toml) |
@@ -21,11 +21,13 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
 
 | Directory | Purpose |
 |-----------|---------|
+| `agent_mode/` | CLI-only `douyin-dl agent <verb>` mode — one JSON envelope per run, stable error and exit codes |
 | `auth/` | Cookie and MS token management (see `auth/AGENTS.md`) |
 | `cli/` | CLI argument parsing, main async loop, progress display (see `cli/AGENTS.md`) |
 | `config/` | YAML config loading, env var overrides, defaults (see `config/AGENTS.md`) |
 | `control/` | Concurrency control — rate limiter, retry handler, queue manager (see `control/AGENTS.md`) |
 | `core/` | Business logic — API client, URL parser, downloaders, strategy pattern (see `core/AGENTS.md`) |
+| `skills/` | CLI-only agent skill package `skills/douyin-dl/` (SKILL.md, references, launcher script) |
 | `storage/` | SQLite database, file management, metadata handling (see `storage/AGENTS.md`) |
 | `tests/` | Pytest test suite with 23 test modules (see `tests/AGENTS.md`) |
 | `tools/` | Standalone utilities like browser-based cookie fetching (see `tools/AGENTS.md`) |
@@ -62,6 +64,9 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
   - Comments in synced shared files may point to `docs/spec/*`, `docs/research/*` or `core/my_content_service.py`; those live in the desktop repo only.
   - `storage/database.py` — desktop adds TikTok, Following, and My Content schema/helpers; only dependency-neutral database tests remain byte-identical.
   - `tests/test_database_platform.py`, `tests/test_database_desktop_schema.py`, `tests/test_retry_executor.py` — desktop-only tests and not present here.
+  - Agent mode is CLI-only and absent from desktop (none of it is in the sync list): `agent_mode/`, `skills/`, `.claude-plugin/`, `.github/workflows/release-cli.yml`, `tests/test_agent_*.py`, `tests/test_cli_exit_codes.py`, `tests/test_skill_package.py`.
+  - `run.py` — CLI additionally skips `os.chdir` when `argv[1] == "agent"`, so agent paths resolve against the caller's cwd.
+  - `cli/main.py` — CLI additionally dispatches `douyin-dl agent ...` to `agent_mode.entry.main()` before argparse, and sets exit codes: 3 when a `LoginRequiredError` cannot be recovered (the rest of a URL batch still runs, without further relogin attempts, and the summary is still printed), 1 when nothing in the batch succeeded or was skipped and at least one URL failed.
 
 ### Testing Requirements
 - Run: `python -m pytest tests/`

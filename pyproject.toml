@@ -3,18 +3,17 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "douyin-downloader"
-version = "2.0.0"
+name = "douyin-dl"
+version = "2.1.0"
 description = "Douyin batch downloader with no-watermark support"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -63,14 +62,14 @@ dev = [
     "hypothesis>=6.0",
 ]
 all = [
-    "douyin-downloader[browser,transcribe,server,dev]",
+    "douyin-dl[browser,transcribe,server,dev]",
 ]
 
 [project.scripts]
 douyin-dl = "cli.main:main"
 
 [tool.setuptools.packages.find]
-include = ["cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*", "tools*", "server*"]
+include = ["agent_mode*", "cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*", "tools*", "server*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
