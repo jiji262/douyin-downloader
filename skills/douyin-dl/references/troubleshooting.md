@@ -8,10 +8,10 @@ the user and let them decide; do not install things silently.
 
 ```bash
 uv tool install douyin-dl
-# before the PyPI release
-uv tool install git+https://github.com/jiji262/douyin-downloader
 # alternative
 pipx install douyin-dl
+# unreleased code from GitHub
+uv tool install git+https://github.com/jiji262/douyin-downloader
 ```
 
 - Python 3.10 or newer is required.
@@ -20,7 +20,7 @@ pipx install douyin-dl
   and `pipx` give it an isolated environment.
 - `douyin-dl: command not found` after installing: run `uv tool update-shell` (or
   `pipx ensurepath`) and open a new shell. Until then `scripts/dy.sh` can launch it.
-- `scripts/dy.sh` pins `douyin-dl==2.1.0` for `uvx`. Before the PyPI release set
+- `scripts/dy.sh` pins `douyin-dl==2.1.0` for `uvx`. To run unreleased code instead, set
   `DOUYIN_DL_SPEC=git+https://github.com/jiji262/douyin-downloader`.
 - A `version` in the envelope that differs from the skill's `metadata.version` means the
   CLI and the skill are out of step; upgrade with `uv tool upgrade douyin-dl`.

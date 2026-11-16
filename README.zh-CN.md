@@ -143,8 +143,8 @@ python run.py --serve --serve-port 8000
 **1. 安装 CLI**
 
 ```bash
-uv tool install git+https://github.com/jiji262/douyin-downloader
-# 发布到 PyPI 之后：uv tool install douyin-dl（或 pipx install douyin-dl）
+uv tool install douyin-dl        # 或：pipx install douyin-dl
+# GitHub 上尚未发布的代码：uv tool install git+https://github.com/jiji262/douyin-downloader
 douyin-dl agent doctor
 ```
 

@@ -1,10 +1,11 @@
+<!-- README.md is also the PyPI project page: keep links and images absolute. -->
 # Douyin Downloader
 
 <p align="center">
   <img src="https://camo.githubusercontent.com/327409f4eab82516b28e9c67bd4831261917ee9a29ffd865a60996a9c53709cb/68747470733a2f2f736f6369616c6966792e6769742e63692f6a696a693236322f646f7579696e2d646f776e6c6f616465722f696d6167653f637573746f6d5f6465736372697074696f6e3d446f7579696e2b62617463682b646f776e6c6f61642b746f6f6c2532432b72656d6f76652b77617465726d61726b732532432b737570706f72742b62617463682b646f776e6c6f61642b6f662b766964656f732532432b67616c6c6572792532432b616e642b617574686f722b686f6d6570616765732e266465736372697074696f6e3d3126666f6e743d536f757263652b436f64652b50726f26666f726b733d31266f776e65723d31267061747465726e3d436972637569742b426f617264267374617267617a6572733d31267468656d653d4c69676874" alt="douyin-downloader" width="820" />
 </p>
 
-[简体中文](README.zh-CN.md) · **English**
+[简体中文](https://github.com/jiji262/douyin-downloader/blob/main/README.zh-CN.md) · **English**
 
 Download Douyin videos and photos without watermarks. Use **Douzy** for a desktop interface, the **Python CLI** for scripts, or the **[agent skill](#agent--skill-mode)** so AI agents such as Claude Code and Codex can read the hot board, search, and record live streams.
 
@@ -26,13 +27,13 @@ Platform features depend on enabled plugins or local components. Some batch and 
 
 | **Douyin** | **TikTok** | **YouTube** |
 |:---:|:---:|:---:|
-| [![Douzy Douyin workspace](img/desktop/001.png)](img/desktop/001.png) | [![Douzy TikTok workspace](img/desktop/002.png)](img/desktop/002.png) | [![Douzy YouTube workspace](img/desktop/003.png)](img/desktop/003.png) |
+| [![Douzy Douyin workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/001.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/001.png) | [![Douzy TikTok workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/002.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/002.png) | [![Douzy YouTube workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/003.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/003.png) |
 | **Telegram setup** | **X** | **Task center** |
-| [![Douzy Telegram setup](img/desktop/004.png)](img/desktop/004.png) | [![Douzy X workspace](img/desktop/005.png)](img/desktop/005.png) | [![Douzy task center](img/desktop/006.png)](img/desktop/006.png) |
+| [![Douzy Telegram setup](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/004.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/004.png) | [![Douzy X workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/005.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/005.png) | [![Douzy task center](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/006.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/006.png) |
 
 | **Douyin (light)** | **YouTube (light)** | **Task center (light)** |
 |:---:|:---:|:---:|
-| [![Douzy Douyin workspace in light mode](img/desktop/007.png)](img/desktop/007.png) | [![Douzy YouTube workspace in light mode](img/desktop/008.png)](img/desktop/008.png) | [![Douzy task center in light mode](img/desktop/009.png)](img/desktop/009.png) |
+| [![Douzy Douyin workspace in light mode](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/007.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/007.png) | [![Douzy YouTube workspace in light mode](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/008.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/008.png) | [![Douzy task center in light mode](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/009.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/009.png) |
 
 _Screenshots: Douzy 0.13.0 on macOS (light and dark themes, 1440 × 900, sample data). Telegram is shown before setup. Click an image to enlarge._
 
@@ -60,7 +61,7 @@ python -m playwright install chromium
 
 ### 2. Configure and sign in
 
-Copy [config.example.yml](config.example.yml) to `config.yml`:
+Copy [config.example.yml](https://github.com/jiji262/douyin-downloader/blob/main/config.example.yml) to `config.yml`:
 
 ```bash
 cp config.example.yml config.yml
@@ -107,7 +108,7 @@ Use `python run.py --help` for all options.
 
 ## Configuration
 
-Full settings and examples: **[config.example.yml](config.example.yml)**.
+Full settings and examples: **[config.example.yml](https://github.com/jiji262/douyin-downloader/blob/main/config.example.yml)**.
 
 | Setting | Purpose |
 |:---|:---|
@@ -132,7 +133,7 @@ python -m pip install fastapi uvicorn
 python run.py --serve --serve-port 8000
 ```
 
-Comments, transcription, notifications, and live recording are configured in [config.example.yml](config.example.yml).
+Comments, transcription, notifications, and live recording are configured in [config.example.yml](https://github.com/jiji262/douyin-downloader/blob/main/config.example.yml).
 
 </details>
 
@@ -143,8 +144,8 @@ Comments, transcription, notifications, and live recording are configured in [co
 **1. Install the CLI**
 
 ```bash
-uv tool install git+https://github.com/jiji262/douyin-downloader
-# after the PyPI release: uv tool install douyin-dl (or pipx install douyin-dl)
+uv tool install douyin-dl        # or: pipx install douyin-dl
+# unreleased code from GitHub: uv tool install git+https://github.com/jiji262/douyin-downloader
 douyin-dl agent doctor
 ```
 
@@ -183,7 +184,7 @@ Exit codes: `0` success · `1` internal error · `2` bad arguments or unsupporte
 - `login` needs Playwright and Chromium; `transcribe` needs Whisper. `doctor` lists what is missing with the exact install command.
 - Set `DOUYIN_PROXY` to send requests through a proxy.
 
-Details: [contract](skills/douyin-dl/references/contract.md) · [troubleshooting](skills/douyin-dl/references/troubleshooting.md)
+Details: [contract](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/contract.md) · [troubleshooting](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/troubleshooting.md)
 
 ## FAQ
 
@@ -203,9 +204,9 @@ ruff check .
 
 ## Community & License
 
-[QQ group](https://qm.qq.com/q/8wrCzYyLHa) · [LINUX DO](https://linux.do/) · [MIT License](LICENSE)
+[QQ group](https://qm.qq.com/q/8wrCzYyLHa) · [LINUX DO](https://linux.do/) · [MIT License](https://github.com/jiji262/douyin-downloader/blob/main/LICENSE)
 
-<img src="img/qq-group.png" alt="Community QR code" width="200" />
+<img src="https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/qq-group.png" alt="Community QR code" width="200" />
 
 For learning and personal data management. Respect copyright, privacy, and platform rules. You are responsible for how you use this tool; platform changes may affect availability.
 
