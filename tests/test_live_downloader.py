@@ -119,8 +119,10 @@ def test_select_best_returns_none_if_no_stream():
 
 async def test_offline_room_is_skipped(tmp_path):
     downloader, client = _build_downloader(tmp_path)
+
     async def room(*args, **kwargs):
         return {"room": {"status": 4}, "user": {}}
+
     client.get_live_room_info = room
     result = await downloader.download({"room_id": "42"})
     assert result.skipped == 1 and result.success == 0
@@ -212,8 +214,12 @@ async def test_relative_output_root_is_persisted_as_absolute_paths(tmp_path, mon
     config.update(path="downloads")
     client = DouyinAPIClient({})
     downloader = LiveDownloader(
-        config, client, FileManager("downloads"), CookieManager(str(tmp_path / ".c.json")),
-        database=None, progress_reporter=reporter,
+        config,
+        client,
+        FileManager("downloads"),
+        CookieManager(str(tmp_path / ".c.json")),
+        database=None,
+        progress_reporter=reporter,
     )
     created = []
     original = RecordingJournal.create.__func__
@@ -225,8 +231,11 @@ async def test_relative_output_root_is_persisted_as_absolute_paths(tmp_path, mon
 
     async def room(*args, **kwargs):
         return {
-            "room": {"id_str": "room-1", "status": 2,
-                     "stream_url": {"flv_pull_url": {"HD1": "https://cdn.invalid/live.flv"}}},
+            "room": {
+                "id_str": "room-1",
+                "status": 2,
+                "stream_url": {"flv_pull_url": {"HD1": "https://cdn.invalid/live.flv"}},
+            },
             "user": {"nickname": "主播甲"},
         }
 
@@ -239,7 +248,9 @@ async def test_relative_output_root_is_persisted_as_absolute_paths(tmp_path, mon
     client.get_live_room_info = room
     result = await downloader.download({"room_id": "42"})
     data = created[0].data
-    assert data["directory"].startswith(str(tmp_path)) and data["metadata"]["base_path"].startswith(str(tmp_path))
+    assert data["directory"].startswith(str(tmp_path)) and data["metadata"]["base_path"].startswith(
+        str(tmp_path)
+    )
     assert result.skipped == 1
     assert reporter.items == [("skipped", "room-1", item_reasons.SKIP_LIVE_STOPPED)]
     # 没录到内容时目录会被清掉：输出目录改报上级。

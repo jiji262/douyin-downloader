@@ -55,7 +55,9 @@ def test_ssr_does_not_inherit_web_rid_from_distant_ancestor():
 
 
 def test_ssr_owner_identity_wins_over_parent_identity():
-    flight = "d:" + json.dumps({"web_rid": "wanted", "room": _room("x", owner={"web_rid": "other"})})
+    flight = "d:" + json.dumps(
+        {"web_rid": "wanted", "room": _room("x", owner={"web_rid": "other"})}
+    )
     assert DouyinAPIClient._extract_live_room_from_html(_page(flight), web_rid="wanted") is None
 
 
@@ -74,7 +76,14 @@ def test_ssr_resolves_stream_data_reference_so_origin_is_selectable():
         "flv_pull_url": {"FULL_HD1": "https://cdn.invalid/uhd.flv"},
         "live_core_sdk_data": {"pull_data": {"stream_data": "$13"}},
     }
-    rows = "12:" + json.dumps(["x"]) + "\n" + _text_row("1f", "前一段文本") + _text_row("13", stream_data) + "14:[]\n"
+    rows = (
+        "12:"
+        + json.dumps(["x"])
+        + "\n"
+        + _text_row("1f", "前一段文本")
+        + _text_row("13", stream_data)
+        + "14:[]\n"
+    )
     html = _page("d:" + json.dumps({"room": room})) + _page(rows[:30]) + _page(rows[30:])
 
     parsed = DouyinAPIClient._extract_live_room_from_html(html, web_rid="wanted")
@@ -86,6 +95,8 @@ def test_ssr_keeps_unresolvable_stream_data_reference():
     room = _room("internal-1", owner={"web_rid": "wanted"})
     room["stream_url"]["live_core_sdk_data"] = {"pull_data": {"stream_data": "$99"}}
 
-    parsed = DouyinAPIClient._extract_live_room_from_html(_page("d:" + json.dumps({"room": room})), web_rid="wanted")
+    parsed = DouyinAPIClient._extract_live_room_from_html(
+        _page("d:" + json.dumps({"room": room})), web_rid="wanted"
+    )
 
     assert parsed["room"]["stream_url"]["live_core_sdk_data"]["pull_data"]["stream_data"] == "$99"

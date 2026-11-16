@@ -1394,7 +1394,9 @@ class DouyinAPIClient:
         return None
 
     @staticmethod
-    def _extract_live_room_from_html(html: str, web_rid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def _extract_live_room_from_html(
+        html: str, web_rid: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         pattern = r"<script[^>]*>\s*(self\.__pace_f\.push\(.*?\))\s*</script>"
         pushes = []
         for call in re.findall(pattern, html, flags=re.DOTALL):
@@ -1408,7 +1410,9 @@ class DouyinAPIClient:
             if not re.match(r"^[0-9a-fA-F]+:", flight):
                 continue
             try:
-                room = DouyinAPIClient._find_stream_room(json.loads(flight.split(":", 1)[1]), web_rid)
+                room = DouyinAPIClient._find_stream_room(
+                    json.loads(flight.split(":", 1)[1]), web_rid
+                )
             except (IndexError, TypeError, ValueError):
                 continue
             if room:
