@@ -6,7 +6,7 @@
 
 **简体中文** · [English](README.md)
 
-下载抖音无水印视频和图文。日常使用选 **Douzy 桌面版**，脚本集成选 **Python 命令行版**。
+下载抖音无水印视频和图文。日常使用选 **Douzy 桌面版**，脚本集成选 **Python 命令行版**；想让 Claude Code、Codex 等 AI agent 查热榜、搜索、录直播，选 **[agent skill](#agent--skill-模式)**。
 
 ## Douzy 桌面版
 
@@ -42,11 +42,11 @@ _截图来自 macOS 上的 Douzy 0.13.0（浅色与深色主题，1440 × 900，
 
 > **下载限制：** 抖音接口风控目前阻止 CLI 下载单个视频／图文、合集、音乐、喜欢和收藏。主页作品可尝试 Playwright 浏览器兜底，但不保证成功。日常下载建议使用 **Douzy**。
 
-更新 Cookie 或反复重试不能解决这类风控。直播录制属于实验功能；HLS 源仅保存播放列表，不是可直接播放的视频。
+更新 Cookie 或反复重试不能解决这类风控。直播录制属于实验功能：用 FFmpeg 分段录制，每段自动转成 MP4，断流后自动重连。
 
 ## 快速开始
 
-需要 **Python 3.9+**，支持 Windows、macOS 和 Linux。使用前请先阅读上方 CLI 限制。
+需要 **Python 3.10+**，支持 Windows、macOS 和 Linux。使用前请先阅读上方 CLI 限制。
 
 ### 1. 安装
 
@@ -99,6 +99,12 @@ python run.py -c config.yml
 | `-t, --thread` | 并发下载数 |
 | `-v, --verbose` | 详细日志 |
 
+| 退出码 | 含义 |
+|:---|:---|
+| `0` | 运行结束；部分作品仍可能失败，以结束时的汇总为准 |
+| `1` | 一个都没有下载或跳过且至少有一个失败，或发生致命错误 |
+| `3` | 登录态失效且没能重新登录；同批其余链接仍会处理完 |
+
 ## 常用配置
 
 完整配置与示例见 **[config.example.yml](config.example.yml)**。
@@ -129,6 +135,55 @@ python run.py --serve --serve-port 8000
 评论采集、视频转写、完成通知和直播录制均在 [config.example.yml](config.example.yml) 中配置。
 
 </details>
+
+## Agent / Skill 模式
+
+`douyin-dl agent <verb>` 是给 AI agent 用的机器可读模式：每次运行只在 stdout 输出一行 JSON（日志走 stderr），错误码和退出码固定。仓库自带的 skill `skills/douyin-dl/` 告诉 agent 何时、如何调用。
+
+**1. 安装 CLI**
+
+```bash
+uv tool install git+https://github.com/jiji262/douyin-downloader
+# 发布到 PyPI 之后：uv tool install douyin-dl（或 pipx install douyin-dl）
+douyin-dl agent doctor
+```
+
+已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
+
+**2. 安装 skill**（任选一种）
+
+```bash
+# Claude Code
+/plugin marketplace add jiji262/douyin-downloader
+/plugin install douyin-dl@douyin-dl
+
+# Codex 及其他 agent：复制目录
+cp -r skills/douyin-dl ~/.agents/skills/
+
+# 或使用 skills CLI
+npx skills add jiji262/douyin-downloader
+```
+
+**3. 试一下**
+
+```bash
+douyin-dl agent hot --max 3
+# {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
+```
+
+| 状态 | 能力 |
+|:---|:---|
+| 可用 | 热搜榜（`hot`）、链接识别（`inspect`）、直播录制（`live`）、本地转写（`transcribe`）、环境检查（`doctor`） |
+| 需登录 | 关键词搜索（`search`）、主页信息（`user`）；运行 `douyin-dl agent login`，在自己的浏览器窗口中登录 |
+| 受限 | 按链接下载视频／图文、合集、音乐或主页作品会返回 `ARGUS_GATED`，请使用 **Douzy** |
+
+退出码：`0` 成功 · `1` 内部错误 · `2` 参数错误或链接不支持 · `3` 需要登录 · `4` `ARGUS_GATED` · `5` 上游没有返回内容（限流、风控或直播未开播） · `6` 部分成功 · `7` 缺少依赖 · `130` 被中断。
+
+- agent 模式的登录态单独保存在 `~/.douyin-dl`（可用 `DOUYIN_DL_HOME` 改位置），不读取 `config.yml` 或 `tools.cookie_fetcher` 保存的 Cookie，输出中也不会出现 Cookie 值。
+- `login` 需要 Playwright 和 Chromium，`transcribe` 需要 Whisper。`doctor` 会列出缺少的组件和确切的安装命令。
+- 需要代理时设置 `DOUYIN_PROXY`。
+
+详见：[契约](skills/douyin-dl/references/contract.md) · [故障排查](skills/douyin-dl/references/troubleshooting.md)
 
 ## 常见问题
 

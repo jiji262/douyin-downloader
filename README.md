@@ -6,7 +6,7 @@
 
 [简体中文](README.zh-CN.md) · **English**
 
-Download Douyin videos and photos without watermarks. Use **Douzy** for a desktop interface, or the **Python CLI** for scripts.
+Download Douyin videos and photos without watermarks. Use **Douzy** for a desktop interface, the **Python CLI** for scripts, or the **[agent skill](#agent--skill-mode)** so AI agents such as Claude Code and Codex can read the hot board, search, and record live streams.
 
 ## Douzy Desktop
 
@@ -42,11 +42,11 @@ The CLI supports **Douyin only**. It includes batch downloads, date filters, ret
 
 > **Download limitations:** Douyin's request verification currently blocks CLI downloads of individual videos/photos, collections, music, likes, and favorites. Profile posts can try the Playwright browser fallback, but success is not guaranteed. Use **Douzy** for everyday downloads.
 
-Refreshing cookies or retrying does not fix this verification block. Live recording is experimental; HLS sources save a playlist, not a playable video.
+Refreshing cookies or retrying does not fix this verification block. Live recording is experimental: FFmpeg records the stream in segments, converts each segment to MP4, and reconnects after drops.
 
 ## Quick Start
 
-Requires **Python 3.9+** on Windows, macOS, or Linux. Read the CLI limitations above first.
+Requires **Python 3.10+** on Windows, macOS, or Linux. Read the CLI limitations above first.
 
 ### 1. Install
 
@@ -99,6 +99,12 @@ Use `python run.py --help` for all options.
 | `-t, --thread` | Concurrent downloads |
 | `-v, --verbose` | Detailed logs |
 
+| Exit code | Meaning |
+|:---|:---|
+| `0` | Finished. Some items may still have failed; check the summary |
+| `1` | Nothing was downloaded or skipped and at least one item failed, or a fatal error occurred |
+| `3` | The sign-in expired and could not be renewed; the other URLs in the batch were still processed |
+
 ## Configuration
 
 Full settings and examples: **[config.example.yml](config.example.yml)**.
@@ -129,6 +135,55 @@ python run.py --serve --serve-port 8000
 Comments, transcription, notifications, and live recording are configured in [config.example.yml](config.example.yml).
 
 </details>
+
+## Agent / Skill Mode
+
+`douyin-dl agent <verb>` is a machine-readable mode for AI agents. Each run prints exactly one JSON line on stdout (logs go to stderr), with stable error and exit codes. The bundled skill `skills/douyin-dl/` teaches an agent when and how to call it.
+
+**1. Install the CLI**
+
+```bash
+uv tool install git+https://github.com/jiji262/douyin-downloader
+# after the PyPI release: uv tool install douyin-dl (or pipx install douyin-dl)
+douyin-dl agent doctor
+```
+
+In a cloned checkout with the requirements installed, `python run.py agent doctor` works too. Do not `pip install` the package into a shared environment: its top-level packages `utils`, `core`, and `config` collide with other projects.
+
+**2. Install the skill** (pick one)
+
+```bash
+# Claude Code
+/plugin marketplace add jiji262/douyin-downloader
+/plugin install douyin-dl@douyin-dl
+
+# Codex and other agents: copy the folder
+cp -r skills/douyin-dl ~/.agents/skills/
+
+# or use the skills CLI
+npx skills add jiji262/douyin-downloader
+```
+
+**3. Try it**
+
+```bash
+douyin-dl agent hot --max 3
+# {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
+```
+
+| Status | Capabilities |
+|:---|:---|
+| Available | Hot search board (`hot`), link classification (`inspect`), live recording (`live`), local transcription (`transcribe`), environment check (`doctor`) |
+| Sign-in required | Keyword search (`search`), profile info (`user`); sign in with `douyin-dl agent login` in your own browser window |
+| Blocked | Downloading videos/photos, collections, music, or a profile's posts by link returns `ARGUS_GATED`. Use **Douzy** |
+
+Exit codes: `0` success · `1` internal error · `2` bad arguments or unsupported link · `3` sign-in required · `4` `ARGUS_GATED` · `5` upstream returned nothing (rate limit, anti-bot, or the room is not live) · `6` partial result · `7` missing dependency · `130` interrupted.
+
+- Agent mode keeps its own sign-in in `~/.douyin-dl` (set `DOUYIN_DL_HOME` to move it). It does not read `config.yml` or the cookies saved by `tools.cookie_fetcher`, and cookie values never appear in its output.
+- `login` needs Playwright and Chromium; `transcribe` needs Whisper. `doctor` lists what is missing with the exact install command.
+- Set `DOUYIN_PROXY` to send requests through a proxy.
+
+Details: [contract](skills/douyin-dl/references/contract.md) · [troubleshooting](skills/douyin-dl/references/troubleshooting.md)
 
 ## FAQ
 
