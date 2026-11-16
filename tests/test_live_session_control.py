@@ -225,7 +225,9 @@ async def test_cancel_while_stopping_keeps_unlisted_tail_segment_recoverable(tmp
     assert (output / "part-000000.ts").exists()
 
 
-async def test_cancel_during_finalizing_report_still_closes_worker_and_journal(tmp_path, monkeypatch):
+async def test_cancel_during_finalizing_report_still_closes_worker_and_journal(
+    tmp_path, monkeypatch
+):
     import pytest
 
     session = await make_session(tmp_path)

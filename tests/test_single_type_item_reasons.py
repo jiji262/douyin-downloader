@@ -4,7 +4,6 @@
 已知出口结算时带上的人话原因。
 """
 
-
 import pytest
 
 from auth import CookieManager
