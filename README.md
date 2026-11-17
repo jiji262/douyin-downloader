@@ -144,12 +144,12 @@ Comments, transcription, notifications, and live recording are configured in [co
 **1. Install the CLI**
 
 ```bash
-uv tool install douyin-dl        # or: pipx install douyin-dl
+uv tool install douyin-dl-cli    # or: pipx install douyin-dl-cli
 # unreleased code from GitHub: uv tool install git+https://github.com/jiji262/douyin-downloader
 douyin-dl agent doctor
 ```
 
-In a cloned checkout with the requirements installed, `python run.py agent doctor` works too. Do not `pip install` the package into a shared environment: its top-level packages `utils`, `core`, and `config` collide with other projects.
+The PyPI package is `douyin-dl-cli`; the command it installs is `douyin-dl`. In a cloned checkout with the requirements installed, `python run.py agent doctor` works too. Do not `pip install` the package into a shared environment: its top-level packages `utils`, `core`, and `config` collide with other projects.
 
 **2. Install the skill** (pick one)
 

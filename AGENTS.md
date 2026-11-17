@@ -11,7 +11,7 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
 |------|-------------|
 | `run.py` | Entry point — bootstraps `sys.path` and delegates to `cli.main:main()` |
 | `__init__.py` | Legacy package marker, no longer read — the version source is `pyproject.toml` (`agent_mode/version.py`) |
-| `pyproject.toml` | Build config, dependencies, CLI entry point (`douyin-dl`), tool settings |
+| `pyproject.toml` | Build config (PyPI distribution `douyin-dl-cli`), dependencies, CLI entry point (`douyin-dl`), tool settings |
 | `config.example.yml` | Example YAML config for users to copy and customize |
 | `requirements.txt` | Pinned dependency list (mirrors pyproject.toml) |
 | `Dockerfile` | Container build for the downloader |
