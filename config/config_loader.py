@@ -178,6 +178,8 @@ class ConfigLoader:
         "live",
         "transcript",
         "notifications",
+        "author_dir",
+        "group_by_mode",
     )
 
     def save(self) -> bool:

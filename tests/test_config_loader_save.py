@@ -120,3 +120,23 @@ def test_save_nested_sub_models(tmp_path):
     assert written["comments"]["max_comments"] == 100
     assert written["notifications"]["enabled"] is True
     assert written["notifications"]["providers"] == [{"type": "bark", "url": "https://x"}]
+
+
+def test_save_persists_author_dir_and_group_by_mode(tmp_path):
+    """Directory layout settings are user-editable and must survive a restart.
+
+    ``author_dir`` is documented as being kept in lock-step with the REST
+    SettingsPatch and the frontend dropdown; ``group_by_mode`` is the sibling
+    toggle that flattens the mode directory. Both are exposed in the settings
+    page, so dropping them from the persistence whitelist silently reverts the
+    user's choice on the next start and writes files into the wrong directory.
+    """
+    config_path = tmp_path / "config.yml"
+
+    loader = ConfigLoader(str(config_path))
+    loader.update(author_dir="sec_uid", group_by_mode=False)
+    assert loader.save() is True
+
+    persisted = ConfigLoader(str(config_path))
+    assert persisted.get("author_dir") == "sec_uid"
+    assert persisted.get("group_by_mode") is False
