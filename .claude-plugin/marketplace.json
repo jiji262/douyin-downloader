@@ -10,7 +10,7 @@
     {
       "name": "douyin-dl",
       "source": "./",
-      "description": "Drive the douyin-dl CLI's agent mode. Requires the CLI: uv tool install douyin-dl.",
+      "description": "Drive the douyin-dl CLI's agent mode. Requires the CLI: uv tool install douyin-dl-cli.",
       "category": "productivity",
       "tags": ["douyin", "cli"]
     }

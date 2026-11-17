@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "douyin-dl"
+name = "douyin-dl-cli"
 version = "2.1.0"
 description = "Douyin batch downloader with no-watermark support"
 readme = "README.md"
@@ -62,7 +62,7 @@ dev = [
     "hypothesis>=6.0",
 ]
 all = [
-    "douyin-dl[browser,transcribe,server,dev]",
+    "douyin-dl-cli[browser,transcribe,server,dev]",
 ]
 
 [project.scripts]

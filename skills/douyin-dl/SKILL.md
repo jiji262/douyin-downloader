@@ -12,7 +12,7 @@ description: >-
   workaround.
 license: MIT
 compatibility: >-
-  Requires the douyin-dl CLI 2.1.0+ on PATH (uv tool install douyin-dl; Python 3.10+)
+  Requires the douyin-dl CLI 2.1.0+ on PATH (uv tool install douyin-dl-cli; Python 3.10+)
   and network access to douyin.com. Optional: Playwright Chromium plus a desktop
   display for login, ffmpeg for live recording, openai-whisper for transcription.
 metadata:

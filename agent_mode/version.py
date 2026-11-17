@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-DIST_NAME = "douyin-dl"
+DIST_NAME = "douyin-dl-cli"
 UNKNOWN_VERSION = "0+unknown"
 _PYPROJECT_PATH = Path(__file__).resolve().parent.parent / "pyproject.toml"
 _PROJECT_TABLE_RE = re.compile(r"^\[project\]\s*$(.*?)(?=^\[|\Z)", re.MULTILINE | re.DOTALL)

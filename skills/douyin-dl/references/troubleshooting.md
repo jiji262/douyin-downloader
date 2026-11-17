@@ -7,23 +7,24 @@ the user and let them decide; do not install things silently.
 ## Installing the CLI
 
 ```bash
-uv tool install douyin-dl
+uv tool install douyin-dl-cli
 # alternative
-pipx install douyin-dl
+pipx install douyin-dl-cli
 # unreleased code from GitHub
 uv tool install git+https://github.com/jiji262/douyin-downloader
 ```
 
+- The PyPI package is `douyin-dl-cli`; the command it installs is `douyin-dl`.
 - Python 3.10 or newer is required.
-- Do not `pip install douyin-dl` into a shared environment. The package ships top-level
+- Do not `pip install douyin-dl-cli` into a shared environment. The package ships top-level
   modules named `utils`, `core` and `config`, which collide with other projects. `uv tool`
   and `pipx` give it an isolated environment.
 - `douyin-dl: command not found` after installing: run `uv tool update-shell` (or
   `pipx ensurepath`) and open a new shell. Until then `scripts/dy.sh` can launch it.
-- `scripts/dy.sh` pins `douyin-dl==2.1.0` for `uvx`. To run unreleased code instead, set
+- `scripts/dy.sh` pins `douyin-dl-cli==2.1.0` for `uvx`. To run unreleased code instead, set
   `DOUYIN_DL_SPEC=git+https://github.com/jiji262/douyin-downloader`.
 - A `version` in the envelope that differs from the skill's `metadata.version` means the
-  CLI and the skill are out of step; upgrade with `uv tool upgrade douyin-dl`.
+  CLI and the skill are out of step; upgrade with `uv tool upgrade douyin-dl-cli`.
 
 ## Optional components
 
@@ -35,9 +36,9 @@ persistent forms:
 
 | Needed for | uv tool | pipx |
 |---|---|---|
-| `login` (Playwright) | `uv tool install --force "douyin-dl[browser]"` | `pipx inject douyin-dl playwright` |
-| `transcribe` (Whisper) | `uv tool install --force "douyin-dl[transcribe]"` | `pipx inject douyin-dl openai-whisper` |
-| both | `uv tool install --force "douyin-dl[browser,transcribe]"` | both commands above |
+| `login` (Playwright) | `uv tool install --force "douyin-dl-cli[browser]"` | `pipx inject douyin-dl-cli playwright` |
+| `transcribe` (Whisper) | `uv tool install --force "douyin-dl-cli[transcribe]"` | `pipx inject douyin-dl-cli openai-whisper` |
+| both | `uv tool install --force "douyin-dl-cli[browser,transcribe]"` | both commands above |
 
 ### Playwright and Chromium
 

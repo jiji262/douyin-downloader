@@ -143,12 +143,12 @@ python run.py --serve --serve-port 8000
 **1. 安装 CLI**
 
 ```bash
-uv tool install douyin-dl        # 或：pipx install douyin-dl
+uv tool install douyin-dl-cli    # 或：pipx install douyin-dl-cli
 # GitHub 上尚未发布的代码：uv tool install git+https://github.com/jiji262/douyin-downloader
 douyin-dl agent doctor
 ```
 
-已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
+PyPI 包名是 `douyin-dl-cli`，装好后的命令是 `douyin-dl`。已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
 
 **2. 安装 skill**（任选一种）
 
