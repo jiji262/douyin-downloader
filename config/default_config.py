@@ -92,6 +92,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "auto_cookie": False,
     "browser_fallback": {
         "enabled": True,
+        "video_detail": True,
+        "video_headless": True,
+        "video_wait_timeout_seconds": 60,
         "headless": False,
         "max_scrolls": 240,
         "idle_rounds": 8,

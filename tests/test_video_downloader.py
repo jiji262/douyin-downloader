@@ -207,6 +207,57 @@ async def test_video_downloader_reports_item_progress(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_video_downloader_recovers_argus_detail_with_browser(tmp_path, monkeypatch):
+    downloader, api_client = _build_downloader(tmp_path)
+    reporter = _FakeProgressReporter()
+    downloader.progress_reporter = reporter
+    downloader.config.update(
+        browser_fallback={
+            "enabled": True,
+            "video_detail": True,
+            "video_headless": True,
+            "video_wait_timeout_seconds": 12,
+        }
+    )
+
+    async def _fake_should_download(self, _aweme_id):
+        return True
+
+    async def _fake_get_video_detail(_aweme_id: str):
+        return None
+
+    async def _fake_get_video_detail_via_browser(
+        aweme_id: str, *, headless: bool, wait_timeout_seconds: int
+    ):
+        assert aweme_id == "123"
+        assert headless is True
+        assert wait_timeout_seconds == 12
+        return {"aweme_id": "123", "author": {"nickname": "browser"}}
+
+    async def _fake_download_aweme(self, aweme_data):
+        assert aweme_data["author"]["nickname"] == "browser"
+        return True
+
+    downloader._should_download = _fake_should_download.__get__(downloader, VideoDownloader)
+    monkeypatch.setattr(api_client, "get_video_detail", _fake_get_video_detail)
+    monkeypatch.setattr(api_client, "last_video_detail_was_argus_rejected", lambda: True)
+    monkeypatch.setattr(
+        api_client,
+        "get_video_detail_via_browser",
+        _fake_get_video_detail_via_browser,
+    )
+    downloader._download_aweme = _fake_download_aweme.__get__(downloader, VideoDownloader)
+
+    result = await downloader.download({"aweme_id": "123"})
+
+    assert result.success == 1
+    assert result.failed == 0
+    assert ("浏览器回补", "详情接口受限，尝试浏览器获取作品信息") in reporter.step_updates
+
+    await api_client.close()
+
+
+@pytest.mark.asyncio
 async def test_detail_failure_records_item_reason(tmp_path, monkeypatch):
     downloader, api_client = _build_downloader(tmp_path)
 

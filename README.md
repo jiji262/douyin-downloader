@@ -94,7 +94,7 @@ _Screenshots: Douzy 0.13.0 on macOS (light and dark themes, 1440 × 900, sample 
 
 The original batch downloader (`python run.py`) supports **Douyin only**. It includes batch downloads, date filters, retries, download history, and optional comments, transcription, and notifications.
 
-> **Download limitations:** Douyin's request verification currently blocks CLI downloads of individual videos/photos, collections, music, likes, and favorites. Profile posts can try the Playwright browser fallback, but success is not guaranteed. Use **Douzy** for everyday downloads.
+> **Download limitations:** Douyin's request verification currently blocks direct CLI API requests for individual videos/photos, collections, music, likes, and favorites. Individual videos and profile posts can try the Playwright browser fallback, but success is not guaranteed. Use **Douzy** for everyday downloads.
 
 Refreshing cookies or retrying does not fix this verification block. Live recording is experimental: FFmpeg records the stream in segments, converts each segment to MP4, and reconnects after drops.
 
@@ -195,6 +195,8 @@ Comments, transcription, notifications, and live recording are configured in [co
 **Cookies expired?** Run `python -m tools.cookie_fetcher --config config.yml` again.
 
 **Only a few profile posts?** Keep `browser_fallback.enabled: true` and `headless: false`. Complete any verification yourself in the browser; the current verification block may still prevent downloads.
+
+**Single video detail returns 403?** Keep `browser_fallback.enabled: true` and `video_detail: true`. The CLI will try a headless Playwright page to recover the item detail before using the normal download pipeline.
 
 **Need logs?** Run `python run.py -c config.yml -v`.
 

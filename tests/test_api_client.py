@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from core.api_client import DouyinAPIClient
+from core.api_client import DouyinAPIClient, FailedPayload
 
 
 def test_default_query_uses_existing_ms_token():
@@ -67,6 +67,29 @@ def test_build_signed_path_prefers_abogus(monkeypatch):
     )
     assert "a_bogus=fake_ab" in signed_url
     assert captured["body"] == "cursor=3&count=20"
+
+
+@pytest.mark.asyncio
+async def test_get_video_detail_records_argus_rejection(monkeypatch):
+    client = DouyinAPIClient({"msToken": "token-1"})
+
+    async def _fake_default_query():
+        return {}
+
+    async def _fake_request_json_gated(_path, _params, **_kwargs):
+        return FailedPayload(
+            FailedPayload.REJECTED,
+            status=403,
+            detail="Blocked by ArgusSecurityPlugin Uifid Not Found",
+        )
+
+    monkeypatch.setattr(client, "_default_query", _fake_default_query)
+    monkeypatch.setattr(client, "_request_json_gated", _fake_request_json_gated)
+
+    detail = await client.get_video_detail("7588043161411931818")
+
+    assert detail is None
+    assert client.last_video_detail_was_argus_rejected() is True
 
 
 def test_homepage_screenshot_bridge_emits_encoded_request(tmp_path, monkeypatch, capsys):
