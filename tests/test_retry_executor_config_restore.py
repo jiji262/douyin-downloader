@@ -43,12 +43,13 @@ class _StubCookieManager:
         return {}
 
 
-def _run_retry(monkeypatch, tmp_path, overrides: Dict[str, Any]) -> ConfigLoader:
+def _run_retry(monkeypatch, tmp_path, overrides: Dict[str, Any], config: ConfigLoader | None = None) -> ConfigLoader:
     from core import retry_executor as retry_mod
     from storage.file_manager import FileManager
 
-    config = ConfigLoader(None)
-    config.update(path=str(tmp_path), number={"post": 0, "like": 0})
+    if config is None:
+        config = ConfigLoader(None)
+        config.update(path=str(tmp_path), number={"post": 0, "like": 0})
 
     _RecordingAPIClient.reset()
     monkeypatch.setattr(retry_mod, "DouyinAPIClient", _RecordingAPIClient)
@@ -86,7 +87,9 @@ def test_retry_restores_nested_config_and_new_keys(monkeypatch, tmp_path) -> Non
 
 
 def test_retry_without_overrides_keeps_config(monkeypatch, tmp_path) -> None:
-    config = _run_retry(monkeypatch, tmp_path, None)
+    config = ConfigLoader(None)
+    config.update(path=str(tmp_path), number={"post": 0, "like": 0})
     before = copy.deepcopy(config.config)
-    _run_retry(monkeypatch, tmp_path, None)
+
+    _run_retry(monkeypatch, tmp_path, None, config)
     assert config.config == before
