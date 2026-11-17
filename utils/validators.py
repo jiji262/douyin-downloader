@@ -57,7 +57,11 @@ def sanitize_filename(filename: str, max_length: int = 80) -> str:
     if len(filename) > max_length:
         filename = filename[:max_length].rstrip(_EDGE_STRIP_CHARS)
 
-    if filename.split(".", 1)[0].upper() in _WINDOWS_RESERVED_STEMS:
+    # Windows strips spaces immediately before the extension, so "CON .txt"
+    # is really the device name "CON" and cannot be created. Match that by
+    # stripping the stem before the reserved-name check (a leading underscore
+    # in the output keeps the name usable).
+    if filename.split(".", 1)[0].strip().upper() in _WINDOWS_RESERVED_STEMS:
         filename = f"_{filename}"[:max_length]
 
     return filename or "untitled"
