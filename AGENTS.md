@@ -65,6 +65,7 @@ A Python-based Douyin (TikTok China) batch downloader that fetches videos, galle
   - `storage/database.py` — desktop adds TikTok, Following, and My Content schema/helpers; only dependency-neutral database tests remain byte-identical.
   - `tests/test_database_platform.py`, `tests/test_database_desktop_schema.py`, `tests/test_retry_executor.py` — desktop-only tests and not present here.
   - Agent mode is CLI-only and absent from desktop (none of it is in the sync list): `agent_mode/`, `skills/`, `.claude-plugin/`, `.github/workflows/release-cli.yml`, `tests/test_agent_*.py`, `tests/test_cli_exit_codes.py`, `tests/test_skill_package.py`.
+  - `pyproject.toml` / `requirements.txt` — CLI pins `imageio-ffmpeg==0.8.1` (FFmpeg 9) while desktop stays on 0.6.0: 0.6.0's Linux x86_64 FFmpeg 7.0.2 segfaults on any MPEG-TS input, so live segments never remux to MP4 there (caught by `tests/test_live_downloader_integration.py` on ubuntu). Desktop ships no Linux build.
   - `run.py` — CLI additionally skips `os.chdir` when `argv[1] == "agent"`, so agent paths resolve against the caller's cwd.
   - `cli/main.py` — CLI additionally dispatches `douyin-dl agent ...` to `agent_mode.entry.main()` before argparse, and sets exit codes: 3 when a `LoginRequiredError` cannot be recovered (the rest of a URL batch still runs, without further relogin attempts, and the summary is still printed), 1 when nothing in the batch succeeded or was skipped and at least one URL failed.
 
