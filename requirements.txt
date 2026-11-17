@@ -8,4 +8,4 @@ python-dateutil>=2.8.2
 gmssl>=3.2.2
 # Bundled ffmpeg static binary for audio extraction before
 # transcription upload. Pinned exact for reproducible sidecar builds.
-imageio-ffmpeg==0.6.0
+imageio-ffmpeg==0.8.1

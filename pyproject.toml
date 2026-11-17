@@ -36,7 +36,7 @@ dependencies = [
     # reproducible across CI machines. 0.6.0 is the first release that
     # ships a native macOS arm64 wheel; older versions only shipped
     # x86_64 macOS binaries.
-    "imageio-ffmpeg==0.6.0",
+    "imageio-ffmpeg==0.8.1",
 ]
 
 [project.optional-dependencies]
