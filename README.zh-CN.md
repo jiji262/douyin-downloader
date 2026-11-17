@@ -1,16 +1,69 @@
 # 抖音下载器（Douyin Downloader）
 
 <p align="center">
-  <img src="https://camo.githubusercontent.com/327409f4eab82516b28e9c67bd4831261917ee9a29ffd865a60996a9c53709cb/68747470733a2f2f736f6369616c6966792e6769742e63692f6a696a693236322f646f7579696e2d646f776e6c6f616465722f696d6167653f637573746f6d5f6465736372697074696f6e3d446f7579696e2b62617463682b646f776e6c6f61642b746f6f6c2532432b72656d6f76652b77617465726d61726b732532432b737570706f72742b62617463682b646f776e6c6f61642b6f662b766964656f732532432b67616c6c6572792532432b616e642b617574686f722b686f6d6570616765732e266465736372697074696f6e3d3126666f6e743d536f757263652b436f64652b50726f26666f726b733d31266f776e65723d31267061747465726e3d436972637569742b426f617264267374617267617a6572733d31267468656d653d4c69676874" alt="douyin-downloader" width="820" />
+  <img src="https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=AI+agent+skill+and+CLI+for+Douyin%3A+hot+board%2C+search%2C+live+recording%2C+transcription.&description=1&font=Source+Code+Pro&forks=1&owner=1&pattern=Circuit+Board&stargazers=1&theme=Light" alt="douyin-downloader" width="820" />
 </p>
 
 **简体中文** · [English](README.md)
 
-下载抖音无水印视频和图文。日常使用选 **Douzy 桌面版**，脚本集成选 **Python 命令行版**；想让 Claude Code、Codex 等 AI agent 查热榜、搜索、录直播，选 **[agent skill](#agent--skill-模式)**。
+**面向 AI Agent 的抖音 Skill。** 让 Claude Code、Codex 等 agent 查热榜、搜索、看博主资料、录直播、转写媒体。每条 `douyin-dl agent` 命令只输出一行 JSON，错误码固定；仓库自带的 [skill](#ai-agent--skill-用法) 告诉 agent 何时、如何调用。想下载无水印视频和图文，请用 **[Douzy 桌面版](#douzy-桌面版)**。
+
+## AI Agent / Skill 用法
+
+**1. 安装 CLI**
+
+```bash
+uv tool install douyin-dl-cli    # 或：pipx install douyin-dl-cli
+# GitHub 上尚未发布的代码：uv tool install git+https://github.com/jiji262/douyin-downloader
+douyin-dl agent doctor
+```
+
+PyPI 包名是 `douyin-dl-cli`，装好后的命令是 `douyin-dl`。已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
+
+**2. 安装 skill**（任选一种）
+
+```bash
+# Claude Code
+/plugin marketplace add jiji262/douyin-downloader
+/plugin install douyin-dl@douyin-dl
+
+# Codex 及其他 agent：复制目录（在本仓库克隆目录下执行）
+cp -r skills/douyin-dl ~/.agents/skills/
+
+# 或使用 skills CLI
+npx skills add jiji262/douyin-downloader
+```
+
+**3. 对 agent 说**
+
+- 「抖音热榜现在有什么？」
+- 「在抖音搜索 `猫咪`，总结前 10 条结果。」
+- 「看一下这个博主的资料：`https://www.douyin.com/user/…`」
+- 「录制这个直播间 5 分钟：`https://live.douyin.com/…`」
+- 「转写本地的 `./clip.mp4`。」
+
+agent 实际执行的是 `douyin-dl agent hot --max 3` 这类命令，并读取它输出的那一行 JSON：
+
+```bash
+douyin-dl agent hot --max 3
+# {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
+```
+
+| 状态 | 能力 |
+|:---|:---|
+| 可用 | 热搜榜（`hot`）、链接识别（`inspect`）、直播录制（`live`）、本地转写（`transcribe`）、环境检查（`doctor`） |
+| 需登录 | 关键词搜索（`search`）、主页信息（`user`）；运行 `douyin-dl agent login`，在自己的浏览器窗口中登录 |
+| 受限 | 按链接下载视频／图文、合集、音乐或主页作品会返回 `ARGUS_GATED`，请使用 **Douzy** |
+
+- agent 模式的登录态单独保存在 `~/.douyin-dl`（可用 `DOUYIN_DL_HOME` 改位置），不读取 `config.yml` 或 `tools.cookie_fetcher` 保存的 Cookie，输出中也不会出现 Cookie 值。
+- `login` 需要 Playwright 和 Chromium，`transcribe` 需要 Whisper。`doctor` 会列出缺少的组件和确切的安装命令。
+- 需要代理时设置 `DOUYIN_PROXY`。
+
+固定的错误码与退出码、逐字段说明：[契约](skills/douyin-dl/references/contract.md) · [故障排查](skills/douyin-dl/references/troubleshooting.md)
 
 ## Douzy 桌面版
 
-支持 **抖音、TikTok、YouTube、Telegram、X**。粘贴链接下载，查看任务进度，管理本地作品档案。
+用来下载抖音无水印视频和图文，支持 **抖音、TikTok、YouTube、Telegram、X**。粘贴链接下载，查看任务进度，管理本地作品档案。
 
 **[下载 Windows / macOS 版](https://github.com/jiji262/douyin-downloader/releases)**
 
@@ -36,19 +89,19 @@
 
 _截图来自 macOS 上的 Douzy 0.13.0（浅色与深色主题，1440 × 900，使用示例数据）；Telegram 展示配置前的接入页。点击图片可放大。_
 
-## 命令行版现状
+## 经典命令行版
 
-命令行版仅支持**抖音**，提供批量下载、日期筛选、失败重试、下载历史，以及可选的评论采集、视频转写和完成通知。
+原有的批量下载命令行（`python run.py`）仅支持**抖音**，提供批量下载、日期筛选、失败重试、下载历史，以及可选的评论采集、视频转写和完成通知。
 
 > **下载限制：** 抖音接口风控目前阻止 CLI 下载单个视频／图文、合集、音乐、喜欢和收藏。主页作品可尝试 Playwright 浏览器兜底，但不保证成功。日常下载建议使用 **Douzy**。
 
 更新 Cookie 或反复重试不能解决这类风控。直播录制属于实验功能：用 FFmpeg 分段录制，每段自动转成 MP4，断流后自动重连。
 
-## 快速开始
+### 快速开始
 
 需要 **Python 3.10+**，支持 Windows、macOS 和 Linux。使用前请先阅读上方 CLI 限制。
 
-### 1. 安装
+#### 1. 安装
 
 ```bash
 git clone https://github.com/jiji262/douyin-downloader.git
@@ -58,7 +111,7 @@ python -m pip install playwright
 python -m playwright install chromium
 ```
 
-### 2. 配置并登录
+#### 2. 配置并登录
 
 将 [config.example.yml](config.example.yml) 复制为 `config.yml`：
 
@@ -83,7 +136,7 @@ increase:
 redownload_missing_files: true
 ```
 
-### 3. 运行
+#### 3. 运行
 
 ```bash
 python run.py -c config.yml
@@ -105,7 +158,7 @@ python run.py -c config.yml
 | `1` | 一个都没有下载或跳过且至少有一个失败，或发生致命错误 |
 | `3` | 登录态失效且没能重新登录；同批其余链接仍会处理完 |
 
-## 常用配置
+### 常用配置
 
 完整配置与示例见 **[config.example.yml](config.example.yml)**。
 
@@ -136,56 +189,7 @@ python run.py --serve --serve-port 8000
 
 </details>
 
-## Agent / Skill 模式
-
-`douyin-dl agent <verb>` 是给 AI agent 用的机器可读模式：每次运行只在 stdout 输出一行 JSON（日志走 stderr），错误码和退出码固定。仓库自带的 skill `skills/douyin-dl/` 告诉 agent 何时、如何调用。
-
-**1. 安装 CLI**
-
-```bash
-uv tool install douyin-dl-cli    # 或：pipx install douyin-dl-cli
-# GitHub 上尚未发布的代码：uv tool install git+https://github.com/jiji262/douyin-downloader
-douyin-dl agent doctor
-```
-
-PyPI 包名是 `douyin-dl-cli`，装好后的命令是 `douyin-dl`。已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
-
-**2. 安装 skill**（任选一种）
-
-```bash
-# Claude Code
-/plugin marketplace add jiji262/douyin-downloader
-/plugin install douyin-dl@douyin-dl
-
-# Codex 及其他 agent：复制目录
-cp -r skills/douyin-dl ~/.agents/skills/
-
-# 或使用 skills CLI
-npx skills add jiji262/douyin-downloader
-```
-
-**3. 试一下**
-
-```bash
-douyin-dl agent hot --max 3
-# {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
-```
-
-| 状态 | 能力 |
-|:---|:---|
-| 可用 | 热搜榜（`hot`）、链接识别（`inspect`）、直播录制（`live`）、本地转写（`transcribe`）、环境检查（`doctor`） |
-| 需登录 | 关键词搜索（`search`）、主页信息（`user`）；运行 `douyin-dl agent login`，在自己的浏览器窗口中登录 |
-| 受限 | 按链接下载视频／图文、合集、音乐或主页作品会返回 `ARGUS_GATED`，请使用 **Douzy** |
-
-退出码：`0` 成功 · `1` 内部错误 · `2` 参数错误或链接不支持 · `3` 需要登录 · `4` `ARGUS_GATED` · `5` 上游没有返回内容（限流、风控或直播未开播） · `6` 部分成功 · `7` 缺少依赖 · `130` 被中断。
-
-- agent 模式的登录态单独保存在 `~/.douyin-dl`（可用 `DOUYIN_DL_HOME` 改位置），不读取 `config.yml` 或 `tools.cookie_fetcher` 保存的 Cookie，输出中也不会出现 Cookie 值。
-- `login` 需要 Playwright 和 Chromium，`transcribe` 需要 Whisper。`doctor` 会列出缺少的组件和确切的安装命令。
-- 需要代理时设置 `DOUYIN_PROXY`。
-
-详见：[契约](skills/douyin-dl/references/contract.md) · [故障排查](skills/douyin-dl/references/troubleshooting.md)
-
-## 常见问题
+### 常见问题
 
 **Cookie 失效？** 重新运行 `python -m tools.cookie_fetcher --config config.yml`。
 
