@@ -9,7 +9,7 @@ import aiofiles
 
 from core.api_client import DouyinAPIClient
 from core.downloader_base import BaseDownloader, DownloadResult
-from core.metadata import build_author_home_url
+from core.metadata import build_author_home_url, extract_author_sec_uid
 from core.user_mode_registry import UserModeRegistry
 from core.user_modes.base_strategy import PageRequestFailedError
 from core.user_modes.mix_routing import collection_directories
@@ -491,6 +491,21 @@ class UserDownloader(BaseDownloader):
 
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
+            # Viewer feeds (favorites, likes) contain videos from many
+            # accounts, so the caller's "self" placeholder must not become
+            # the directory name. Each item carries its real author.
+            item_author = author_name
+            item_sec_uid = author_sec_uid
+            if mode in {"collect", "collectmix", "like"}:
+                item_author = (
+                    str((item.get("author") or {}).get("nickname") or "").strip()
+                    or author_name
+                )
+                # The item author also needs its own ID: with sec_uid-based
+                # author_dir styles the viewer ID would file every favorite
+                # under one directory, and _build_aweme_file_context gives
+                # the explicit argument priority over aweme.author.sec_uid.
+                item_sec_uid = extract_author_sec_uid(item) or author_sec_uid
             collection_dir = (
                 collection_directories(self).get(str(aweme_id)) if mode == "mix" else None
             )
@@ -499,6 +514,10 @@ class UserDownloader(BaseDownloader):
                 str(aweme_id or ""),
                 force=force_download,
             ):
+                # The video already exists on disk under the directory chosen
+                # by an earlier run. Keep that run's author identity here so
+                # backfilled comments land next to the video instead of
+                # creating a second, empty author directory.
                 saved = await self._collect_comments_for_existing_aweme(
                     item,
                     author_name,
@@ -512,10 +531,10 @@ class UserDownloader(BaseDownloader):
 
             success = await self._download_aweme_assets(
                 item,
-                author_name,
+                item_author,
                 mode=mode,
                 db_batch=db_batch,
-                author_sec_uid=author_sec_uid,
+                author_sec_uid=item_sec_uid,
                 **collection_options,
             )
             status = "success" if success else "failed"
