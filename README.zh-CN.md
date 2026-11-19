@@ -71,7 +71,7 @@ douyin-dl agent hot --max 3
 
 [![Douzy 工作台，左侧为平台导航，中间显示链接任务和最近保存的作品。](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png)](https://github.com/0X-42/douzy/blob/main/media/workbench.png)
 
-*Douzy 0.15.0 · macOS 工作台 · 示例数据。点击截图可查看原图。*
+*macOS 工作台，使用示例数据。点击截图可在 Douzy 项目中查看原图。*
 
 各平台按需启用插件或本机组件，部分批量和高级功能需要激活。
 
