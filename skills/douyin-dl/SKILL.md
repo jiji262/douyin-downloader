@@ -134,7 +134,7 @@ behind page signing (ArgusSecurityPlugin). The open-source CLI does not sign tho
 requests, so `inspect` returns `ARGUS_GATED` for such links. When that happens:
 
 - Tell the user honestly that this CLI cannot download it, and that the Douzy desktop
-  app (https://github.com/jiji262/douyin-downloader/releases) can.
+  app (https://godouzy.com/#get) can.
 - Do not work around the gate in any way: no `curl` or `wget` on media or page URLs, no
   browser automation to fetch it on the user's behalf, no other Douyin APIs or
   third-party download sites, no retrying with different cookies or parameters.
