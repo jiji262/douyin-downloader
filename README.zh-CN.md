@@ -61,33 +61,19 @@ douyin-dl agent hot --max 3
 
 固定的错误码与退出码、逐字段说明：[契约](skills/douyin-dl/references/contract.md) · [故障排查](skills/douyin-dl/references/troubleshooting.md)
 
-## Douzy 桌面版
+<a id="douzy-桌面版"></a>
 
-用来下载抖音无水印视频和图文，支持 **抖音、TikTok、YouTube、Telegram、X**。粘贴链接下载，查看任务进度，管理本地作品档案。
+## 友情链接 · Douzy 桌面版
 
-**[下载 Windows / macOS 版](https://github.com/jiji262/douyin-downloader/releases)**
+把抖音、TikTok、YouTube、Telegram 和 X 的内容保存到电脑。在同一个窗口里粘贴链接、查看任务进度、翻找已保存的作品。
 
-平台功能由已启用的插件或本机组件提供，部分批量与高级功能需要激活。
+**[下载 Windows / macOS 版](https://godouzy.com/#get)**　·　[GitHub 项目](https://github.com/0X-42/douzy)　·　[最新版与发布说明](https://github.com/0X-42/douzy/releases/latest)
 
-| 平台 | 内容 |
-|:---|:---|
-| 抖音 | 视频、图文、主页、合集；关注、订阅、收藏与喜欢 |
-| TikTok | 公开视频、图集与主页 |
-| YouTube | 视频、Shorts、频道、播放列表；音频与字幕 |
-| Telegram | 有权访问的聊天、群组与频道媒体；需配置并登录 |
-| X | 帖子、主页媒体、自己的书签与喜欢；需配置账号 Cookie |
+[![Douzy 工作台，左侧为平台导航，中间显示链接任务和最近保存的作品。](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png)](https://github.com/0X-42/douzy/blob/main/media/workbench.png)
 
-| **抖音** | **TikTok** | **YouTube** |
-|:---:|:---:|:---:|
-| [![Douzy 抖音工作台](img/desktop/001.png)](img/desktop/001.png) | [![Douzy TikTok 工作台](img/desktop/002.png)](img/desktop/002.png) | [![Douzy YouTube 工作台](img/desktop/003.png)](img/desktop/003.png) |
-| **Telegram 接入** | **X** | **任务中心** |
-| [![Douzy Telegram 接入](img/desktop/004.png)](img/desktop/004.png) | [![Douzy X 工作台](img/desktop/005.png)](img/desktop/005.png) | [![Douzy 任务中心](img/desktop/006.png)](img/desktop/006.png) |
+*Douzy 0.15.0 · macOS 工作台 · 示例数据。点击截图可查看原图。*
 
-| **抖音（浅色）** | **YouTube（浅色）** | **任务中心（浅色）** |
-|:---:|:---:|:---:|
-| [![Douzy 抖音工作台浅色截图](img/desktop/007.png)](img/desktop/007.png) | [![Douzy YouTube 工作台浅色截图](img/desktop/008.png)](img/desktop/008.png) | [![Douzy 任务中心浅色截图](img/desktop/009.png)](img/desktop/009.png) |
-
-_截图来自 macOS 上的 Douzy 0.13.0（浅色与深色主题，1440 × 900，使用示例数据）；Telegram 展示配置前的接入页。点击图片可放大。_
+各平台按需启用插件或本机组件，部分批量和高级功能需要激活。
 
 ## 经典命令行版
 

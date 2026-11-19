@@ -62,33 +62,19 @@ douyin-dl agent hot --max 3
 
 Stable error and exit codes, field by field: [contract](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/contract.md) · [troubleshooting](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/troubleshooting.md)
 
-## Douzy Desktop
+<a id="douzy-desktop"></a>
 
-Download Douyin videos and photos without watermarks with a desktop app for **Douyin, TikTok, YouTube, Telegram, and X**. Paste links, track downloads, and browse your local archive.
+## Featured project · Douzy Desktop
 
-**[Download for Windows / macOS](https://github.com/jiji262/douyin-downloader/releases)**
+Save media from Douyin, TikTok, YouTube, Telegram, and X to your computer. Paste a link, track its progress, and find saved videos and photos in one workspace.
 
-Platform features depend on enabled plugins or local components. Some batch and advanced features require activation.
+**[Download for Windows or macOS](https://godouzy.com/#get)** · [GitHub project](https://github.com/0X-42/douzy) · [Latest release and notes](https://github.com/0X-42/douzy/releases/latest)
 
-| Platform | Content |
-|:---|:---|
-| Douyin | Videos, photos, profiles, collections; following, subscriptions, favorites, and likes |
-| TikTok | Public videos, photos, and profiles |
-| YouTube | Videos, Shorts, channels, and playlists; audio and subtitles |
-| Telegram | Media from accessible chats, groups, and channels; requires setup and sign-in |
-| X | Posts, profile media, your bookmarks and likes; requires account cookies |
+[![Douzy workspace with platform navigation, recent tasks, and saved media.](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png)](https://github.com/0X-42/douzy/blob/main/media/workbench.png)
 
-| **Douyin** | **TikTok** | **YouTube** |
-|:---:|:---:|:---:|
-| [![Douzy Douyin workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/001.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/001.png) | [![Douzy TikTok workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/002.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/002.png) | [![Douzy YouTube workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/003.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/003.png) |
-| **Telegram setup** | **X** | **Task center** |
-| [![Douzy Telegram setup](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/004.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/004.png) | [![Douzy X workspace](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/005.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/005.png) | [![Douzy task center](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/006.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/006.png) |
+*Douzy 0.15.0 on macOS with sample data. Select the screenshot for the full-size image.*
 
-| **Douyin (light)** | **YouTube (light)** | **Task center (light)** |
-|:---:|:---:|:---:|
-| [![Douzy Douyin workspace in light mode](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/007.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/007.png) | [![Douzy YouTube workspace in light mode](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/008.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/008.png) | [![Douzy task center in light mode](https://raw.githubusercontent.com/jiji262/douyin-downloader/main/img/desktop/009.png)](https://github.com/jiji262/douyin-downloader/blob/main/img/desktop/009.png) |
-
-_Screenshots: Douzy 0.13.0 on macOS (light and dark themes, 1440 × 900, sample data). Telegram is shown before setup. Click an image to enlarge._
+Platform availability depends on enabled plugins or local components. Some batch and advanced features require activation.
 
 ## Classic CLI
 
