@@ -3,7 +3,7 @@
 # douyin-downloader
 
 ## Purpose
-A Python-based Douyin (TikTok China) batch downloader that fetches videos, galleries, music, and user content without watermarks. Supports multiple download modes (user posts, likes, mixes, music), concurrent downloads with rate limiting, cookie-based authentication, and optional Whisper transcription. CLI-driven with YAML configuration.
+A Python-based Douyin (TikTok China) batch downloader that fetches videos, galleries, music, and user content. Supports multiple download modes (user posts, likes, mixes, music), concurrent downloads with rate limiting, cookie-based authentication, and optional Whisper transcription. CLI-driven with YAML configuration.
 
 ## Key Files
 
