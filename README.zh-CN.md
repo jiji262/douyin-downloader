@@ -6,7 +6,7 @@
 
 **简体中文** · [English](README.md)
 
-**面向 AI Agent 的抖音 Skill。** 让 Claude Code、Codex 等 agent 查热榜、搜索、看博主资料、录直播、转写媒体。每条 `douyin-dl agent` 命令只输出一行 JSON，错误码固定；仓库自带的 [skill](#ai-agent--skill-用法) 告诉 agent 何时、如何调用。想下载无水印视频和图文，请用 **[Douzy 桌面版](#douzy-桌面版)**。
+**面向 AI Agent 的抖音 Skill。** 让 Claude Code、Codex 等 agent 查热榜、搜索、看博主资料、录直播、转写媒体。每条 `douyin-dl agent` 命令只输出一行 JSON，错误码固定；仓库自带的 [skill](#ai-agent--skill-用法) 告诉 agent 何时、如何调用。想下载视频和图文，请用 **[Douzy 桌面版](#douzy-桌面版)**。
 
 ## AI Agent / Skill 用法
 

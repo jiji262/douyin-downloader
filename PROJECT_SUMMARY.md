@@ -18,7 +18,7 @@
 - 单个图文下载（`/note/{note_id}`）
 - 抖音短链下载（`https://v.douyin.com/...`，会先解析后下载）
 - 用户主页发布作品批量下载（`/user/{sec_uid}` + `mode: [post]`）
-- 无水印优先下载，支持封面/音乐/头像/原始 JSON
+- 可同时保存封面/音乐/头像/原始 JSON
 - 并发下载、重试、速率限制
 - 基于作品发布时间（`create_time`）生成文件名/目录日期前缀（`YYYY-MM-DD_...`）
 - 生成独立下载清单文件 `download_manifest.jsonl`
