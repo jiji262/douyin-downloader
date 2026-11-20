@@ -70,7 +70,7 @@ Save media from Douyin, TikTok, YouTube, Telegram, and X to your computer. Paste
 
 **[Download for Windows or macOS](https://godouzy.com/#get)** · [GitHub project](https://github.com/0X-42/douzy) · [Latest release and notes](https://github.com/0X-42/douzy/releases/latest)
 
-[![Douzy workspace with platform navigation, recent tasks, and saved media.](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png)](https://github.com/0X-42/douzy/blob/main/media/workbench.png)
+[![Douzy workspace with platform navigation, recent tasks, and saved media.](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench-en.png)](https://github.com/0X-42/douzy/blob/main/media/workbench-en.png)
 
 *The macOS workspace with sample data. Select the screenshot to view it at full size in the Douzy project.*
 
