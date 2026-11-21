@@ -72,3 +72,13 @@ def test_sanitize_filename_falls_back_to_untitled_only_when_nothing_is_left():
     assert sanitize_filename("") == "untitled"
     assert sanitize_filename(" . . ") == "untitled"
     assert sanitize_filename("///???") == "______"
+
+
+@pytest.mark.parametrize("name", ["CON .txt", "con .mp4", "LPT9 .x", "NUL .log"])
+def test_sanitize_filename_neutralizes_reserved_stem_with_inner_space(name):
+    # Windows strips spaces immediately before the extension, so "CON .txt"
+    # is the device name "CON" and cannot be created. The reserved-stem check
+    # must ignore that inner space the same way Windows does.
+    cleaned = sanitize_filename(name)
+    assert cleaned.split(".", 1)[0].strip().upper() not in {"CON", "NUL", "LPT9"}
+    assert cleaned.startswith("_")
