@@ -28,6 +28,7 @@ and effective-proxy policy are desktop-specific.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Callable, Dict, List, Optional
 
 from auth import CookieManager
@@ -121,10 +122,8 @@ async def retry_failed_awemes(
     # downloader's `get_save_path` picks up the same output_dir and folder
     # template that the original run used. Snapshot + restore the values
     # we overwrite, matching `_execute_download` in server/app.py.
-    snap: Dict[str, Any] = {}
+    original_config = copy.deepcopy(config.config) if overrides else None
     if overrides:
-        for k in overrides.keys():
-            snap[k] = config.get(k)
         config.update(**overrides)
 
     try:
@@ -268,7 +267,7 @@ async def retry_failed_awemes(
                         except Exception:
                             pass
     finally:
-        if overrides:
-            config.update(**snap)
+        if original_config is not None:
+            config.config = original_config
 
     return counts
