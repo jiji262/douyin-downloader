@@ -1,6 +1,6 @@
 {
   "name": "douyin-dl",
-  "description": "Agent skill for the open-source douyin-dl CLI (Douyin hot board, search, profiles, live recording, transcription).",
+  "description": "Free Douyin video downloader with CLI and AI Agent skill (batch download, hot board, search, live recording, transcription).",
   "version": "2.1.1",
   "owner": {
     "name": "jiji262",
@@ -10,7 +10,7 @@
     {
       "name": "douyin-dl",
       "source": "./",
-      "description": "Drive the douyin-dl CLI's agent mode. Requires the CLI: uv tool install douyin-dl-cli.",
+      "description": "Free Douyin video downloader & AI agent skill. Drive douyin-dl CLI or query Douyin via agent mode.",
       "category": "productivity",
       "tags": ["douyin", "cli"]
     }

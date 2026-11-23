@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "douyin-dl-cli"
 version = "2.1.1"
-description = "Douyin CLI and agent skill for Claude Code, Codex and other AI agents: hot board, search, live recording, transcription"
+description = "Free Douyin batch video downloader, providing CLI and AI Agent skill (Claude Code, Codex): batch download, hot board, search, live recording, transcription"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"

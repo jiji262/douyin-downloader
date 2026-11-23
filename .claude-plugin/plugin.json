@@ -1,7 +1,7 @@
 {
   "name": "douyin-dl",
   "version": "2.1.1",
-  "description": "Agent skill for the douyin-dl CLI: Douyin hot board, search, user profiles, live recording and transcription. Downloading posts by link is gated (ARGUS_GATED).",
+  "description": "Free Douyin video downloader & AI agent skill: CLI batch download, hot board, search, user profiles, live recording, and transcription.",
   "author": {
     "name": "jiji262",
     "url": "https://github.com/jiji262"
