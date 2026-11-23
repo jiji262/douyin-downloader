@@ -45,7 +45,7 @@ class MusicDownloader(BaseDownloader):
         # 这条作品的跳过 / 失败原因由 _should_download / _download_aweme_assets 记下。
         aweme = await self._get_first_music_aweme(str(music_id))
         if aweme and aweme.get("aweme_id"):
-            if not await self._should_download(str(aweme.get("aweme_id"))):
+            if not await self._should_download(str(aweme.get("aweme_id")), aweme=aweme):
                 aweme_author = (aweme.get("author") or {}).get("nickname", "music")
                 saved = await self._collect_comments_for_existing_aweme(
                     aweme,

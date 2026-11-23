@@ -138,8 +138,11 @@ async def test_music_downloader_falls_back_to_first_aweme_when_direct_audio_miss
     )
 
     downloaded_awemes = []
+    checked = []
 
-    async def _fake_should_download(self, _aweme_id: str):
+    async def _fake_should_download(self, aweme_id: str, **kwargs):
+        # 判据要拿到条目本身：旧版截断名靠发布日期 + 标题认（见 test_legacy_names）。
+        checked.append((aweme_id, (kwargs.get("aweme") or {}).get("aweme_id")))
         return True
 
     async def _fake_download_aweme_assets(self, aweme_data, author_name, mode=None):
@@ -162,3 +165,4 @@ async def test_music_downloader_falls_back_to_first_aweme_when_direct_audio_miss
     assert result.total == 1
     assert result.success == 1
     assert downloaded_awemes == [("fallback-aweme-1", "fallback-author", "music")]
+    assert checked == [("fallback-aweme-1", "fallback-aweme-1")]

@@ -53,7 +53,7 @@ class MixDownloader(BaseDownloader):
                 )
                 return {"status": "failed", "aweme_id": None}
 
-            if not await self._should_download(str(aweme_id)):
+            if not await self._should_download(str(aweme_id), aweme=item):
                 saved = await self._collect_comments_for_existing_aweme(
                     item,
                     author_name,

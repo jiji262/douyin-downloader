@@ -496,6 +496,7 @@ class UserDownloader(BaseDownloader):
             if not await self._should_download(
                 str(aweme_id or ""),
                 force=force_download,
+                aweme=item,
             ):
                 saved = await self._collect_comments_for_existing_aweme(
                     item,

@@ -125,6 +125,24 @@ async def test_mix_downloader_passes_mix_name_as_collection_dir(tmp_path, monkey
 
 
 @pytest.mark.asyncio
+async def test_mix_downloader_passes_item_to_disk_check(tmp_path, monkeypatch):
+    # 旧版截断名靠发布日期 + 标题认（见 test_legacy_names），判据要拿到条目本身。
+    downloader = _make_mix_downloader(tmp_path, _FakeAPIClient())
+    checked = []
+
+    async def _record(aweme_id, **kwargs):
+        checked.append((aweme_id, (kwargs.get("aweme") or {}).get("desc")))
+        return False
+
+    monkeypatch.setattr(downloader, "_should_download", _record)
+
+    result = await downloader.download({"mix_id": "123"})
+
+    assert checked == [("7600224486650121888", "mix-item")]
+    assert result.skipped == 1
+
+
+@pytest.mark.asyncio
 async def test_mix_downloader_collection_dir_falls_back_to_mix_id(tmp_path, monkeypatch):
     """When the mix detail has no name/title, the collection folder falls back
     to the mix_id so downloads never dump into a bare ``mix`` dir."""

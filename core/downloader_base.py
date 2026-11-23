@@ -25,6 +25,7 @@ from core.output_naming import plan_output_paths
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
 from storage.database import order_cover_mirrors
+from utils.legacy_names import LegacyNameIndex
 from utils.logger import setup_logger
 from utils.naming import build_aweme_context
 from utils.paid_content import (
@@ -118,6 +119,8 @@ class BaseDownloader(ABC):
         self.metadata_handler = MetadataHandler()
         self.transcript_manager = TranscriptManager(self.config, self.file_manager, self.database)
         self._local_aweme_ids: Optional[set[str]] = None
+        # 与 _local_aweme_ids 同一次扫描建出：旧版截掉了作品 ID 的文件名。
+        self._legacy_names: Optional[LegacyNameIndex] = None
         # 延迟到事件循环内创建（3.9 上 asyncio.Lock() 在无运行循环时创建
         # 会绑定错误的 loop）。
         self._local_index_build_lock: Optional[asyncio.Lock] = None
@@ -361,12 +364,19 @@ class BaseDownloader(ABC):
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         pass
 
-    async def _should_download(self, aweme_id: str, *, force: bool = False) -> bool:
+    async def _should_download(
+        self,
+        aweme_id: str,
+        *,
+        force: bool = False,
+        aweme: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """``aweme`` 是条目本身；传了才能认出旧版截掉作品 ID 的文件名。"""
         if force:
             return True
 
         await self._ensure_local_aweme_index()
-        if self._is_locally_downloaded(aweme_id):
+        if self._is_locally_downloaded(aweme_id) or self._matches_legacy_name(aweme):
             logger.info("Aweme %s already exists locally, skipping", aweme_id)
             return self._note_item_reason(aweme_id, item_reasons.SKIP_LOCAL_FILE_EXISTS)
 
@@ -426,9 +436,19 @@ class BaseDownloader(ABC):
             return False
         return aweme_id in self._local_aweme_ids
 
+    def _matches_legacy_name(self, aweme: Optional[Dict[str, Any]]) -> bool:
+        """旧版截断掉作品 ID 的文件名，按发布日期 + 标题对回作品（见 utils.legacy_names）。"""
+        if not aweme or self._legacy_names is None:
+            return False
+        _, publish_date = self._resolve_publish_time(aweme.get("create_time"))
+        # 与 _aweme_file_metadata 取标题的口径一致。
+        title = (aweme.get("desc") or "").strip() or "no_title"
+        return self._legacy_names.matches(publish_date, title, str(aweme.get("aweme_id") or ""))
+
     def _build_local_aweme_index(self):
         base_path = self.file_manager.base_path
         aweme_ids: set[str] = set()
+        legacy_names = LegacyNameIndex()
 
         if base_path.exists():
             for path in base_path.rglob("*"):
@@ -449,7 +469,10 @@ class BaseDownloader(ABC):
                     continue
                 for match in self._aweme_id_pattern.finditer(path.name):
                     aweme_ids.add(match.group(1))
+                legacy_names.add(path.stem)
 
+        # 先放旧版名索引：_local_aweme_ids 非 None 即视为索引已建好。
+        self._legacy_names = legacy_names
         self._local_aweme_ids = aweme_ids
 
     def _mark_local_aweme_downloaded(self, aweme_id: str):

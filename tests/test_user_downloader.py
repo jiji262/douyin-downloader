@@ -2,6 +2,7 @@ import asyncio
 import errno
 import logging
 import sys
+from datetime import datetime
 from typing import Any, Dict, List
 
 import pytest
@@ -428,6 +429,26 @@ def test_mode_items_skip_reports_local_file_reason(tmp_path):
 
     assert result.skipped == 1
     assert reporter.item_outcomes == [("skipped", aweme_id, item_reasons.SKIP_LOCAL_FILE_EXISTS)]
+
+
+def test_mode_items_skip_legacy_name_without_aweme_id(tmp_path, monkeypatch):
+    # 0.5.0 及以前把长标题文件名截到 80 个字符、丢了作品 ID（见 test_legacy_names）。
+    item = _make_aweme("7412345678901234573", desc="很长的旧版作品标题" * 10)
+    date = datetime.fromtimestamp(item["create_time"]).strftime("%Y-%m-%d")
+    stem = "{0}_{1}".format(date, item["desc"])[:80]
+    media_path = tmp_path / "Downloaded" / "tester" / "post" / stem / f"{stem}.mp4"
+    media_path.parent.mkdir(parents=True)
+    media_path.write_bytes(b"existing-media")
+    downloader = _build_downloader(tmp_path, _FakeAPIClient(), browser_enabled=False)
+
+    async def _unexpected_download(*_args, **_kwargs):
+        raise AssertionError("legacy names without the aweme id must count as downloaded")
+
+    monkeypatch.setattr(downloader, "_download_aweme_assets", _unexpected_download)
+
+    result = asyncio.run(downloader._download_mode_items("post", [item], "tester"))
+
+    assert result.skipped == 1
 
 
 class _SessionAPIClient(_FakeAPIClient):
