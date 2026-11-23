@@ -43,8 +43,6 @@ def _user_info_summary(user_info: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class UserDownloader(BaseDownloader):
-    SELF_COLLECT_MODES = {"collect", "collectmix"}
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode_registry = UserModeRegistry()

@@ -33,13 +33,16 @@ def plan_output_paths(
     config,
     context,
     mode,
+    author_name=None,
     author_sec_uid=None,
     collection_dir=None,
     with_transcript=False,
     suffixes=(".mp4.tmp", ".transcript.json", "_comments.json"),
 ):
+    # author_name 是目录归属的作者，可以和模板里的 {author} 不同（自己的收藏夹
+    # 归到 self/，文件名用作品作者）；不传时沿用模板上下文里的作者。
     parent = file_manager.get_save_path(
-        author_name=context.get("author", ""),
+        author_name=context.get("author", "") if author_name is None else author_name,
         mode=mode,
         folderstyle=False,
         author_sec_uid=author_sec_uid,

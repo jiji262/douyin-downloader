@@ -85,6 +85,10 @@ class DownloadResult:
 
 
 class BaseDownloader(ABC):
+    # 浏览者自己的收藏 / 收藏合集：条目来自不同作者，目录归到浏览者名下
+    # （self/collect/），文件名里的作者取作品自己的（见 _naming_author）。
+    SELF_COLLECT_MODES = frozenset({"collect", "collectmix"})
+
     def __init__(
         self,
         config: ConfigLoader,
@@ -569,12 +573,15 @@ class BaseDownloader(ABC):
             return None
 
         effective_sec_uid = author_sec_uid or extract_author_sec_uid(aweme_data)
+        naming_author, naming_sec_uid = self._naming_author(
+            aweme_data, mode, author_name=author_name, author_sec_uid=effective_sec_uid
+        )
         context = self._aweme_naming_context(
             aweme_data,
             metadata,
-            author_name=author_name,
+            author_name=naming_author,
             mode=mode,
-            author_sec_uid=effective_sec_uid,
+            author_sec_uid=naming_sec_uid,
         )
         author_dir_style = self.config.get("author_dir") or "nickname"
         self._report_author_output_dir(author_name, effective_sec_uid, author_dir_style)
@@ -583,12 +590,32 @@ class BaseDownloader(ABC):
             config=self.config,
             context=context,
             mode=mode,
+            author_name=author_name,
             author_sec_uid=effective_sec_uid,
             collection_dir=collection_dir,
             with_transcript=metadata["media_type"] == "video" and self.config.get("video", True),
             suffixes=self._aweme_output_suffixes(aweme_data),
         )
         return {**metadata, "file_stem": file_stem, "save_dir": save_dir}
+
+    def _naming_author(
+        self,
+        aweme_data: Dict[str, Any],
+        mode: Optional[str],
+        *,
+        author_name: str,
+        author_sec_uid: Optional[str],
+    ) -> Tuple[str, Optional[str]]:
+        """文件名模板里 {author} / {author_id} 用的作者。
+
+        自己的收藏里目录作者是占位的 self（或浏览者本人），按它填会让每个作品
+        的作者都变成 self（#253），这里改取作品自己的作者，取不到再回退。
+        """
+        if mode not in self.SELF_COLLECT_MODES:
+            return author_name, author_sec_uid
+        author = aweme_data.get("author")
+        nickname = str(author.get("nickname") or "").strip() if isinstance(author, dict) else ""
+        return nickname or author_name, extract_author_sec_uid(aweme_data) or author_sec_uid
 
     def _aweme_output_suffixes(self, aweme_data: Dict[str, Any]) -> Tuple[str, ...]:
         suffixes = [".mp4.tmp", ".transcript.json", "_comments.json", "_avatar.webp.tmp"]
