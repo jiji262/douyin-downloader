@@ -189,8 +189,8 @@ async def test_cancelled_download_leaves_no_tmp_file(tmp_path, monkeypatch):
 
 
 def test_slow_speed_floor_is_below_any_usable_link():
-    """地板必须低到不会误伤真实用户：20 KB/s 下 6MB 视频要 300s+，
-    本来就跨不过既有的 total 超时。"""
+    """地板必须低到不会误伤真实用户：整次下载不设总时长，它是滴水节点
+    唯一的出口，只能拦住远低于任何可用链路的速度。"""
     assert _DOWNLOAD_MIN_SPEED_BPS <= 32 * 1024
 
 

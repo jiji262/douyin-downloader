@@ -24,20 +24,22 @@ _SEC_UID_ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 # （视频动辄几十 MB），256KB 在内存占用与吞吐之间取平衡。
 _DOWNLOAD_CHUNK_BYTES = 256 * 1024
 
-# 媒体下载超时：总时长上限 300s 之外，连接（DNS/TCP/TLS）与读间隙必须
-# 单独设限——/aweme/v1/play/ 302 后可能落到打不通的 PCDN 节点（*.qtaeixd.com
-# 之类高位端口，SYN/握手黑洞），没有 connect 上限时握手会把 total 300s
-# 全部耗光（线上日志实测两次重试间隔正好 300s），批量任务队尾因此停滞。
+# 媒体下载超时：整次下载不设总时长。超长视频、直播回放动辄几 GB，任何固定
+# 总时长都会在「网速 × 时长」处切断仍在正常传输的下载，重试又从 0 字节开始，
+# 表现为反复断在同一进度（#256，旧值 300s）。卡死由三道闸兜住：连接
+# （DNS/TCP/TLS）上限——/aweme/v1/play/ 302 后可能落到打不通的 PCDN 节点
+# （*.qtaeixd.com 之类高位端口，SYN/握手黑洞）；读间隙上限——对端不回响应头
+# 或中途断流；以及下面的吞吐地板——滴水节点。
+# _DOWNLOAD_TOTAL_TIMEOUT_S 只剩 httpx 兜底客户端写入 / 连接池等待的默认上限。
 _DOWNLOAD_TOTAL_TIMEOUT_S = 300
 _DOWNLOAD_CONNECT_TIMEOUT_S = 15
 _DOWNLOAD_READ_STALL_TIMEOUT_S = 60
 
 # 慢节点地板：冷存储 / PCDN 节点（*-mc-cold.douyinvod.com 之类）握手成功后
-# 会以每秒几 KB 滴水式吐字节——一直有数据，sock_read 停滞检测永远不触发，
-# 只能等满 total=300s 才失败切换（线上 job f25a60b4850f 队尾一条视频因此
-# 静默 5 分钟，换下一个候选后 2 秒下完）。20 KB/s 远低于任何可用链路：
-# 真按这个速度，6MB 的视频也要 300s+，本来就跨不过 total 超时，提前放弃
-# 只会更早换到健康候选，不会牺牲原本能成功的下载。
+# 会以每秒几 KB 滴水式吐字节——一直有数据，sock_read 停滞检测永远不触发
+# （线上 job f25a60b4850f 队尾一条视频因此静默 5 分钟，换下一个候选后 2 秒
+# 下完）。整次下载没有总时长，这道地板就是滴水节点唯一的出口。20 KB/s 远低于
+# 任何可用链路，提前放弃只会更早换到健康候选，不会牺牲原本能成功的下载。
 _DOWNLOAD_MIN_SPEED_BPS = 20 * 1024
 _DOWNLOAD_SLOW_WINDOW_S = 30
 
@@ -336,7 +338,7 @@ class FileManager:
             async with session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(
-                    total=_DOWNLOAD_TOTAL_TIMEOUT_S,
+                    total=None,
                     connect=_DOWNLOAD_CONNECT_TIMEOUT_S,
                     sock_read=_DOWNLOAD_READ_STALL_TIMEOUT_S,
                 ),

@@ -35,10 +35,11 @@ from utils.paid_content import (
 
 logger = setup_logger("BaseDownloader")
 
-# 单条视频的兜底总时限。单次请求的 total 超时（storage.file_manager 里的
-# 300s）只约束一次尝试，而 _download_video_with_fallback 会「候选数 × 重试
-# 轮数」地把它乘起来：4 轮 × 4 候选最坏能挂 80 分钟，整个队列跟着停摆。
-# 15 分钟对正常大小的作品绰绰有余（真跑满说明这条已经没救了）。
+# 单条视频的兜底总时限。单次请求不设总时长（见 storage.file_manager），失败的
+# 尝试靠连接 / 读间隙上限和吞吐地板收敛，但 _download_video_with_fallback 会
+# 「候选数 × 重试轮数」地把这些等待叠起来（旧的单次 total=300s 时最坏能挂
+# 80 分钟），整个队列跟着停摆。15 分钟对正常大小的作品绰绰有余；这条时限也会
+# 截断一次耗时超过 15 分钟的普通视频下载（直播回放不走这里）。
 _VIDEO_ITEM_DEADLINE_S = 900
 
 # 评论接口连续这么多个作品请求失败就熔断，之后的作品先不请求评论：被限流时每个
@@ -1061,8 +1062,8 @@ class BaseDownloader(ABC):
         RetryHandler 退避兼顾两种失败模式，单候选时行为与旧退避重试一致。
 
         ``_VIDEO_ITEM_DEADLINE_S`` 是整条作品的兜底时限：候选数 × 重试轮数
-        会把单次超时预算乘起来（旧行为最坏 4 轮 × 4 候选 × 300s ≈ 80 分钟），
-        没有总时限时一条视频就能把整个队列拖死。
+        会把每次失败的等待叠起来（旧的单次 total=300s 时最坏 4 轮 × 4 候选
+        ≈ 80 分钟），没有总时限时一条视频就能把整个队列拖死。
         """
         if not candidates:
             return False

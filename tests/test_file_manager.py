@@ -2,7 +2,10 @@ import asyncio
 import threading
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from storage.file_manager import FileManager
 
@@ -570,17 +573,80 @@ async def test_download_file_no_httpx_fallback_on_404(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_download_file_sets_granular_timeouts(tmp_path):
     """/aweme/v1/play/ 302 后可能落到打不通的 PCDN 节点（高位端口 SYN 黑洞），
-    没有 connect 细分超时时握手会把 total=300s 全部耗光（线上日志实测两次
-    重试间隔正好 300s），批量任务队尾因此长时间停滞。"""
+    没有 connect 细分超时时握手会一直挂着，批量任务队尾因此长时间停滞。
+    整次下载不设总时长（#256），卡死只靠连接 / 读间隙上限与吞吐地板兜住。"""
     fm = FileManager(str(tmp_path))
     session = _aiohttp_session_returning_status(404)
 
     await fm.download_file("https://example.com/v.mp4", tmp_path / "v.mp4", session=session)
 
     timeout = session.get.call_args.kwargs["timeout"]
-    assert timeout.total == 300
+    assert timeout.total is None
     assert timeout.connect == 15
     assert timeout.sock_read == 60
+
+
+def _local_server(handler):
+    """真实本地 HTTP 服务：mock 的 session 不会触发 aiohttp 自己的超时计时。"""
+    app = web.Application()
+    app.router.add_get("/v.mp4", handler)
+    return TestServer(app)
+
+
+@pytest.mark.asyncio
+async def test_download_file_keeps_long_healthy_stream(tmp_path, monkeypatch):
+    """#256：超长视频 / 直播回放一直有数据时，不能被固定总时长掐断。
+
+    旧的 total=300s 会在「网速 × 300s」处切断仍在正常传输的下载，重试又从
+    0 字节开始，用户看到的就是反复断在同一进度。这里把那个常量压到 0.3s，
+    让一个声明了长度的响应体花约 0.8s 慢慢传完。
+    """
+    monkeypatch.setattr("storage.file_manager._DOWNLOAD_TOTAL_TIMEOUT_S", 0.3)
+    chunk = b"\0" * 1024
+    chunks = 8
+
+    async def slow_body(request):
+        response = web.StreamResponse(headers={"Content-Length": str(len(chunk) * chunks)})
+        await response.prepare(request)
+        for _ in range(chunks):
+            await response.write(chunk)
+            await asyncio.sleep(0.1)
+        return response
+
+    save_path = tmp_path / "v.mp4"
+    async with _local_server(slow_body) as server, aiohttp.ClientSession() as session:
+        result = await FileManager(str(tmp_path)).download_file(
+            str(server.make_url("/v.mp4")), save_path, session=session
+        )
+
+    assert result is True
+    assert save_path.stat().st_size == len(chunk) * chunks
+
+
+@pytest.mark.asyncio
+async def test_download_file_gives_up_when_server_never_answers(tmp_path, monkeypatch):
+    """去掉总时长后，对端一直不回响应头也要被读间隙上限兜住，不能无限挂起。"""
+    monkeypatch.setattr("storage.file_manager._DOWNLOAD_READ_STALL_TIMEOUT_S", 0.3)
+    release = asyncio.Event()
+
+    async def never_answers(request):
+        await release.wait()
+        return web.Response(body=b"late")
+
+    save_path = tmp_path / "v.mp4"
+    async with _local_server(never_answers) as server, aiohttp.ClientSession() as session:
+        try:
+            result = await asyncio.wait_for(
+                FileManager(str(tmp_path)).download_file(
+                    str(server.make_url("/v.mp4")), save_path, session=session
+                ),
+                timeout=5,
+            )
+        finally:
+            release.set()
+
+    assert result is False
+    assert not save_path.exists()
 
 
 @pytest.mark.asyncio
