@@ -131,7 +131,7 @@ skill 给 agent 定好了固定流程：
 
 ```bash
 douyin-dl agent hot --max 3
-# {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
+# {"schema":1,"ok":true,"verb":"hot","version":"2.1.1","data":{"items":[…],"count":3},"error":null,"warnings":[]}
 ```
 
 只有退出码为 0 时 `ok` 才是 `true`。失败时按 `error.code`（如 `LOGIN_REQUIRED`、`ARGUS_GATED`、`UPSTREAM_EMPTY`）判断，不要按报错文字判断。需要代理时设置 `DOUYIN_PROXY`（如 `http://127.0.0.1:7890`）。全部字段、错误码与退出码见[契约](skills/douyin-dl/references/contract.md)。

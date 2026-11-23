@@ -1,6 +1,6 @@
 {
   "name": "douyin-dl",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Agent skill for the douyin-dl CLI: Douyin hot board, search, user profiles, live recording and transcription. Downloading posts by link is gated (ARGUS_GATED).",
   "author": {
     "name": "jiji262",

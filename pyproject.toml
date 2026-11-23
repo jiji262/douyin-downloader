@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "douyin-dl-cli"
-version = "2.1.0"
+version = "2.1.1"
 description = "Douyin CLI and agent skill for Claude Code, Codex and other AI agents: hot board, search, live recording, transcription"
 readme = "README.md"
 license = {text = "MIT"}
@@ -67,6 +67,11 @@ all = [
 
 [project.scripts]
 douyin-dl = "cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/jiji262/douyin-downloader"
+Repository = "https://github.com/jiji262/douyin-downloader"
+Issues = "https://github.com/jiji262/douyin-downloader/issues"
 
 [tool.setuptools.packages.find]
 include = ["agent_mode*", "cli*", "core*", "auth*", "config*", "control*", "storage*", "utils*", "tools*", "server*"]

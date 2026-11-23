@@ -1,7 +1,7 @@
 #!/bin/sh
 # Fallback launcher: use douyin-dl from PATH, else a pinned uvx, else report DEPENDENCY_MISSING.
 set -eu
-VERSION="2.1.0"
+VERSION="2.1.1"
 # To run unreleased code: DOUYIN_DL_SPEC=git+https://github.com/jiji262/douyin-downloader
 SPEC="${DOUYIN_DL_SPEC:-douyin-dl-cli==${VERSION}}"
 if command -v douyin-dl >/dev/null 2>&1; then

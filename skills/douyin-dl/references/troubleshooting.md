@@ -21,7 +21,7 @@ uv tool install git+https://github.com/jiji262/douyin-downloader
   and `pipx` give it an isolated environment.
 - `douyin-dl: command not found` after installing: run `uv tool update-shell` (or
   `pipx ensurepath`) and open a new shell. Until then `scripts/dy.sh` can launch it.
-- `scripts/dy.sh` pins `douyin-dl-cli==2.1.0` for `uvx`. To run unreleased code instead, set
+- `scripts/dy.sh` pins `douyin-dl-cli==2.1.1` for `uvx`. To run unreleased code instead, set
   `DOUYIN_DL_SPEC=git+https://github.com/jiji262/douyin-downloader`.
 - A `version` in the envelope that differs from the skill's `metadata.version` means the
   CLI and the skill are out of step; upgrade with `uv tool upgrade douyin-dl-cli`.

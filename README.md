@@ -132,7 +132,7 @@ The same commands work without an agent. Each one prints exactly one JSON line o
 
 ```bash
 douyin-dl agent hot --max 3
-# {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
+# {"schema":1,"ok":true,"verb":"hot","version":"2.1.1","data":{"items":[…],"count":3},"error":null,"warnings":[]}
 ```
 
 `ok` is `true` only when the exit code is 0. On failure, branch on `error.code` (such as `LOGIN_REQUIRED`, `ARGUS_GATED`, or `UPSTREAM_EMPTY`), not on the message. Set `DOUYIN_PROXY` (for example `http://127.0.0.1:7890`) to send requests through a proxy. Every field, error code, and exit code: [contract](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/contract.md).

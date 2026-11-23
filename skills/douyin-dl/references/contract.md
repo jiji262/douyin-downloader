@@ -23,7 +23,7 @@ douyin-dl agent [--verbose] <verb> [arguments]
 ## Envelope
 
 ```json
-{"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{},"error":null,"warnings":[]}
+{"schema":1,"ok":true,"verb":"hot","version":"2.1.1","data":{},"error":null,"warnings":[]}
 ```
 
 | Field | Type | Meaning |

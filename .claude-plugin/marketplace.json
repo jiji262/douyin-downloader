@@ -1,7 +1,7 @@
 {
   "name": "douyin-dl",
   "description": "Agent skill for the open-source douyin-dl CLI (Douyin hot board, search, profiles, live recording, transcription).",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "owner": {
     "name": "jiji262",
     "url": "https://github.com/jiji262"
