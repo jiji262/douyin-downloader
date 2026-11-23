@@ -237,7 +237,7 @@ def test_collect_image_live_urls_prefers_high_bitrate(tmp_path):
     }
 
     urls = downloader._collect_image_live_urls(aweme_data)
-    assert urls == ["https://high.example/live"]
+    assert urls == [(1, "https://high.example/live")]
 
 
 def test_note_aweme_without_gallery_assets_falls_back_to_video(tmp_path):
@@ -307,4 +307,4 @@ def test_collect_image_live_urls_uses_h264_variant_when_play_addr_missing(tmp_pa
     }
 
     urls = downloader._collect_image_live_urls(aweme_data)
-    assert urls == ["https://v3-web.douyinvod.com/live-h264.mp4"]
+    assert urls == [(1, "https://v3-web.douyinvod.com/live-h264.mp4")]

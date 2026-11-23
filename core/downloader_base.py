@@ -594,7 +594,7 @@ class BaseDownloader(ABC):
         suffixes = [".mp4.tmp", ".transcript.json", "_comments.json", "_avatar.webp.tmp"]
         image_count = len(self._collect_image_url_candidates(aweme_data))
         suffixes.append("_{0}.webp.tmp".format(image_count))
-        for index, url in enumerate(self._collect_image_live_urls(aweme_data), start=1):
+        for index, url in self._collect_image_live_urls(aweme_data):
             extension = Path(urlparse(url).path).suffix or ".mp4"
             suffixes.append("_live_{0}{1}.tmp".format(index, extension))
         return tuple(suffixes)
@@ -845,7 +845,7 @@ class BaseDownloader(ABC):
                     logger.error(f"Failed downloading image {index} for aweme {aweme_id}")
                     return self._note_item_reason(aweme_id, item_reasons.FAIL_GALLERY_IMAGE)
 
-            for index, live_url in enumerate(image_live_urls, start=1):
+            for index, live_url in image_live_urls:
                 suffix = Path(urlparse(live_url).path).suffix or ".mp4"
                 live_path = save_dir / f"{file_stem}_live_{index}{suffix}"
                 success = await self._download_with_retry(
@@ -1593,16 +1593,7 @@ class BaseDownloader(ABC):
         for item in gallery_items:
             if not isinstance(item, dict):
                 continue
-            candidates = self._collect_ranked_media_urls(
-                (item.get("watermark_free_download_url_list"), item, 0),
-                (item.get("origin_image"), item.get("origin_image"), 1),
-                (item.get("display_image"), item.get("display_image"), 2),
-                (item, item, 3),
-                (item.get("download_url"), item.get("download_url"), 4),
-                (item.get("download_addr"), item.get("download_addr"), 5),
-                (item.get("download_url_list"), item, 6),
-                (item.get("owner_watermark_image"), item.get("owner_watermark_image"), 7),
-            )
+            candidates = self._image_item_url_candidates(item)
             if candidates:
                 image_urls.append(candidates)
         if not image_urls:
@@ -1613,28 +1604,60 @@ class BaseDownloader(ABC):
             )
         return image_urls
 
-    def _collect_image_live_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
-        live_urls: List[str] = []
+    def _image_item_url_candidates(self, item: Dict[str, Any]) -> List[str]:
+        return self._collect_ranked_media_urls(
+            (item.get("watermark_free_download_url_list"), item, 0),
+            (item.get("origin_image"), item.get("origin_image"), 1),
+            (item.get("display_image"), item.get("display_image"), 2),
+            (item, item, 3),
+            (item.get("download_url"), item.get("download_url"), 4),
+            (item.get("download_addr"), item.get("download_addr"), 5),
+            (item.get("download_url_list"), item, 6),
+            (item.get("owner_watermark_image"), item.get("owner_watermark_image"), 7),
+        )
+
+    def _collect_image_live_urls(self, aweme_data: Dict[str, Any]) -> List[Tuple[int, str]]:
+        """返回 (序号, 实况视频地址)，序号与 _collect_image_url_candidates 的图片序号一致。
+
+        按实况出现顺序另起编号时，「实况、静态、实况」的第二段实况会叫 _live_2，
+        和第 3 张图对不上（#239）。没有静态图的实况排在所有图片序号之后，免得撞名。
+        """
         quality = str(self.config.get("video_quality") or "highest")
+        numbered: List[Tuple[int, str]] = []
+        orphans: List[str] = []
+        seen: Set[str] = set()
+        image_index = 0
         for item in self._iter_gallery_items(aweme_data):
             if not isinstance(item, dict):
                 continue
-            video = item.get("video") if isinstance(item.get("video"), dict) else {}
-            # 实况图同样会有 bit_rate 多档，按配置的画质偏好选择对应档位。
-            preferred_play_addr = self._pick_preferred_play_addr(video, quality)
-            live_url = self._pick_first_media_url(
-                preferred_play_addr,
-                video.get("play_addr_h264"),
-                video.get("play_addr_265"),
-                video.get("play_addr_256"),
-                video.get("play_addr"),
-                video.get("download_addr"),
-                item.get("video_play_addr"),
-                item.get("video_download_addr"),
-            )
-            if live_url:
-                live_urls.append(live_url)
-        return self._deduplicate_urls(live_urls)
+            has_image = bool(self._image_item_url_candidates(item))
+            if has_image:
+                image_index += 1
+            live_url = self._pick_image_live_url(item, quality)
+            if not live_url or live_url in seen:
+                continue
+            seen.add(live_url)
+            if has_image:
+                numbered.append((image_index, live_url))
+            else:
+                orphans.append(live_url)
+        numbered.extend((image_index + offset, url) for offset, url in enumerate(orphans, start=1))
+        return numbered
+
+    def _pick_image_live_url(self, item: Dict[str, Any], quality: str) -> Optional[str]:
+        video = item.get("video") if isinstance(item.get("video"), dict) else {}
+        # 实况图同样会有 bit_rate 多档，按配置的画质偏好选择对应档位。
+        preferred_play_addr = self._pick_preferred_play_addr(video, quality)
+        return self._pick_first_media_url(
+            preferred_play_addr,
+            video.get("play_addr_h264"),
+            video.get("play_addr_265"),
+            video.get("play_addr_256"),
+            video.get("play_addr"),
+            video.get("download_addr"),
+            item.get("video_play_addr"),
+            item.get("video_download_addr"),
+        )
 
     @staticmethod
     def _iter_gallery_items(aweme_data: Dict[str, Any]) -> List[Any]:
@@ -1648,17 +1671,6 @@ class BaseDownloader(ABC):
         if isinstance(images, list):
             return images
         return []
-
-    @staticmethod
-    def _deduplicate_urls(urls: List[str]) -> List[str]:
-        deduped: List[str] = []
-        seen: set[str] = set()
-        for url in urls:
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            deduped.append(url)
-        return deduped
 
     @staticmethod
     def _pick_first_media_url(*sources: Any) -> Optional[str]:

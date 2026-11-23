@@ -1426,6 +1426,52 @@ async def test_download_aweme_assets_gallery_fails_when_live_video_download_fail
     await api_client.close()
 
 
+@pytest.mark.asyncio
+async def test_gallery_live_photo_index_matches_its_image(tmp_path, monkeypatch):
+    """#239：实况视频的序号要和对应静态图一致，不能按实况出现顺序另起编号。"""
+    downloader, api_client = _build_downloader(tmp_path)
+    downloader.config.update(music=False, cover=False, avatar=False, json=False, folderstyle=True)
+
+    async def _fake_get_session():
+        return object()
+
+    monkeypatch.setattr(api_client, "get_session", _fake_get_session)
+
+    saved_paths = []
+
+    async def _fake_download_with_retry(self, _url, save_path, _session, **_kwargs):
+        saved_paths.append(save_path)
+        return True
+
+    downloader._download_with_retry = _fake_download_with_retry.__get__(downloader, VideoDownloader)
+
+    def _image(number, live=False):
+        item = {"display_image": {"url_list": ["https://example.com/%d.webp" % number]}}
+        if live:
+            item["video"] = {
+                "play_addr": {"url_list": ["https://example.com/%d_live.mp4" % number]}
+            }
+        return item
+
+    aweme_data = {
+        "aweme_id": "7600224486650121531",
+        "desc": "实况与静态混排",
+        "image_post_info": {"images": [_image(1, live=True), _image(2), _image(3, live=True)]},
+    }
+
+    success = await downloader._download_aweme_assets(
+        aweme_data, author_name="测试作者", mode="post"
+    )
+
+    assert success is True
+    images = sorted(p.name.rsplit("_", 1)[1] for p in saved_paths if p.suffix == ".webp")
+    lives = sorted(p.name.rsplit("_live_", 1)[1] for p in saved_paths if "_live_" in p.name)
+    assert images == ["1.webp", "2.webp", "3.webp"]
+    assert lives == ["1.mp4", "3.mp4"]
+
+    await api_client.close()
+
+
 def test_detect_media_type_by_aweme_type(tmp_path):
     """aweme_type 2/68/150 should be detected as gallery even without images key."""
     downloader, api_client = _build_downloader(tmp_path)
