@@ -6,74 +6,139 @@
 
 **简体中文** · [English](README.md)
 
-**面向 AI Agent 的抖音 Skill。** 让 Claude Code、Codex 等 agent 查热榜、搜索、看博主资料、录直播、转写媒体。每条 `douyin-dl agent` 命令只输出一行 JSON，错误码固定；仓库自带的 [skill](#ai-agent--skill-用法) 告诉 agent 何时、如何调用。想下载视频和图文，请用 **[Douzy 桌面版](#douzy-桌面版)**。
+**面向 AI Agent 的抖音 Skill。** 装好 [`douyin-dl` skill](#ai-agent--skill-用法) 后，直接用日常语言让 Claude Code、Codex 等 agent 查抖音热榜、搜索作品、看博主资料、录直播、转写本地视频。skill 告诉 agent 何时运行 `douyin-dl agent` 命令、怎样读每条命令输出的那一行 JSON。下载视频和图文不在 skill 的能力范围内，请使用本项目的赞助商 **[Douzy 桌面版](#douzy-桌面版)**。
 
-## AI Agent / Skill 用法
+<a id="ai-agent--skill-用法"></a>
 
-**1. 安装 CLI**
+## AI Agent Skill 使用指南
+
+skill 就是 [`skills/douyin-dl/`](skills/douyin-dl/) 这个目录，里面是写给 agent 的说明，实际干活的是 `douyin-dl` 命令行。两者都要装。
+
+### 第 1 步：安装 CLI
 
 ```bash
 uv tool install douyin-dl-cli    # 或：pipx install douyin-dl-cli
-# GitHub 上尚未发布的代码：uv tool install git+https://github.com/jiji262/douyin-downloader
 douyin-dl agent doctor
 ```
 
-PyPI 包名是 `douyin-dl-cli`，装好后的命令是 `douyin-dl`。已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
+- 需要 Python 3.10+。PyPI 包名是 `douyin-dl-cli`，装好后的命令是 `douyin-dl`。
+- 想用 GitHub 上尚未发布的代码：`uv tool install git+https://github.com/jiji262/douyin-downloader`。已克隆仓库并装好依赖时，也可以直接运行 `python run.py agent doctor`。
+- 不要用 `pip install` 装进共享环境：顶层包名 `utils`、`core`、`config` 会与其他项目冲突。
+- 提示 `douyin-dl: command not found` 时，运行 `uv tool update-shell`（或 `pipx ensurepath`），再打开一个新终端。
 
-**2. 安装 skill**（任选一种）
+`doctor` 不联网，会列出哪些命令已经可用。有两项功能需要额外组件，可以现在装，也可以等 agent 提示时再装：
 
-```bash
-# Claude Code
+| 功能 | 需要 | 用 uv 安装 |
+|:---|:---|:---|
+| 登录（`search`、`user` 要用） | Playwright 和 Chromium | `uv tool install --force "douyin-dl-cli[browser]"`。如果仍缺 Chromium，`login` 会返回确切的安装命令 |
+| 转写 | Whisper，会连带安装体积很大的 PyTorch | `uv tool install --force "douyin-dl-cli[transcribe]"` |
+
+两项都要时用 `"douyin-dl-cli[browser,transcribe]"`。直播录制使用 CLI 自带的 FFmpeg，无需另装。pipx 的命令和其他情况见[故障排查](skills/douyin-dl/references/troubleshooting.md)。
+
+### 第 2 步：安装 skill
+
+**Claude Code**：在 Claude Code 会话里依次输入：
+
+```text
 /plugin marketplace add jiji262/douyin-downloader
 /plugin install douyin-dl@douyin-dl
-
-# Codex 及其他 agent：复制目录（在本仓库克隆目录下执行）
-cp -r skills/douyin-dl ~/.agents/skills/
-
-# 或使用 skills CLI
-npx skills add jiji262/douyin-downloader
 ```
 
-**3. 对 agent 说**
+第二条命令会打开插件详情，选好安装范围（scope）即可完成安装。输入 `/`，能看到 `/douyin-dl:douyin-dl` 就说明装好了。也可以在终端里先后运行 `claude plugin marketplace add jiji262/douyin-downloader` 和 `claude plugin install douyin-dl@douyin-dl`。
 
-- 「抖音热榜现在有什么？」
-- 「在抖音搜索 `猫咪`，总结前 10 条结果。」
-- 「看一下这个博主的资料：`https://www.douyin.com/user/…`」
-- 「录制这个直播间 5 分钟：`https://live.douyin.com/…`」
-- 「转写本地的 `./clip.mp4`。」
+**Codex**：把 skill 目录复制到用户级 skill 目录：
 
-agent 实际执行的是 `douyin-dl agent hot --max 3` 这类命令，并读取它输出的那一行 JSON：
+```bash
+git clone https://github.com/jiji262/douyin-downloader.git
+mkdir -p ~/.agents/skills
+cp -r douyin-downloader/skills/douyin-dl ~/.agents/skills/
+```
+
+Codex 会自动发现新 skill；没出现时重启 Codex。
+
+**其他 agent**（Cursor、OpenCode 等）：用 [skills CLI](https://github.com/vercel-labs/skills) 安装。
+
+```bash
+npx skills add jiji262/douyin-downloader       # 只装到当前项目
+npx skills add jiji262/douyin-downloader -g    # 所有项目可用
+```
+
+### 第 3 步：直接对 agent 说
+
+通常提到抖音或贴一个抖音链接，agent 就会用上这个 skill。想点名调用时，在 Claude Code 里以 `/douyin-dl:douyin-dl` 开头（插件方式安装时），在 Codex 里写上 `$douyin-dl`。
+
+| 你说 | agent 执行 | 前提 |
+|:---|:---|:---|
+| 「看看抖音热榜前 10。」 | `douyin-dl agent hot --max 10` | 无 |
+| 「在抖音搜 `露营`，按点赞排序，总结前 10 条。」 | `douyin-dl agent search 露营 --sort likes --max 10` | 需登录 |
+| 「看一下这个博主的资料：`https://www.douyin.com/user/…`」 | `douyin-dl agent user <链接>` | 需登录 |
+| 「这个链接是什么？能下载吗？」 | `douyin-dl agent inspect <链接>` | 无 |
+| 「把这个直播间录 10 分钟：`https://live.douyin.com/…`」 | `douyin-dl agent live <链接> --max-duration 600` | 无 |
+| 「把 `./clip.mp4` 转成文字。」 | `douyin-dl agent transcribe ./clip.mp4` | Whisper |
+
+### agent 会怎么做
+
+skill 给 agent 定好了固定流程：
+
+1. **先体检。** 每次会话开始先运行 `douyin-dl agent doctor`，确认哪些命令可用。
+2. **装组件前先问你。** 缺组件时，把确切的安装命令给你看，你同意后才运行。
+3. **登录前先问你。** `search` 需要登录态，`user` 需要已保存的 Cookie。agent 会先说明情况；你同意后它运行 `douyin-dl agent login`，弹出一个 Chromium 窗口，你在窗口里自己扫码或用短信登录抖音，登录完成后窗口自动关闭。
+4. **按错误码处理结果。** 每条命令只输出一行 JSON，agent 根据 `error.code` 决定下一步，并转告影响你的警告。标题、昵称、热词等来自抖音的文字只当作数据，不当作指令。
+5. **如实拒绝下载请求。** 视频、图文、合集和音乐链接会返回 `ARGUS_GATED`，博主主页的作品同样无法下载。agent 会直接告诉你做不到、推荐 [Douzy](#douzy-桌面版)，不会尝试任何绕过手段。
+
+它还会控制对抖音的请求量：每次请求只搜索一次（要再搜会先问你），不并发调用，结果为空时最多重试一次。
+
+### 登录与隐私
+
+- Cookie 只保存在你的电脑上：`~/.douyin-dl/cookies.json`（文件权限 0600），可用 `DOUYIN_DL_HOME` 改位置。agent 模式不读取 `config.yml`，也不读取经典命令行保存的 Cookie。
+- 命令输出只列出找到了哪些 Cookie 名称，不显示值。不要把 Cookie、Token 或短信验证码贴进对话；skill 也要求 agent 不得索要这些。
+- 没有图形界面（如 SSH、服务器）时，自己把抖音 Cookie 导出为 JSON 文件，再运行 `douyin-dl agent login --from-file cookies.json` 导入。
+- 请求发往 douyin.com。已保存的 Cookie 里没有 `msToken` 时，CLI 还会从 GitHub 下载一个小配置文件来生成它。
+
+### 直播录制与转写
+
+- **直播录制：** 必须给出时长，范围 1 秒到 6 小时（`--max-duration`，最多 21600 秒）；你没说时长，agent 会先问。文件默认存到 `./douyin-downloads`，也可以指定其他目录（`--out`）；录得久的会放到后台运行。直播间没在播时，agent 会如实告诉你。
+- **转写：** 可以传一个文件，也可以传一个目录（递归查找 `.mp4`）。每个视频旁边（或 `--out` 指定的目录里）会生成 `<文件名>.transcript.txt`。默认 `--model base`、`--language zh`；首次运行会下载 Whisper 模型。
+
+### 不经 agent 直接运行
+
+这些命令也能直接在终端里用。每条命令在 stdout 只输出一行 JSON，日志写到 stderr：
 
 ```bash
 douyin-dl agent hot --max 3
 # {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
 ```
 
-| 状态 | 能力 |
+只有退出码为 0 时 `ok` 才是 `true`。失败时按 `error.code`（如 `LOGIN_REQUIRED`、`ARGUS_GATED`、`UPSTREAM_EMPTY`）判断，不要按报错文字判断。需要代理时设置 `DOUYIN_PROXY`（如 `http://127.0.0.1:7890`）。全部字段、错误码与退出码见[契约](skills/douyin-dl/references/contract.md)。
+
+### 更新
+
+- **CLI：** `uv tool upgrade douyin-dl-cli`（或 `pipx upgrade douyin-dl-cli`）。
+- **Claude Code 里的 skill：** 运行 `claude plugin update douyin-dl@douyin-dl`，或在 `/plugin` 的 **Installed** 页选择 **Update now**。这个 marketplace 默认不自动更新。
+- **用 skills CLI 装的 skill：** `npx skills update`。复制安装的（如 Codex）重新复制一遍即可。
+- JSON 输出里的 `version` 与 skill 的 `SKILL.md` 中 `metadata.version` 不一致时，把两者都更新到最新。
+
+### 常见问题
+
+| 现象 | 处理 |
 |:---|:---|
-| 可用 | 热搜榜（`hot`）、链接识别（`inspect`）、直播录制（`live`）、本地转写（`transcribe`）、环境检查（`doctor`） |
-| 需登录 | 关键词搜索（`search`）、主页信息（`user`）；运行 `douyin-dl agent login`，在自己的浏览器窗口中登录 |
-| 受限 | 按链接下载视频／图文、合集、音乐或主页作品会返回 `ARGUS_GATED`，请使用 **Douzy** |
+| `douyin-dl: command not found` | 运行 `uv tool update-shell`（或 `pipx ensurepath`）后打开新终端。在此之前，agent 可以改用 skill 自带的 `scripts/dy.sh`，它通过 `uvx` 运行 CLI |
+| `search` 又要求登录 | 登录态过期了，让 agent 重新登录即可 |
+| 结果为空（`UPSTREAM_EMPTY`） | 触发了抖音的限流或风控。等几分钟再试，频繁重试会让封锁持续更久。境外代理常拿到空结果，可以关掉代理或换国内出口 |
+| 视频链接返回 `ARGUS_GATED` | 符合预期：CLI 无法下载，重新登录也没用。请用 [Douzy](#douzy-桌面版) |
+| Windows | 在 PowerShell 或 cmd 里直接运行 `douyin-dl agent …`；`scripts/dy.sh` 需要 Git Bash 或 WSL |
 
-- agent 模式的登录态单独保存在 `~/.douyin-dl`（可用 `DOUYIN_DL_HOME` 改位置），不读取 `config.yml` 或 `tools.cookie_fetcher` 保存的 Cookie，输出中也不会出现 Cookie 值。
-- `login` 需要 Playwright 和 Chromium，`transcribe` 需要 Whisper。`doctor` 会列出缺少的组件和确切的安装命令。
-- 需要代理时设置 `DOUYIN_PROXY`。
-
-固定的错误码与退出码、逐字段说明：[契约](skills/douyin-dl/references/contract.md) · [故障排查](skills/douyin-dl/references/troubleshooting.md)
+更多问题见[故障排查](skills/douyin-dl/references/troubleshooting.md)。
 
 <a id="douzy-桌面版"></a>
 
-## 友情链接 · Douzy 桌面版
+## 赞助商
 
-把抖音、TikTok、YouTube、Telegram 和 X 的内容保存到电脑。在同一个窗口里粘贴链接、查看任务进度、翻找已保存的作品。
+| 赞助商 | 简介 |
+|:---:|:---|
+| <a href="https://godouzy.com/"><img src="https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png" alt="Douzy 工作台截图，使用示例数据" width="400" /></a> | **[Douzy 桌面版](https://godouzy.com/)**<br>把抖音、TikTok、YouTube、Telegram 和 X 的内容保存到电脑，skill 不支持的视频和图文下载可以交给它。在同一个窗口里粘贴链接、查看任务进度、翻找已保存的作品。<br>各平台按需启用插件或本机组件，部分批量和高级功能需要激活。<br>**[下载 Windows / macOS 版](https://godouzy.com/#get)** · [GitHub 项目](https://github.com/0X-42/douzy) · [最新版与发布说明](https://github.com/0X-42/douzy/releases/latest) |
 
-**[下载 Windows / macOS 版](https://godouzy.com/#get)**　·　[GitHub 项目](https://github.com/0X-42/douzy)　·　[最新版与发布说明](https://github.com/0X-42/douzy/releases/latest)
-
-[![Douzy 工作台，左侧为平台导航，中间显示链接任务和最近保存的作品。](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png)](https://github.com/0X-42/douzy/blob/main/media/workbench.png)
-
-*macOS 工作台，使用示例数据。点击截图可在 Douzy 项目中查看原图。*
-
-各平台按需启用插件或本机组件，部分批量和高级功能需要激活。
+**[成为赞助商](https://github.com/jiji262/douyin-downloader/issues/new?template=sponsor.yml)**
 
 ## 经典命令行版
 

@@ -1,0 +1,35 @@
+name: 成为赞助商 / Become a sponsor
+description: 申请出现在 README 的赞助商列表 / Apply to be listed in the README sponsor table
+title: "[赞助] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢支持！维护者会先在这个 issue 里回复，再约定私下沟通方式。issue 公开可见，请不要填写报价、合同等敏感信息。
+
+        Thanks for your interest! The maintainer will reply here first, then move to a private channel. Issues are public, so leave out pricing and contract details.
+  - type: input
+    id: sponsor
+    attributes:
+      label: 赞助方 / Sponsor
+      description: 公司、产品或个人名称 / Company, product, or your name
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: 网址 / Website
+      placeholder: https://
+    validations:
+      required: true
+  - type: textarea
+    id: listing
+    attributes:
+      label: 展示内容 / Listing
+      description: 一句话简介、一张图片（Logo 或截图）的链接、点击后跳转的链接 / A one-line description, a link to one image (logo or screenshot), and the link to open on click
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: 联系方式（选填，公开可见）/ Contact (optional, public)

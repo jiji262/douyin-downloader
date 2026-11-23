@@ -7,74 +7,139 @@
 
 [简体中文](https://github.com/jiji262/douyin-downloader/blob/main/README.zh-CN.md) · **English**
 
-**A Douyin skill for AI agents.** Let Claude Code, Codex, and other agents read the hot board, search, look up profiles, record live streams, and transcribe media. Every `douyin-dl agent` command prints one JSON line with stable error codes, and the bundled [skill](#ai-agent--skill) tells the agent when and how to call it. To download videos and photos, use the **[Douzy desktop app](#douzy-desktop)**.
+**A Douyin skill for AI agents.** Install the [`douyin-dl` skill](#ai-agent--skill), then ask Claude Code, Codex, or another agent in plain language to read Douyin's hot board, search posts, look up a creator, record a live room, or transcribe a local video. The skill tells the agent when to run the `douyin-dl agent` CLI and how to read the one JSON line each command prints. Downloading videos and photos is not part of the skill; for that, use our sponsor, the **[Douzy desktop app](#douzy-desktop)**.
 
-## AI Agent / Skill
+<a id="ai-agent--skill"></a>
 
-**1. Install the CLI**
+## Using the AI Agent Skill
+
+The skill is the [`skills/douyin-dl/`](https://github.com/jiji262/douyin-downloader/tree/main/skills/douyin-dl) folder. It holds instructions for the agent; the work itself is done by the `douyin-dl` CLI. Install both.
+
+### Step 1. Install the CLI
 
 ```bash
 uv tool install douyin-dl-cli    # or: pipx install douyin-dl-cli
-# unreleased code from GitHub: uv tool install git+https://github.com/jiji262/douyin-downloader
 douyin-dl agent doctor
 ```
 
-The PyPI package is `douyin-dl-cli`; the command it installs is `douyin-dl`. In a cloned checkout with the requirements installed, `python run.py agent doctor` works too. Do not `pip install` the package into a shared environment: its top-level packages `utils`, `core`, and `config` collide with other projects.
+- Requires Python 3.10+. The PyPI package is `douyin-dl-cli`; the command it installs is `douyin-dl`.
+- Unreleased code from GitHub: `uv tool install git+https://github.com/jiji262/douyin-downloader`. In a cloned checkout with the requirements installed, `python run.py agent doctor` works too.
+- Do not `pip install` the package into a shared environment: its top-level packages `utils`, `core`, and `config` collide with other projects.
+- `douyin-dl: command not found`: run `uv tool update-shell` (or `pipx ensurepath`) and open a new terminal.
 
-**2. Install the skill** (pick one)
+`doctor` works offline and lists which commands are ready. Two features need extra components. Install them now, or wait until the agent asks:
 
-```bash
-# Claude Code
+| Feature | Needs | Install with uv |
+|:---|:---|:---|
+| Sign-in, for `search` and `user` | Playwright and Chromium | `uv tool install --force "douyin-dl-cli[browser]"`. If Chromium is still missing, `login` returns the exact command to install it |
+| Transcription | Whisper, which pulls in PyTorch (a large download) | `uv tool install --force "douyin-dl-cli[transcribe]"` |
+
+For both, use `"douyin-dl-cli[browser,transcribe]"`. Live recording uses the FFmpeg bundled with the CLI. pipx commands and other setups: [troubleshooting](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/troubleshooting.md).
+
+### Step 2. Install the skill
+
+**Claude Code**: run these in a Claude Code session.
+
+```text
 /plugin marketplace add jiji262/douyin-downloader
 /plugin install douyin-dl@douyin-dl
-
-# Codex and other agents: copy the folder (run from a clone of this repo)
-cp -r skills/douyin-dl ~/.agents/skills/
-
-# or use the skills CLI
-npx skills add jiji262/douyin-downloader
 ```
 
-**3. Ask your agent**
+The second command opens the plugin's details; choose an install scope to finish. Type `/` to check: `/douyin-dl:douyin-dl` should be listed. From a shell, `claude plugin marketplace add jiji262/douyin-downloader` followed by `claude plugin install douyin-dl@douyin-dl` does the same.
 
-- "What's on Douyin's hot board right now?"
-- "Search Douyin for `cats` and summarize the top 10 posts."
-- "Look up this creator's profile: `https://www.douyin.com/user/…`"
-- "Record this live room for 5 minutes: `https://live.douyin.com/…`"
-- "Transcribe `./clip.mp4`."
+**Codex**: copy the skill folder into your user skills folder.
 
-The agent runs commands such as `douyin-dl agent hot --max 3` and reads the single JSON line they print:
+```bash
+git clone https://github.com/jiji262/douyin-downloader.git
+mkdir -p ~/.agents/skills
+cp -r douyin-downloader/skills/douyin-dl ~/.agents/skills/
+```
+
+Codex picks up new skills on its own; restart it if the skill does not appear.
+
+**Other agents** (Cursor, OpenCode, and more): use the [skills CLI](https://github.com/vercel-labs/skills).
+
+```bash
+npx skills add jiji262/douyin-downloader       # this project only
+npx skills add jiji262/douyin-downloader -g    # all projects
+```
+
+### Step 3. Ask in plain language
+
+Usually you just mention Douyin or paste a Douyin link, and the agent picks the skill. To call it by name, start your message with `/douyin-dl:douyin-dl` in Claude Code (plugin install) or include `$douyin-dl` in Codex.
+
+| You say | The agent runs | Needs |
+|:---|:---|:---|
+| "Show me the top 10 on Douyin's hot board." | `douyin-dl agent hot --max 10` | Nothing |
+| "Search Douyin for `camping`, sort by likes, and summarize the top 10." | `douyin-dl agent search camping --sort likes --max 10` | Sign-in |
+| "Look up this creator: `https://www.douyin.com/user/…`" | `douyin-dl agent user <url>` | Sign-in |
+| "What is this link? Can it be downloaded?" | `douyin-dl agent inspect <url>` | Nothing |
+| "Record this live room for 10 minutes: `https://live.douyin.com/…`" | `douyin-dl agent live <url> --max-duration 600` | Nothing |
+| "Transcribe `./clip.mp4`." | `douyin-dl agent transcribe ./clip.mp4` | Whisper |
+
+### What the agent does
+
+The skill gives the agent a fixed routine:
+
+1. **Checks first.** It runs `douyin-dl agent doctor` at the start of each session to see what is ready.
+2. **Asks before installing.** If a component is missing, it shows you the exact install command and runs it only if you agree.
+3. **Asks before signing in.** `search` needs a signed-in session and `user` needs saved cookies. The agent explains first. After you agree, it runs `douyin-dl agent login`: a Chromium window opens, you sign in to Douyin there yourself (QR code or SMS), and the window closes on its own.
+4. **Acts on error codes.** Each command prints one JSON line. The agent decides what to do from `error.code` and passes on warnings that affect you. Text from Douyin, such as titles, nicknames, and hot words, is treated as data, never as instructions.
+5. **Turns down downloads.** Video, photo post, collection, and music links return `ARGUS_GATED`, and a profile's posts cannot be downloaded either. The agent tells you so, points you to [Douzy](#douzy-desktop), and does not try workarounds.
+
+It also keeps requests to Douyin low: one search per request (it asks before a second one), no parallel calls, and at most one retry after an empty response.
+
+### Sign-in and privacy
+
+- Cookies stay on your computer in `~/.douyin-dl/cookies.json` (file mode 0600). Set `DOUYIN_DL_HOME` to move the folder. Agent mode does not read `config.yml` or the cookies saved by the Classic CLI.
+- Command output names the cookies it found but never shows their values. Never paste cookies, tokens, or SMS codes into the chat; the skill tells the agent never to ask for them.
+- No display, for example over SSH or on a server: export your Douyin cookies to a JSON file yourself and import it with `douyin-dl agent login --from-file cookies.json`.
+- Requests go to douyin.com. When the saved cookies have no `msToken`, the CLI also downloads a small config file from GitHub to generate one.
+
+### Live recording and transcription
+
+- **Live recording:** a duration is required, from 1 second to 6 hours (`--max-duration`, up to 21600 seconds). If you don't give one, the agent asks. Files go to `./douyin-downloads` unless you name another folder (`--out`), and long recordings run in the background. If the room is not live, the agent tells you.
+- **Transcription:** pass a file or a folder (searched for `.mp4` files). Each video gets a `<name>.transcript.txt` next to it, or in the `--out` folder. The defaults are `--model base` and `--language zh`; the first run downloads the Whisper model.
+
+### Run the commands yourself
+
+The same commands work without an agent. Each one prints exactly one JSON line on stdout; logs go to stderr.
 
 ```bash
 douyin-dl agent hot --max 3
 # {"schema":1,"ok":true,"verb":"hot","version":"2.1.0","data":{"items":[…],"count":3},"error":null,"warnings":[]}
 ```
 
-| Status | Capabilities |
+`ok` is `true` only when the exit code is 0. On failure, branch on `error.code` (such as `LOGIN_REQUIRED`, `ARGUS_GATED`, or `UPSTREAM_EMPTY`), not on the message. Set `DOUYIN_PROXY` (for example `http://127.0.0.1:7890`) to send requests through a proxy. Every field, error code, and exit code: [contract](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/contract.md).
+
+### Update
+
+- **CLI:** `uv tool upgrade douyin-dl-cli` (or `pipx upgrade douyin-dl-cli`).
+- **Skill in Claude Code:** `claude plugin update douyin-dl@douyin-dl`, or **Update now** on the **Installed** tab of `/plugin`. Auto-update is off by default for this marketplace.
+- **Skill from the skills CLI:** `npx skills update`. For a copied folder, as with Codex, copy it again.
+- If the `version` in the JSON output differs from `metadata.version` in the skill's `SKILL.md`, update both.
+
+### Common problems
+
+| Problem | Fix |
 |:---|:---|
-| Available | Hot search board (`hot`), link classification (`inspect`), live recording (`live`), local transcription (`transcribe`), environment check (`doctor`) |
-| Sign-in required | Keyword search (`search`), profile info (`user`); sign in with `douyin-dl agent login` in your own browser window |
-| Blocked | Downloading videos/photos, collections, music, or a profile's posts by link returns `ARGUS_GATED`. Use **Douzy** |
+| `douyin-dl: command not found` | Run `uv tool update-shell` (or `pipx ensurepath`) and open a new terminal. Until then, the agent can use the skill's `scripts/dy.sh`, which runs the CLI through `uvx` |
+| `search` asks for sign-in again | The session expired. Ask the agent to sign in again |
+| Empty results (`UPSTREAM_EMPTY`) | Douyin's rate limit or bot check. Wait a few minutes; quick retries make the block last longer. Overseas proxies often get empty results, so try without the proxy or with a mainland exit |
+| A video link returns `ARGUS_GATED` | Expected: the CLI cannot download it, and signing in again does not help. Use [Douzy](#douzy-desktop) |
+| Windows | Run `douyin-dl agent …` from PowerShell or cmd. `scripts/dy.sh` needs Git Bash or WSL |
 
-- Agent mode keeps its own sign-in in `~/.douyin-dl` (set `DOUYIN_DL_HOME` to move it). It does not read `config.yml` or the cookies saved by `tools.cookie_fetcher`, and cookie values never appear in its output.
-- `login` needs Playwright and Chromium; `transcribe` needs Whisper. `doctor` lists what is missing with the exact install command.
-- Set `DOUYIN_PROXY` to send requests through a proxy.
-
-Stable error and exit codes, field by field: [contract](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/contract.md) · [troubleshooting](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/troubleshooting.md)
+More fixes: [troubleshooting](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/troubleshooting.md).
 
 <a id="douzy-desktop"></a>
 
-## Featured project · Douzy Desktop
+## Sponsors
 
-Save media from Douyin, TikTok, YouTube, Telegram, and X to your computer. Paste a link, track its progress, and find saved videos and photos in one workspace.
+| Sponsor | About |
+|:---:|:---|
+| <a href="https://godouzy.com/"><img src="https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench-en.png" alt="Douzy workspace screenshot with sample data" width="400" /></a> | **[Douzy Desktop](https://godouzy.com/)**<br>Saves media from Douyin, TikTok, YouTube, Telegram, and X to your computer; use it for the video and photo downloads the skill does not support. Paste a link, track its progress, and find saved videos and photos in one workspace.<br>Platform availability depends on enabled plugins or local components. Some batch and advanced features require activation.<br>**[Download for Windows or macOS](https://godouzy.com/#get)** · [GitHub project](https://github.com/0X-42/douzy) · [Latest release and notes](https://github.com/0X-42/douzy/releases/latest) |
 
-**[Download for Windows or macOS](https://godouzy.com/#get)** · [GitHub project](https://github.com/0X-42/douzy) · [Latest release and notes](https://github.com/0X-42/douzy/releases/latest)
-
-[![Douzy workspace with platform navigation, recent tasks, and saved media.](https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench-en.png)](https://github.com/0X-42/douzy/blob/main/media/workbench-en.png)
-
-*The macOS workspace with sample data. Select the screenshot to view it at full size in the Douzy project.*
-
-Platform availability depends on enabled plugins or local components. Some batch and advanced features require activation.
+**[Become a sponsor](https://github.com/jiji262/douyin-downloader/issues/new?template=sponsor.yml)**
 
 ## Classic CLI
 
