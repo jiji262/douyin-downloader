@@ -8,6 +8,31 @@
 
 **面向 AI Agent 的抖音 Skill。** 装好 [`douyin-dl` skill](#ai-agent--skill-用法) 后，直接用日常语言让 Claude Code、Codex 等 agent 查抖音热榜、搜索作品、看博主资料、录直播、转写本地视频。skill 告诉 agent 何时运行 `douyin-dl agent` 命令、怎样读每条命令输出的那一行 JSON。下载视频和图文不在 skill 的能力范围内，请使用本项目的赞助商 **[Douzy 桌面版](#douzy-桌面版)**。
 
+<a id="douzy-桌面版"></a>
+
+## 赞助商
+
+<table>
+  <tr>
+    <th>赞助商</th>
+    <th align="left">简介</th>
+  </tr>
+  <tr>
+    <td align="center" width="96"><a href="https://godouzy.com/"><img src="https://godouzy.com/douzy-mark.svg" alt="Douzy" width="64" /></a></td>
+    <td><b><a href="https://godouzy.com/">Douzy 桌面版</a></b><br>把抖音、TikTok、YouTube、Telegram 和 X 的内容保存到电脑，skill 不支持的视频和图文下载可以交给它。在同一个窗口里粘贴链接、查看任务进度、翻找已保存的作品。<br>各平台按需启用插件或本机组件，部分批量和高级功能需要激活。<br><b><a href="https://godouzy.com/#get">下载 Windows / macOS 版</a></b> · <a href="https://github.com/0X-42/douzy">GitHub 项目</a> · <a href="https://github.com/0X-42/douzy/releases/latest">最新版与发布说明</a></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="https://godouzy.com/shots/douyin.webp" alt="Douzy 抖音页，亮色主题" width="32%" />
+  <img src="https://godouzy.com/shots/douyin-dark.webp" alt="Douzy 抖音页，暗色主题" width="32%" />
+  <img src="https://godouzy.com/shots/tasks.webp" alt="Douzy 任务中心，亮色主题" width="32%" />
+  <br />
+  <sub>从左到右：抖音页（亮色）、抖音页（暗色）、任务中心（亮色）。截图使用示例数据。</sub>
+</p>
+
+**[成为赞助商](https://github.com/jiji262/douyin-downloader/issues/new?template=sponsor.yml)**
+
 <a id="ai-agent--skill-用法"></a>
 
 ## AI Agent Skill 使用指南
@@ -129,16 +154,6 @@ douyin-dl agent hot --max 3
 | Windows | 在 PowerShell 或 cmd 里直接运行 `douyin-dl agent …`；`scripts/dy.sh` 需要 Git Bash 或 WSL |
 
 更多问题见[故障排查](skills/douyin-dl/references/troubleshooting.md)。
-
-<a id="douzy-桌面版"></a>
-
-## 赞助商
-
-| 赞助商 | 简介 |
-|:---:|:---|
-| <a href="https://godouzy.com/"><img src="https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench.png" alt="Douzy 工作台截图，使用示例数据" width="400" /></a> | **[Douzy 桌面版](https://godouzy.com/)**<br>把抖音、TikTok、YouTube、Telegram 和 X 的内容保存到电脑，skill 不支持的视频和图文下载可以交给它。在同一个窗口里粘贴链接、查看任务进度、翻找已保存的作品。<br>各平台按需启用插件或本机组件，部分批量和高级功能需要激活。<br>**[下载 Windows / macOS 版](https://godouzy.com/#get)** · [GitHub 项目](https://github.com/0X-42/douzy) · [最新版与发布说明](https://github.com/0X-42/douzy/releases/latest) |
-
-**[成为赞助商](https://github.com/jiji262/douyin-downloader/issues/new?template=sponsor.yml)**
 
 ## 经典命令行版
 

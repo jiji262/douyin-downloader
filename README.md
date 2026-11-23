@@ -9,6 +9,31 @@
 
 **A Douyin skill for AI agents.** Install the [`douyin-dl` skill](#ai-agent--skill), then ask Claude Code, Codex, or another agent in plain language to read Douyin's hot board, search posts, look up a creator, record a live room, or transcribe a local video. The skill tells the agent when to run the `douyin-dl agent` CLI and how to read the one JSON line each command prints. Downloading videos and photos is not part of the skill; for that, use our sponsor, the **[Douzy desktop app](#douzy-desktop)**.
 
+<a id="douzy-desktop"></a>
+
+## Sponsors
+
+<table>
+  <tr>
+    <th>Sponsor</th>
+    <th align="left">About</th>
+  </tr>
+  <tr>
+    <td align="center" width="96"><a href="https://godouzy.com/"><img src="https://godouzy.com/douzy-mark.svg" alt="Douzy" width="64" /></a></td>
+    <td><b><a href="https://godouzy.com/">Douzy Desktop</a></b><br>Saves media from Douyin, TikTok, YouTube, Telegram, and X to your computer; use it for the video and photo downloads the skill does not support. Paste a link, track its progress, and find saved videos and photos in one workspace.<br>Platform availability depends on enabled plugins or local components. Some batch and advanced features require activation.<br><b><a href="https://godouzy.com/#get">Download for Windows or macOS</a></b> · <a href="https://github.com/0X-42/douzy">GitHub project</a> · <a href="https://github.com/0X-42/douzy/releases/latest">Latest release and notes</a></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="https://godouzy.com/shots/en/douyin.webp" alt="Douzy Douyin page, light theme" width="32%" />
+  <img src="https://godouzy.com/shots/en/douyin-dark.webp" alt="Douzy Douyin page, dark theme" width="32%" />
+  <img src="https://godouzy.com/shots/en/tasks.webp" alt="Douzy Tasks page, light theme" width="32%" />
+  <br />
+  <sub>From left: the Douyin page in the light and dark themes, then the Tasks page in the light theme. The screenshots use sample data.</sub>
+</p>
+
+**[Become a sponsor](https://github.com/jiji262/douyin-downloader/issues/new?template=sponsor.yml)**
+
 <a id="ai-agent--skill"></a>
 
 ## Using the AI Agent Skill
@@ -130,16 +155,6 @@ douyin-dl agent hot --max 3
 | Windows | Run `douyin-dl agent …` from PowerShell or cmd. `scripts/dy.sh` needs Git Bash or WSL |
 
 More fixes: [troubleshooting](https://github.com/jiji262/douyin-downloader/blob/main/skills/douyin-dl/references/troubleshooting.md).
-
-<a id="douzy-desktop"></a>
-
-## Sponsors
-
-| Sponsor | About |
-|:---:|:---|
-| <a href="https://godouzy.com/"><img src="https://raw.githubusercontent.com/0X-42/douzy/main/media/workbench-en.png" alt="Douzy workspace screenshot with sample data" width="400" /></a> | **[Douzy Desktop](https://godouzy.com/)**<br>Saves media from Douyin, TikTok, YouTube, Telegram, and X to your computer; use it for the video and photo downloads the skill does not support. Paste a link, track its progress, and find saved videos and photos in one workspace.<br>Platform availability depends on enabled plugins or local components. Some batch and advanced features require activation.<br>**[Download for Windows or macOS](https://godouzy.com/#get)** · [GitHub project](https://github.com/0X-42/douzy) · [Latest release and notes](https://github.com/0X-42/douzy/releases/latest) |
-
-**[Become a sponsor](https://github.com/jiji262/douyin-downloader/issues/new?template=sponsor.yml)**
 
 ## Classic CLI
 
