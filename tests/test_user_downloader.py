@@ -571,6 +571,12 @@ def test_author_url_enabled_saves_without_screenshot(tmp_path, monkeypatch):
     )
 
 
+class _FixedClock(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 28, 9, 30, 15)
+
+
 def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     api_client = _FakeAPIClient()
     downloader = _build_downloader(
@@ -585,6 +591,7 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
         return DownloadResult()
 
     monkeypatch.setattr(downloader, "_download_mode_logged", _mode_result)
+    monkeypatch.setattr("core.homepage_screenshot.datetime", _FixedClock)
 
     asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
 
@@ -595,8 +602,33 @@ def test_homepage_screenshot_uses_configured_author_root(tmp_path, monkeypatch):
     assert screenshot_sec_uid == "sec_uid_x"
     assert screenshot_profile == {"uid": "uid-1", "sec_uid": "sec_uid_x", "nickname": "tester"}
     author_root = tmp_path / "Downloaded" / "tester_sec_uid_x"
-    assert screenshot_path == (author_root / "主页截图.png").resolve()
+    assert screenshot_path == (author_root / "主页截图_2026-11-28_0930.png").resolve()
     assert not (author_root / "author_url.txt").exists()
+
+
+def test_homepage_screenshot_is_taken_once_per_day(tmp_path, monkeypatch):
+    api_client = _FakeAPIClient()
+    downloader = _build_downloader(
+        tmp_path,
+        api_client,
+        browser_enabled=False,
+        homepage_screenshot=True,
+    )
+
+    async def _mode_result(*_args, **_kwargs):
+        return DownloadResult()
+
+    monkeypatch.setattr(downloader, "_download_mode_logged", _mode_result)
+    monkeypatch.setattr("core.homepage_screenshot.datetime", _FixedClock)
+    author_root = tmp_path / "Downloaded" / "tester"
+    author_root.mkdir(parents=True)
+    earlier_today = author_root / "主页截图_2026-11-28_0815.png"
+    earlier_today.write_bytes(b"earlier")
+
+    asyncio.run(downloader.download({"sec_uid": "sec_uid_x"}))
+
+    assert api_client.homepage_screenshot_calls == []
+    assert earlier_today.read_bytes() == b"earlier"
 
 
 def test_author_url_overwrites_existing_file(tmp_path):

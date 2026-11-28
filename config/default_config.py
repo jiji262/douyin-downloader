@@ -30,7 +30,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "download_pinned": False,
     # 下载博主作品时，是否在作者根目录覆盖保存主页地址文本。
     "author_url": False,
-    # 下载博主作品时，是否在作者根目录覆盖保存一张主页首屏截图。
+    # 下载博主作品时，是否在作者根目录保存主页首屏截图：每天最多一张，文件名带日期和时间，以前的保留。
     "homepage_screenshot": False,
     "mode": ["post"],
     "number": {

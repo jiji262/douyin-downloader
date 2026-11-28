@@ -9,6 +9,7 @@ import aiofiles
 
 from core.api_client import DouyinAPIClient
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.homepage_screenshot import request_homepage_screenshot
 from core.metadata import build_author_home_url
 from core.user_mode_registry import UserModeRegistry
 from core.user_modes.base_strategy import PageRequestFailedError
@@ -242,13 +243,9 @@ class UserDownloader(BaseDownloader):
                 author_sec_uid=effective_sec_uid,
                 author_dir_style=self.config.get("author_dir") or "nickname",
             )
-            saved = await self.api_client.save_user_homepage_screenshot(
-                effective_sec_uid,
-                (author_dir / "主页截图.png").resolve(),
-                profile=user_info,
+            await request_homepage_screenshot(
+                self.api_client, author_dir, effective_sec_uid, profile=user_info
             )
-            if not saved:
-                logger.warning("Homepage screenshot was not saved for %s", effective_sec_uid)
         except Exception as exc:
             logger.warning("Homepage screenshot failed for %s: %s", effective_sec_uid, exc)
 
